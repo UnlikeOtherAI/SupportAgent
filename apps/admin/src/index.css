@@ -1,0 +1,97 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/forms';
+
+/* ── Google Fonts ──────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ── Theme (Tailwind v4 CSS-first config) ──────────────── */
+@theme {
+  --font-sans: 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Warm-tinted slate neutrals */
+  --color-gray-25:  #FBFBFC;
+  --color-gray-50:  #F6F7F8;
+  --color-gray-100: #EDEEF1;
+  --color-gray-200: #D8DAE0;
+  --color-gray-300: #B3B7C1;
+  --color-gray-400: #8B91A0;
+  --color-gray-500: #6B7280;
+  --color-gray-600: #4F5565;
+  --color-gray-700: #374151;
+  --color-gray-800: #1F2937;
+  --color-gray-900: #111827;
+  --color-gray-950: #0B0F19;
+
+  /* Electric teal accent */
+  --color-accent-50:  #ECFDF5;
+  --color-accent-100: #D1FAE5;
+  --color-accent-200: #A7F3D0;
+  --color-accent-300: #6EE7B7;
+  --color-accent-400: #34D399;
+  --color-accent-500: #10B981;
+  --color-accent-600: #059669;
+  --color-accent-700: #047857;
+
+  /* Signals */
+  --color-signal-red-50:    #FEF2F2;
+  --color-signal-red-500:   #EF4444;
+  --color-signal-amber-50:  #FFFBEB;
+  --color-signal-amber-500: #F59E0B;
+  --color-signal-blue-50:   #EFF6FF;
+  --color-signal-blue-500:  #3B82F6;
+
+  /* Workflow type colors */
+  --color-type-triage-bg:   #F0E6FF;
+  --color-type-triage-fg:   #7C3AED;
+  --color-type-build-bg:    #DBEAFE;
+  --color-type-build-fg:    #2563EB;
+  --color-type-merge-bg:    #FEF3C7;
+  --color-type-merge-fg:    #D97706;
+
+  /* Layout tokens */
+  --width-sidebar: 240px;
+  --height-topbar: 56px;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}
+
+/* ── Base ──────────────────────────────────────────────── */
+html {
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-gray-800);
+  background: var(--color-gray-50);
+}
+
+/* ── Focus ─────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--color-accent-500);
+  outline-offset: 2px;
+}
+
+/* ── Reduced Motion ────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Pulse animation for running status ────────────────── */
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.animate-status-pulse {
+  animation: status-pulse 2s infinite;
+}
