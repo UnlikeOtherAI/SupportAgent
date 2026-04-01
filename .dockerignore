@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+*.test.ts
+.env*
+.claude
+docs
+CLAUDE.md
+AGENTS.md
