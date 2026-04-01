@@ -13,9 +13,10 @@ const envSchema = z.object({
   GCP_PROJECT_ID: z.string().optional(),
   GATEWAY_URL: z.string().optional(),
   GATEWAY_PORT: z.coerce.number().default(3002),
-  AUTH_PROVIDER_URL: z.string().url().optional(),
-  AUTH_CLIENT_ID: z.string().optional(),
-  AUTH_CLIENT_SECRET: z.string().optional(),
+  SSO_BASE_URL: z.string().url().default('https://authentication.unlikeotherai.com'),
+  SSO_SHARED_SECRET: z.string().min(32).optional(),
+  SSO_IDENTIFIER: z.string().default('appbuildbox'),
+  SSO_DOMAIN: z.string().default('app.appbuildbox.com'),
   ADMIN_APP_URL: z.string().url().default('http://localhost:5173'),
 });
 

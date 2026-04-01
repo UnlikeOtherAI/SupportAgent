@@ -1,23 +1,62 @@
+import crypto from 'node:crypto';
 import { type FastifyInstance } from 'fastify';
+import { SignJWT, jwtVerify } from 'jose';
 import { getEnv } from '@support-agent/config';
 
-interface TokenResponse {
-  access_token: string;
-  refresh_token?: string;
-  token_type: string;
-  expires_in?: number;
+/* ── SSO helpers ──────────────────────────────────────────── */
+
+function getDomainHash(domain: string, secret: string): string {
+  return crypto.createHash('sha256').update(domain + secret).digest('hex');
 }
 
-interface UserInfoResponse {
-  id: string;
-  email?: string;
-  displayName?: string;
-  name?: string;
-  avatarUrl?: string;
-  avatar?: string;
-  role?: string;
-  organisationId?: string;
+function getConfigUrl(apiBaseUrl: string): string {
+  return `${apiBaseUrl}/v1/auth/sso-config`;
 }
+
+async function ssoFetch<T>(
+  path: string,
+  opts: {
+    baseUrl: string;
+    domain: string;
+    secret: string;
+    configUrl: string;
+    method?: 'GET' | 'POST';
+    body?: unknown;
+    includeDomain?: boolean;
+  },
+): Promise<T> {
+  const url = new URL(path, opts.baseUrl);
+  url.searchParams.set('config_url', opts.configUrl);
+  if (opts.includeDomain !== false) {
+    url.searchParams.set('domain', opts.domain);
+  }
+
+  const res = await fetch(url.toString(), {
+    method: opts.method ?? 'GET',
+    headers: {
+      Authorization: `Bearer ${getDomainHash(opts.domain, opts.secret)}`,
+      ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`SSO ${path} failed (${res.status}): ${text}`);
+  }
+
+  return (await res.json()) as T;
+}
+
+function getString(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const val = record[key];
+    if (typeof val === 'string' && val.trim()) return val.trim();
+  }
+  return null;
+}
+
+/* ── Routes ───────────────────────────────────────────────── */
 
 export async function authRoutes(app: FastifyInstance) {
   /* GET /providers — list available identity providers */
@@ -33,7 +72,7 @@ export async function authRoutes(app: FastifyInstance) {
       enabled: boolean;
     }> = [];
 
-    if (env.AUTH_PROVIDER_URL) {
+    if (env.SSO_SHARED_SECRET) {
       providers.push({
         key: 'unlikeotherai',
         label: 'UnlikeOtherAI',
@@ -48,21 +87,54 @@ export async function authRoutes(app: FastifyInstance) {
     return { providers };
   });
 
-  /* GET /providers/:key/start — redirect to external OAuth */
+  /* GET /sso-config — JWT config consumed by the SSO service */
+  app.get('/sso-config', async (request, reply) => {
+    const env = getEnv();
+    if (!env.SSO_SHARED_SECRET) {
+      return reply.status(404).send({ error: 'SSO not configured' });
+    }
+
+    const secret = new TextEncoder().encode(env.SSO_SHARED_SECRET);
+    const callbackUrl = `${env.API_BASE_URL}/v1/auth/providers/unlikeotherai/callback`;
+
+    const token = await new SignJWT({
+      domain: env.SSO_DOMAIN,
+      redirect_urls: [callbackUrl],
+      enabled_auth_methods: ['email_password', 'google'],
+      allowed_social_providers: ['google'],
+      org_features: {
+        enabled: true,
+        org_roles: ['owner', 'admin', 'member'],
+        user_needs_team: false,
+      },
+      language_config: 'en',
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setAudience(env.SSO_IDENTIFIER)
+      .setIssuedAt()
+      .setExpirationTime('5m')
+      .sign(secret);
+
+    reply.header('Content-Type', 'text/plain');
+    return token;
+  });
+
+  /* GET /providers/:key/start — redirect to SSO auth UI */
   app.get<{ Params: { key: string } }>('/providers/:key/start', async (request, reply) => {
     const env = getEnv();
     const { key } = request.params;
 
-    if (key !== 'unlikeotherai' || !env.AUTH_PROVIDER_URL) {
+    if (key !== 'unlikeotherai' || !env.SSO_SHARED_SECRET) {
       return reply.status(404).send({ error: 'Unknown provider' });
     }
 
     const callbackUrl = `${env.API_BASE_URL}/v1/auth/providers/unlikeotherai/callback`;
-    const authUrl = new URL('/auth', env.AUTH_PROVIDER_URL);
+    const configUrl = getConfigUrl(env.API_BASE_URL);
+
+    const authUrl = new URL('/auth', env.SSO_BASE_URL);
+    authUrl.searchParams.set('config_url', configUrl);
     authUrl.searchParams.set('redirect_url', callbackUrl);
-    if (env.AUTH_CLIENT_ID) {
-      authUrl.searchParams.set('client_id', env.AUTH_CLIENT_ID);
-    }
+    authUrl.searchParams.set('state', JSON.stringify({ next: '/' }));
 
     return reply.redirect(authUrl.toString());
   });
@@ -73,9 +145,9 @@ export async function authRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const env = getEnv();
       const { key } = request.params;
-      const { code, token: directToken, error } = request.query;
+      const { code, error } = request.query;
 
-      if (key !== 'unlikeotherai' || !env.AUTH_PROVIDER_URL) {
+      if (key !== 'unlikeotherai' || !env.SSO_SHARED_SECRET) {
         return reply.status(404).send({ error: 'Unknown provider' });
       }
 
@@ -85,56 +157,47 @@ export async function authRoutes(app: FastifyInstance) {
         return reply.redirect(`${adminUrl}/login?error=${encodeURIComponent(error)}`);
       }
 
-      let accessToken: string;
-
-      if (directToken) {
-        // Implicit flow — token returned directly
-        accessToken = directToken;
-      } else if (code) {
-        // Authorization code flow — exchange code for tokens
-        const tokenRes = await fetch(`${env.AUTH_PROVIDER_URL}/auth/token`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            grant_type: 'authorization_code',
-            code,
-            client_id: env.AUTH_CLIENT_ID,
-            client_secret: env.AUTH_CLIENT_SECRET,
-            redirect_uri: `${env.API_BASE_URL}/v1/auth/providers/unlikeotherai/callback`,
-          }),
-        });
-
-        if (!tokenRes.ok) {
-          app.log.error(
-            { status: tokenRes.status, body: await tokenRes.text() },
-            'Token exchange failed',
-          );
-          return reply.redirect(`${adminUrl}/login?error=token_exchange_failed`);
-        }
-
-        const tokens = (await tokenRes.json()) as TokenResponse;
-        accessToken = tokens.access_token;
-      } else {
+      if (!code) {
         return reply.redirect(`${adminUrl}/login?error=missing_code`);
       }
 
-      // Fetch user info from auth provider
-      const meRes = await fetch(`${env.AUTH_PROVIDER_URL}/org/me`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      const configUrl = getConfigUrl(env.API_BASE_URL);
 
-      if (!meRes.ok) {
-        app.log.error({ status: meRes.status }, 'User info fetch failed');
-        return reply.redirect(`${adminUrl}/login?error=user_info_failed`);
+      // Exchange authorization code for access token JWT
+      let tokenData: { access_token: string };
+      try {
+        tokenData = await ssoFetch<{ access_token: string }>('/auth/token', {
+          baseUrl: env.SSO_BASE_URL,
+          domain: env.SSO_DOMAIN,
+          secret: env.SSO_SHARED_SECRET,
+          configUrl,
+          method: 'POST',
+          includeDomain: false,
+          body: { code, grant_type: 'authorization_code' },
+        });
+      } catch (err) {
+        app.log.error({ err }, 'SSO token exchange failed');
+        return reply.redirect(`${adminUrl}/login?error=token_exchange_failed`);
       }
 
-      const userInfo = (await meRes.json()) as UserInfoResponse;
-      const externalUserId = userInfo.id;
-      const tenantId = userInfo.organisationId ?? 'default';
-      const displayName = userInfo.displayName ?? userInfo.name ?? '';
-      const email = userInfo.email ?? '';
-      const avatarUrl = userInfo.avatarUrl ?? userInfo.avatar ?? '';
-      const role = userInfo.role ?? 'member';
+      // Verify the access token JWT with shared secret
+      const secret = new TextEncoder().encode(env.SSO_SHARED_SECRET);
+      let payload: Record<string, unknown>;
+      try {
+        const result = await jwtVerify(tokenData.access_token, secret);
+        payload = result.payload as Record<string, unknown>;
+      } catch (err) {
+        app.log.error({ err }, 'SSO token verification failed');
+        return reply.redirect(`${adminUrl}/login?error=invalid_token`);
+      }
+
+      const externalUserId = String(payload.sub ?? '');
+      const email = getString(payload, ['email']) ?? '';
+      const displayName = getString(payload, ['name', 'displayName']) ?? email.split('@')[0];
+      const avatarUrl = getString(payload, ['picture', 'avatar', 'avatar_url', 'avatarUrl']) ?? '';
+      const orgPayload = payload.org as { org_id?: string; org_role?: string } | undefined;
+      const tenantId = orgPayload?.org_id ?? 'default';
+      const role = orgPayload?.org_role ?? 'member';
 
       // Find or create identity provider record
       let idp = await app.prisma.identityProvider.findFirst({
@@ -147,7 +210,7 @@ export async function authRoutes(app: FastifyInstance) {
             tenantId,
             providerType: 'unlikeotherai',
             displayName: 'UnlikeOtherAI SSO',
-            config: { providerUrl: env.AUTH_PROVIDER_URL },
+            config: { baseUrl: env.SSO_BASE_URL },
             isEnabled: true,
           },
         });
@@ -181,7 +244,7 @@ export async function authRoutes(app: FastifyInstance) {
         });
       }
 
-      // Mint our own JWT
+      // Mint our own JWT for the admin app
       const jwt = app.jwt.sign(
         { sub: externalUserId, tenantId, role },
         { expiresIn: '24h' },
