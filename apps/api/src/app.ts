@@ -14,6 +14,7 @@ import {
   outboundDestinationRoutes,
   deliveryAttemptRunRoutes,
 } from './routes/outbound-destinations.js';
+import { dispatcherRoutes } from './routes/dispatcher.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
@@ -32,6 +33,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(outboundDestinationRoutes, { prefix: '/v1/outbound-destinations' });
   await app.register(repositoryMappingRoutes, { prefix: '/v1/repository-mappings' });
   await app.register(workerApiRoutes, { prefix: '/worker/jobs' });
+  await app.register(dispatcherRoutes, { prefix: '/v1/dispatcher' });
 
   // Webhook routes use a custom JSON parser (parseAs: string) for signature
   // verification. Registered in an encapsulated scope so it does not affect
