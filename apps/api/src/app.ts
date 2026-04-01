@@ -43,7 +43,19 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(findingDetailRoutes, { prefix: '/v1/findings' });
   await app.register(outboundDestinationRoutes, { prefix: '/v1/outbound-destinations' });
   await app.register(repositoryMappingRoutes, { prefix: '/v1/repository-mappings' });
-  await app.register(workerApiRoutes, { prefix: '/worker/jobs' });
+  await app.register(
+    async function workerScope(instance) {
+      instance.addContentTypeParser(
+        'application/octet-stream',
+        { parseAs: 'buffer' },
+        (_req, body, done) => {
+          done(null, body);
+        },
+      );
+      await instance.register(workerApiRoutes);
+    },
+    { prefix: '/worker/jobs' },
+  );
   await app.register(dispatcherRoutes, { prefix: '/v1/dispatcher' });
 
   // Webhook routes use a custom JSON parser (parseAs: string) for signature

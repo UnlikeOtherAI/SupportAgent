@@ -135,25 +135,25 @@ describe('Worker API routes', () => {
     try {
       // Clean up in strict FK-safe order using raw SQL to avoid constraint issues
       await app.prisma.$executeRawUnsafe(
-        `DELETE FROM workflow_log_events WHERE workflow_run_id IN (SELECT id FROM workflow_runs WHERE tenant_id = $1)`,
+        `DELETE FROM workflow_log_events WHERE "workflowRunId" IN (SELECT id FROM workflow_runs WHERE "tenantId" = $1)`,
         TEST_TENANT_ID,
       );
       await app.prisma.$executeRawUnsafe(
-        `DELETE FROM worker_dispatches WHERE workflow_run_id IN (SELECT id FROM workflow_runs WHERE tenant_id = $1)`,
+        `DELETE FROM worker_dispatches WHERE "workflowRunId" IN (SELECT id FROM workflow_runs WHERE "tenantId" = $1)`,
         TEST_TENANT_ID,
       );
-      await app.prisma.$executeRawUnsafe(`DELETE FROM workflow_runs WHERE tenant_id = $1`, TEST_TENANT_ID);
+      await app.prisma.$executeRawUnsafe(`DELETE FROM workflow_runs WHERE "tenantId" = $1`, TEST_TENANT_ID);
       await app.prisma.$executeRawUnsafe(
-        `DELETE FROM inbound_work_items WHERE connector_instance_id IN (SELECT id FROM connectors WHERE tenant_id = $1)`,
+        `DELETE FROM inbound_work_items WHERE "connectorInstanceId" IN (SELECT id FROM connectors WHERE "tenantId" = $1)`,
         TEST_TENANT_ID,
       );
-      await app.prisma.$executeRawUnsafe(`DELETE FROM repository_mappings WHERE tenant_id = $1`, TEST_TENANT_ID);
+      await app.prisma.$executeRawUnsafe(`DELETE FROM repository_mappings WHERE "tenantId" = $1`, TEST_TENANT_ID);
       await app.prisma.$executeRawUnsafe(
-        `DELETE FROM connector_capabilities WHERE connector_id IN (SELECT id FROM connectors WHERE tenant_id = $1)`,
+        `DELETE FROM connector_capabilities WHERE "connectorId" IN (SELECT id FROM connectors WHERE "tenantId" = $1)`,
         TEST_TENANT_ID,
       );
-      await app.prisma.$executeRawUnsafe(`DELETE FROM connectors WHERE tenant_id = $1`, TEST_TENANT_ID);
-      await app.prisma.$executeRawUnsafe(`DELETE FROM execution_providers WHERE tenant_id = $1`, TEST_TENANT_ID);
+      await app.prisma.$executeRawUnsafe(`DELETE FROM connectors WHERE "tenantId" = $1`, TEST_TENANT_ID);
+      await app.prisma.$executeRawUnsafe(`DELETE FROM execution_providers WHERE "tenantId" = $1`, TEST_TENANT_ID);
       await app.prisma.platformType.deleteMany({ where: { key: 'test-worker-api' } });
     } catch (e) {
       console.warn('Cleanup warning:', (e as Error).message);
