@@ -1,4 +1,4 @@
-import { type PrismaClient, type Prisma } from '@prisma/client';
+import { type PrismaClient, Prisma } from '@prisma/client';
 import { type WebhookNormalizer } from './normalizers/base-normalizer.js';
 import { githubNormalizer } from './normalizers/github-normalizer.js';
 import { sentryNormalizer } from './normalizers/sentry-normalizer.js';
@@ -32,6 +32,12 @@ export function createIntakeService(prisma: PrismaClient) {
         throw Object.assign(new Error('Connector not found'), { statusCode: 404 });
       if (!connector.isEnabled)
         throw Object.assign(new Error('Connector is disabled'), { statusCode: 403 });
+      if (
+        this.getNormalizer(connector.platformType.key) &&
+        connector.platformType.key !== platformType
+      ) {
+        throw Object.assign(new Error('Platform type mismatch'), { statusCode: 400 });
+      }
 
       // 2. Verify signature
       const normalizer = this.getNormalizer(platformType);
@@ -40,7 +46,11 @@ export function createIntakeService(prisma: PrismaClient) {
           statusCode: 400,
         });
 
-      if (connector.webhookSecret && signature) {
+      if (connector.webhookSecret) {
+        if (!signature?.trim()) {
+          throw Object.assign(new Error('Missing webhook signature'), { statusCode: 401 });
+        }
+
         const valid = normalizer.verifySignature(rawBody, signature, connector.webhookSecret);
         if (!valid)
           throw Object.assign(new Error('Invalid webhook signature'), { statusCode: 401 });
@@ -51,63 +61,70 @@ export function createIntakeService(prisma: PrismaClient) {
       const normalized = normalizer.normalize(parsed);
       if (!normalized) return { status: 'ignored', reason: 'Unhandled event type' };
 
-      // 4. Deduplicate
-      const existing = await prisma.inboundWorkItem.findFirst({
-        where: { dedupeKey: normalized.dedupeKey },
-      });
-      if (existing) return { status: 'duplicate', workItemId: existing.id };
+      return prisma.$transaction(
+        async (tx) => {
+          // 4. Deduplicate
+          const existing = await tx.inboundWorkItem.findFirst({
+            where: { dedupeKey: normalized.dedupeKey },
+          });
+          if (existing) return { status: 'duplicate', workItemId: existing.id };
 
-      // 5. Find repository mapping
-      const repoMapping = await prisma.repositoryMapping.findFirst({
-        where: { connectorId: connector.id },
-      });
+          // 5. Find repository mapping
+          const repoMapping = await tx.repositoryMapping.findFirst({
+            where: { connectorId: connector.id },
+          });
 
-      // 6. Create work item
-      const workItem = await prisma.inboundWorkItem.create({
-        data: {
-          connectorInstanceId: connector.id,
-          platformType: normalized.platformType,
-          workItemKind: normalized.workItemKind as any,
-          externalItemId: normalized.externalItemId,
-          externalUrl: normalized.externalUrl,
-          title: normalized.title,
-          body: normalized.body,
-          priority: normalized.priority,
-          severity: normalized.severity,
-          status: normalized.status,
-          taxonomy: (normalized.taxonomy ?? undefined) as Prisma.InputJsonValue | undefined,
-          attachments: (normalized.attachments ?? undefined) as Prisma.InputJsonValue | undefined,
-          comments: (normalized.comments ?? undefined) as Prisma.InputJsonValue | undefined,
-          dependencyRefs: (normalized.dependencyRefs ?? undefined) as Prisma.InputJsonValue | undefined,
-          dedupeKey: normalized.dedupeKey,
-          repositoryMappingId: repoMapping?.id,
-          repositoryRef: normalized.repositoryRef,
-          baseRef: normalized.baseRef,
-          headRef: normalized.headRef,
-          reviewTargetType: normalized.reviewTargetType,
-          reviewTargetNumber: normalized.reviewTargetNumber,
-        },
-      });
+          // 6. Create work item
+          const workItem = await tx.inboundWorkItem.create({
+            data: {
+              connectorInstanceId: connector.id,
+              platformType: normalized.platformType,
+              workItemKind: normalized.workItemKind as any,
+              externalItemId: normalized.externalItemId,
+              externalUrl: normalized.externalUrl,
+              title: normalized.title,
+              body: normalized.body,
+              priority: normalized.priority,
+              severity: normalized.severity,
+              status: normalized.status,
+              taxonomy: (normalized.taxonomy ?? undefined) as Prisma.InputJsonValue | undefined,
+              attachments:
+                (normalized.attachments ?? undefined) as Prisma.InputJsonValue | undefined,
+              comments: (normalized.comments ?? undefined) as Prisma.InputJsonValue | undefined,
+              dependencyRefs:
+                (normalized.dependencyRefs ?? undefined) as Prisma.InputJsonValue | undefined,
+              dedupeKey: normalized.dedupeKey,
+              repositoryMappingId: repoMapping?.id,
+              repositoryRef: normalized.repositoryRef,
+              baseRef: normalized.baseRef,
+              headRef: normalized.headRef,
+              reviewTargetType: normalized.reviewTargetType,
+              reviewTargetNumber: normalized.reviewTargetNumber,
+            },
+          });
 
-      // 7. Create workflow run if repo mapping exists
-      let workflowRun = null;
-      if (repoMapping) {
-        workflowRun = await prisma.workflowRun.create({
-          data: {
-            tenantId: connector.tenantId,
-            workflowType: 'triage',
-            status: 'queued',
+          // 7. Create workflow run if repo mapping exists
+          let workflowRun = null;
+          if (repoMapping) {
+            workflowRun = await tx.workflowRun.create({
+              data: {
+                tenantId: connector.tenantId,
+                workflowType: 'triage',
+                status: 'queued',
+                workItemId: workItem.id,
+                repositoryMappingId: repoMapping.id,
+              },
+            });
+          }
+
+          return {
+            status: 'created',
             workItemId: workItem.id,
-            repositoryMappingId: repoMapping.id,
-          },
-        });
-      }
-
-      return {
-        status: 'created',
-        workItemId: workItem.id,
-        workflowRunId: workflowRun?.id ?? null,
-      };
+            workflowRunId: workflowRun?.id ?? null,
+          };
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
     },
   };
 }

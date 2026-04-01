@@ -1,3 +1,4 @@
+import { type PrismaClient } from '@prisma/client';
 import { type WorkflowRunRepository } from '../repositories/workflow-run-repository.js';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -20,7 +21,10 @@ function assertValidTransition(from: string, to: string) {
   }
 }
 
-export function createWorkflowRunService(repo: WorkflowRunRepository) {
+export function createWorkflowRunService(
+  repo: WorkflowRunRepository,
+  prisma: PrismaClient,
+) {
   return {
     async listRuns(filters: Parameters<typeof repo.list>[0]) {
       return repo.list(filters);
@@ -45,6 +49,27 @@ export function createWorkflowRunService(repo: WorkflowRunRepository) {
       workflowScenarioId?: string;
       parentWorkflowRunId?: string;
     }) {
+      const workItem = await prisma.inboundWorkItem.findFirst({
+        where: {
+          id: input.workItemId,
+          connector: { tenantId: input.tenantId },
+        },
+        select: { id: true },
+      });
+      if (!workItem) {
+        throw Object.assign(new Error('Work item not found'), { statusCode: 400 });
+      }
+
+      const repoMapping = await prisma.repositoryMapping.findFirst({
+        where: { id: input.repositoryMappingId, tenantId: input.tenantId },
+        select: { id: true },
+      });
+      if (!repoMapping) {
+        throw Object.assign(new Error('Repository mapping not found'), {
+          statusCode: 400,
+        });
+      }
+
       return repo.create({
         tenantId: input.tenantId,
         workflowType: input.workflowType as any,
@@ -86,7 +111,7 @@ export function createWorkflowRunService(repo: WorkflowRunRepository) {
         updateExtra.completedAt = null;
       }
 
-      return repo.updateStatus(id, newStatus, updateExtra);
+      return repo.updateStatusConditional(id, run.status, newStatus, updateExtra);
     },
 
     async cancelRun(id: string, tenantId: string) {

@@ -1,4 +1,5 @@
 import { type FastifyInstance } from 'fastify';
+import { WorkflowRunStatus } from '@support-agent/contracts';
 import { z } from 'zod';
 import { createWorkflowRunRepository } from '../repositories/workflow-run-repository.js';
 import { createWorkflowRunService } from '../services/workflow-run-service.js';
@@ -26,7 +27,7 @@ const CreateRunBody = z.object({
 });
 
 const TransitionBody = z.object({
-  status: z.string(),
+  status: WorkflowRunStatus,
   blockedReason: z.string().optional(),
   providerExecutionRef: z.string().optional(),
   acceptedDispatchAttempt: z.string().uuid().optional(),
@@ -34,7 +35,7 @@ const TransitionBody = z.object({
 
 export async function workflowRunRoutes(app: FastifyInstance) {
   const repo = createWorkflowRunRepository(app.prisma);
-  const service = createWorkflowRunService(repo);
+  const service = createWorkflowRunService(repo, app.prisma);
 
   app.addHook('onRequest', async (request) => {
     await request.authenticate();

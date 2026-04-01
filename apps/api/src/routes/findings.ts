@@ -48,6 +48,6 @@ export async function findingDetailRoutes(app: FastifyInstance) {
   });
 
   app.get<{ Params: { findingId: string } }>('/:findingId', async (request) => {
-    return service.getFinding(request.params.findingId);
+    return service.getFinding(request.params.findingId, request.user.tenantId);
   });
 }

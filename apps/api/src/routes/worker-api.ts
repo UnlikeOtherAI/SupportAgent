@@ -11,19 +11,28 @@ export async function workerApiRoutes(app: FastifyInstance) {
     await verifyWorkerAuth(request, app);
   });
 
+  function assertJobIdMatch(request: import('fastify').FastifyRequest<{ Params: { jobId: string } }>) {
+    if (request.params.jobId !== request.workerDispatch!.id) {
+      throw Object.assign(new Error('Job ID mismatch'), { statusCode: 403 });
+    }
+  }
+
   // Get job context
   app.get<{ Params: { jobId: string } }>('/:jobId/context', async (request) => {
+    assertJobIdMatch(request);
     const runId = request.workerDispatch!.workflowRunId;
     return service.getJobContext(runId);
   });
 
   // Post progress
   app.post<{ Params: { jobId: string } }>('/:jobId/progress', async (request, reply) => {
+    assertJobIdMatch(request);
     const body = z
       .object({ stage: z.string(), message: z.string() })
       .parse(request.body);
     await service.postProgress(
       request.workerDispatch!.workflowRunId,
+      request.workerDispatch!.id,
       body.stage,
       body.message,
     );
@@ -32,6 +41,7 @@ export async function workerApiRoutes(app: FastifyInstance) {
 
   // Post logs
   app.post<{ Params: { jobId: string } }>('/:jobId/logs', async (request, reply) => {
+    assertJobIdMatch(request);
     const body = z
       .object({
         streamType: z.string(),
@@ -41,6 +51,7 @@ export async function workerApiRoutes(app: FastifyInstance) {
       .parse(request.body);
     await service.postLog(
       request.workerDispatch!.workflowRunId,
+      request.workerDispatch!.id,
       body.streamType,
       body.message,
       body.stage,
@@ -50,10 +61,12 @@ export async function workerApiRoutes(app: FastifyInstance) {
 
   // Upload artifact
   app.post<{ Params: { jobId: string } }>('/:jobId/artifacts', async (request) => {
+    assertJobIdMatch(request);
     const name = (request.headers['x-artifact-name'] as string) ?? 'unnamed';
     const data = request.body as Buffer;
     const artifactRef = await service.uploadArtifact(
       request.workerDispatch!.workflowRunId,
+      request.workerDispatch!.id,
       name,
       data,
     );
@@ -62,9 +75,10 @@ export async function workerApiRoutes(app: FastifyInstance) {
 
   // Submit final report
   app.post<{ Params: { jobId: string } }>('/:jobId/report', async (request) => {
+    assertJobIdMatch(request);
     const body = z
       .object({
-        status: z.string(),
+        status: z.enum(['succeeded', 'failed']),
         summary: z.string(),
         stageResults: z
           .array(
@@ -79,6 +93,10 @@ export async function workerApiRoutes(app: FastifyInstance) {
         findingsRef: z.string().optional(),
       })
       .parse(request.body);
-    return service.submitReport(request.workerDispatch!.workflowRunId, body);
+    return service.submitReport(
+      request.workerDispatch!.workflowRunId,
+      request.workerDispatch!.id,
+      body,
+    );
   });
 }

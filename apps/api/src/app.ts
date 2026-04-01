@@ -1,8 +1,10 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import { getEnv } from '@support-agent/config';
 import { prismaPlugin } from './plugins/prisma.js';
 import { errorHandler } from './plugins/error-handler.js';
 import { authPlugin } from './plugins/auth.js';
+import { workerAuthPlugin } from './plugins/worker-auth.js';
 import { healthRoutes } from './routes/health.js';
 import { connectorRoutes } from './routes/connectors.js';
 import { workflowRunRoutes } from './routes/workflow-runs.js';
@@ -18,10 +20,19 @@ import { dispatcherRoutes } from './routes/dispatcher.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
+  const env = getEnv();
+  const hasConfiguredCorsOrigin =
+    process.env.CORS_ORIGIN !== undefined || env.CORS_ORIGIN !== 'http://localhost:5173';
+  const corsOrigin = hasConfiguredCorsOrigin
+    ? env.CORS_ORIGIN
+    : env.NODE_ENV === 'production'
+      ? false
+      : true;
 
-  await app.register(cors, { origin: true });
+  await app.register(cors, { origin: corsOrigin });
   await app.register(prismaPlugin);
   await app.register(authPlugin);
+  await app.register(workerAuthPlugin);
   app.setErrorHandler(errorHandler);
 
   await app.register(healthRoutes, { prefix: '/health' });

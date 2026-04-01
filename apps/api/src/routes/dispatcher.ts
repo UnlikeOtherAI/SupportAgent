@@ -7,6 +7,9 @@ import { getEnv } from '@support-agent/config';
 export async function dispatcherRoutes(app: FastifyInstance) {
   app.addHook('onRequest', async (request) => {
     await request.authenticate();
+    if (request.user.role !== 'admin' && request.user.role !== 'system') {
+      throw Object.assign(new Error('Insufficient permissions'), { statusCode: 403 });
+    }
   });
 
   const env = getEnv();

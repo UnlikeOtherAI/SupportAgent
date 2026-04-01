@@ -1,6 +1,60 @@
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
+import { getEnv } from '@support-agent/config';
 import { type OutboundDestinationRepository } from '../repositories/outbound-destination-repository.js';
 import { type DeliveryAttemptRepository } from '../repositories/delivery-attempt-repository.js';
 import { type PrismaClient, type Prisma } from '@prisma/client';
+
+function normalizeResolvedAddress(address: string) {
+  return address.startsWith('::ffff:') ? address.slice(7) : address;
+}
+
+function isPrivateAddress(address: string) {
+  const normalized = normalizeResolvedAddress(address).toLowerCase();
+  const version = isIP(normalized);
+
+  if (version === 4) {
+    const octets = normalized.split('.').map(Number);
+    if (octets[0] === 10) return true;
+    if (octets[0] === 127) return true;
+    if (octets[0] === 169 && octets[1] === 254) return true;
+    if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return true;
+    if (octets[0] === 192 && octets[1] === 168) return true;
+    return false;
+  }
+
+  if (version === 6) {
+    return normalized === '::1' || normalized.startsWith('fc') || normalized.startsWith('fd');
+  }
+
+  return false;
+}
+
+async function validateOutboundUrl(url: string) {
+  const parsed = new URL(url);
+  const env = getEnv();
+  const protocol = parsed.protocol.toLowerCase();
+
+  if (protocol !== 'https:' && !(protocol === 'http:' && env.NODE_ENV === 'development')) {
+    throw new Error('Outbound URL must use https:// outside development');
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (hostname.includes('metadata') || hostname.includes('internal')) {
+    throw new Error('Outbound URL hostname is not allowed');
+  }
+
+  const addresses = await lookup(hostname, { all: true, verbatim: true });
+  if (addresses.length === 0) {
+    throw new Error('Outbound URL hostname did not resolve');
+  }
+
+  for (const address of addresses) {
+    if (isPrivateAddress(address.address)) {
+      throw new Error('Outbound URL resolves to a private or internal address');
+    }
+  }
+}
 
 export function createOutboundDeliveryService(
   destRepo: OutboundDestinationRepository,
@@ -29,6 +83,15 @@ export function createOutboundDeliveryService(
         isActive?: boolean;
       },
     ) {
+      if (input.connectorId) {
+        const connector = await prisma.connector.findFirst({
+          where: { id: input.connectorId, tenantId },
+        });
+        if (!connector) {
+          throw Object.assign(new Error('Connector not found'), { statusCode: 400 });
+        }
+      }
+
       return destRepo.create({
         tenantId,
         name: input.name,
@@ -107,15 +170,14 @@ export function createOutboundDeliveryService(
       const url = config.url as string | undefined;
 
       if (!url) {
-        await attemptRepo.updateStatus(attempt.id, 'failed', {
-          errorMessage: 'No URL configured on destination',
-        });
         return attemptRepo.updateStatus(attempt.id, 'failed', {
           errorMessage: 'No URL configured on destination',
         });
       }
 
       try {
+        await validateOutboundUrl(url);
+
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

@@ -11,9 +11,15 @@ export function createFindingService(repo: FindingRepository, prisma: PrismaClie
       return repo.listByRunId(workflowRunId);
     },
 
-    async getFinding(id: string) {
+    async getFinding(id: string, tenantId: string) {
       const finding = await repo.getById(id);
       if (!finding) throw Object.assign(new Error('Finding not found'), { statusCode: 404 });
+
+      const run = await prisma.workflowRun.findFirst({
+        where: { id: finding.workflowRunId, tenantId },
+      });
+      if (!run) throw Object.assign(new Error('Finding not found'), { statusCode: 404 });
+
       return finding;
     },
 

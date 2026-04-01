@@ -61,6 +61,32 @@ export function createWorkflowRunRepository(prisma: PrismaClient) {
       return prisma.workflowRun.update({ where: { id }, data });
     },
 
+    async updateStatusConditional(
+      id: string,
+      expectedStatus: string,
+      newStatus: string,
+      extra?: Record<string, any>,
+    ) {
+      const data: Record<string, any> = { status: newStatus };
+      if (extra) Object.assign(data, extra);
+      if (newStatus === 'running' && !extra?.startedAt) data.startedAt = new Date();
+      if (['succeeded', 'failed', 'canceled'].includes(newStatus) && !extra?.completedAt) {
+        data.completedAt = new Date();
+      }
+
+      const updated = await prisma.workflowRun.updateMany({
+        where: { id, status: expectedStatus as any },
+        data,
+      });
+      if (updated.count === 0) {
+        throw Object.assign(new Error('Concurrent status change detected'), {
+          statusCode: 409,
+        });
+      }
+
+      return prisma.workflowRun.findUnique({ where: { id } });
+    },
+
     async updateStage(id: string, stage: string) {
       return prisma.workflowRun.update({ where: { id }, data: { currentStage: stage } });
     },
