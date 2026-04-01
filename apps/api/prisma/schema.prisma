@@ -178,6 +178,7 @@ model ConnectorCapability {
 
   connector Connector @relation(fields: [connectorId], references: [id])
 
+  @@unique([connectorId, capabilityKey])
   @@index([connectorId])
   @@map("connector_capabilities")
 }
