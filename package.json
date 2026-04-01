@@ -8,7 +8,8 @@
     "test": "turbo test",
     "typecheck": "turbo typecheck",
     "dev:api": "pnpm --filter @support-agent/api dev",
-    "dev:worker": "pnpm --filter @support-agent/worker dev"
+    "dev:worker": "pnpm --filter @support-agent/worker dev",
+    "dev:gateway": "pnpm --filter @support-agent/gateway dev"
   },
   "devDependencies": {
     "eslint": "^9.17.0",

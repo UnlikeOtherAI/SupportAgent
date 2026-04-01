@@ -9,6 +9,10 @@ const envSchema = z.object({
   API_BASE_URL: z.string().url().default('http://localhost:3001'),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  QUEUE_BACKEND: z.enum(['bullmq', 'pubsub']).default('bullmq'),
+  GCP_PROJECT_ID: z.string().optional(),
+  GATEWAY_URL: z.string().optional(),
+  GATEWAY_PORT: z.coerce.number().default(3002),
 });
 
 export type Env = z.infer<typeof envSchema>;

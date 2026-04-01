@@ -5,3 +5,4 @@ export * from './finding.js';
 export * from './final-report.js';
 export * from './worker-job.js';
 export * from './api-error.js';
+export * from './gateway-protocol.js';

@@ -1,5 +1,5 @@
 {
-  "name": "@support-agent/worker",
+  "name": "@support-agent/gateway",
   "version": "0.0.1",
   "private": true,
   "scripts": {
@@ -9,12 +9,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fastify/websocket": "^11.0.2",
     "@support-agent/config": "workspace:*",
     "@support-agent/contracts": "workspace:*",
-    "bullmq": "^5.34.8",
-    "ioredis": "^5.4.2",
-    "ws": "^8.18.0",
-    "zod": "^3.24.1"
+    "@support-agent/queue": "workspace:*",
+    "fastify": "^5.2.1",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

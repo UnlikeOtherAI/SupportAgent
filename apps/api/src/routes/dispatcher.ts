@@ -1,7 +1,7 @@
 import { type FastifyInstance } from 'fastify';
 import { createDispatcherService } from '../services/dispatcher-service.js';
 import { createLocalHostProvider } from '../services/execution-provider.js';
-import { createBullMQAdapter } from '../lib/queue.js';
+import { createQueueAdapter } from '@support-agent/queue';
 import { getEnv } from '@support-agent/config';
 
 export async function dispatcherRoutes(app: FastifyInstance) {
@@ -13,7 +13,10 @@ export async function dispatcherRoutes(app: FastifyInstance) {
   });
 
   const env = getEnv();
-  const queue = createBullMQAdapter(env.REDIS_URL);
+  const queue = await createQueueAdapter(env.QUEUE_BACKEND, {
+    redisUrl: env.REDIS_URL,
+    gcpProjectId: env.GCP_PROJECT_ID,
+  });
   const localProvider = createLocalHostProvider((name, payload) =>
     queue.enqueue(name, payload),
   );
