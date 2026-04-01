@@ -107,6 +107,29 @@ export async function authRoutes(app: FastifyInstance) {
         org_roles: ['owner', 'admin', 'member'],
         user_needs_team: false,
       },
+      ui_theme: {
+        colors: {
+          bg: '#0B1220',
+          surface: '#111827',
+          text: '#F8FAFC',
+          muted: '#94A3B8',
+          primary: '#6366F1',
+          primary_text: '#EEF2FF',
+          border: '#334155',
+          danger: '#DC2626',
+          danger_text: '#FEF2F2',
+        },
+        radii: { card: '16px', button: '10px', input: '10px' },
+        density: 'comfortable',
+        button: { style: 'solid' },
+        card: { style: 'bordered' },
+        typography: { font_family: 'sans', base_text_size: 'md' },
+        logo: {
+          url: '',
+          alt: 'AppBuildBox',
+          text: 'AppBuildBox',
+        },
+      },
       language_config: 'en',
     })
       .setProtectedHeader({ alg: 'HS256' })

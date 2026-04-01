@@ -15,7 +15,7 @@ const envSchema = z.object({
   GATEWAY_PORT: z.coerce.number().default(3002),
   SSO_BASE_URL: z.string().url().default('https://authentication.unlikeotherai.com'),
   SSO_SHARED_SECRET: z.string().min(32).optional(),
-  SSO_IDENTIFIER: z.string().default('appbuildbox'),
+  SSO_IDENTIFIER: z.string().default('authentication.unlikeotherai.com'),
   SSO_DOMAIN: z.string().default('app.appbuildbox.com'),
   ADMIN_APP_URL: z.string().url().default('http://localhost:5173'),
 });
