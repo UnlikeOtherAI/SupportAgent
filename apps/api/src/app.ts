@@ -17,17 +17,25 @@ import {
   deliveryAttemptRunRoutes,
 } from './routes/outbound-destinations.js';
 import { dispatcherRoutes } from './routes/dispatcher.js';
+import { authRoutes } from './routes/auth.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
   const env = getEnv();
+
+  // CORS: in production use CORS_ORIGIN + ADMIN_APP_URL; in dev allow all
   const hasConfiguredCorsOrigin =
     process.env.CORS_ORIGIN !== undefined || env.CORS_ORIGIN !== 'http://localhost:5173';
-  const corsOrigin = hasConfiguredCorsOrigin
-    ? env.CORS_ORIGIN
-    : env.NODE_ENV === 'production'
-      ? false
-      : true;
+  let corsOrigin: string | string[] | boolean;
+  if (hasConfiguredCorsOrigin) {
+    const origins = [env.CORS_ORIGIN];
+    if (env.ADMIN_APP_URL && env.ADMIN_APP_URL !== env.CORS_ORIGIN) {
+      origins.push(env.ADMIN_APP_URL);
+    }
+    corsOrigin = origins;
+  } else {
+    corsOrigin = env.NODE_ENV === 'production' ? false : true;
+  }
 
   await app.register(cors, { origin: corsOrigin });
   await app.register(prismaPlugin);
@@ -36,6 +44,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.setErrorHandler(errorHandler);
 
   await app.register(healthRoutes, { prefix: '/health' });
+  await app.register(authRoutes, { prefix: '/v1/auth' });
   await app.register(connectorRoutes, { prefix: '/v1/connectors' });
   await app.register(workflowRunRoutes, { prefix: '/v1/runs' });
   await app.register(findingRunRoutes, { prefix: '/v1/runs' });

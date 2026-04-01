@@ -13,6 +13,10 @@ const envSchema = z.object({
   GCP_PROJECT_ID: z.string().optional(),
   GATEWAY_URL: z.string().optional(),
   GATEWAY_PORT: z.coerce.number().default(3002),
+  AUTH_PROVIDER_URL: z.string().url().optional(),
+  AUTH_CLIENT_ID: z.string().optional(),
+  AUTH_CLIENT_SECRET: z.string().optional(),
+  ADMIN_APP_URL: z.string().url().default('http://localhost:5173'),
 });
 
 export type Env = z.infer<typeof envSchema>;
