@@ -8,3 +8,5 @@ dist/
 prisma/generated/
 *.tsbuildinfo
 coverage/
+.playwright-cli/
+test-results/
