@@ -1,0 +1,1347 @@
+// ──────────────────────────────────────────────
+// Support Agent — Prisma Schema
+// ──────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────
+
+enum WorkflowType {
+  triage
+  build
+  merge
+}
+
+enum WorkflowRunStatus {
+  queued
+  blocked
+  dispatched
+  running
+  awaiting_review
+  awaiting_human
+  succeeded
+  failed
+  canceled
+  lost
+}
+
+enum WorkItemKind {
+  issue
+  review_target
+}
+
+enum OutputVisibility {
+  full
+  redacted
+  metadata_only
+}
+
+enum ConnectorDirection {
+  inbound
+  outbound
+  both
+}
+
+enum IntakeMode {
+  webhook
+  polling
+  manual
+}
+
+enum ConnectionMode {
+  direct
+  reverse_connected
+}
+
+enum RuntimeMode {
+  worker
+  gateway
+}
+
+enum TriggerActionType {
+  create_workflow_run
+  notify
+  block
+}
+
+enum DeliveryStatus {
+  pending
+  sent
+  failed
+  skipped
+}
+
+enum ReviewDecision {
+  approved
+  rejected
+  needs_revision
+  inconclusive
+}
+
+enum AuditAction {
+  created
+  updated
+  deleted
+  triggered
+  dispatched
+  completed
+  failed
+  canceled
+}
+
+// ─── Models ──────────────────────────────────
+
+// 1. PlatformType
+model PlatformType {
+  id               String   @id @default(uuid())
+  key              String   @unique
+  displayName      String
+  supportsWebhook  Boolean
+  supportsPolling  Boolean
+  supportsInbound  Boolean
+  supportsOutbound Boolean
+  createdAt        DateTime @default(now())
+
+  connectors Connector[]
+
+  @@map("platform_types")
+}
+
+// 2. Connector
+model Connector {
+  id                    String             @id @default(uuid())
+  tenantId              String
+  platformTypeId        String
+  name                  String
+  direction             ConnectorDirection
+  configuredIntakeMode  IntakeMode
+  effectiveIntakeMode   IntakeMode
+  isEnabled             Boolean            @default(true)
+  webhookSecret         String?
+  pollingIntervalSeconds Int?
+  apiBaseUrl            String?
+  capabilities          Json?
+  taxonomyConfig        Json?
+  imageDescriptionPolicy String?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  platformType           PlatformType              @relation(fields: [platformTypeId], references: [id])
+  endpoints              ConnectorEndpoint[]
+  connectorCapabilities  ConnectorCapability[]
+  taxonomyCaches         ConnectorTaxonomyCache[]
+  scopeMappings          ConnectorScopeMapping[]
+  connectionSecrets      ConnectionSecret[]
+  repositoryMappings     RepositoryMapping[]
+  routingRules           RoutingRule[]
+  outboundDestinations   OutboundDestination[]
+  commentThreads         ConnectorCommentThread[]
+  inboundWorkItems       InboundWorkItem[]
+  scenarioBindings       WorkflowScenarioBinding[]
+
+  @@index([tenantId])
+  @@index([platformTypeId])
+  @@map("connectors")
+}
+
+// 3. ConnectorEndpoint
+model ConnectorEndpoint {
+  id             String    @id @default(uuid())
+  connectorId    String
+  endpointType   String
+  url            String
+  isActive       Boolean   @default(true)
+  lastVerifiedAt DateTime?
+  createdAt      DateTime  @default(now())
+
+  connector Connector @relation(fields: [connectorId], references: [id])
+
+  @@index([connectorId])
+  @@map("connector_endpoints")
+}
+
+// 4. ConnectorCapability
+model ConnectorCapability {
+  id            String   @id @default(uuid())
+  connectorId   String
+  capabilityKey String
+  isSupported   Boolean
+  discoveredAt  DateTime @default(now())
+  metadata      Json?
+
+  connector Connector @relation(fields: [connectorId], references: [id])
+
+  @@index([connectorId])
+  @@map("connector_capabilities")
+}
+
+// 5. ConnectorTaxonomyCache
+model ConnectorTaxonomyCache {
+  id           String   @id @default(uuid())
+  connectorId  String
+  taxonomyType String
+  externalId   String
+  label        String
+  parentId     String?
+  metadata     Json?
+  cachedAt     DateTime @default(now())
+
+  connector Connector @relation(fields: [connectorId], references: [id])
+
+  @@index([connectorId])
+  @@map("connector_taxonomy_caches")
+}
+
+// 6. ConnectorScopeMapping
+model ConnectorScopeMapping {
+  id              String   @id @default(uuid())
+  connectorId     String
+  scopeType       String
+  externalScopeId String
+  label           String
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  connector Connector @relation(fields: [connectorId], references: [id])
+
+  @@index([connectorId])
+  @@map("connector_scope_mappings")
+}
+
+// 7. ConnectionSecret
+model ConnectionSecret {
+  id             String    @id @default(uuid())
+  connectorId    String
+  secretType     String
+  encryptedValue String
+  maskedHint     String?
+  createdAt      DateTime  @default(now())
+  rotatedAt      DateTime?
+
+  connector Connector @relation(fields: [connectorId], references: [id])
+
+  @@index([connectorId])
+  @@map("connection_secrets")
+}
+
+// 8. RepositoryMapping
+model RepositoryMapping {
+  id                       String   @id @default(uuid())
+  tenantId                 String
+  connectorId              String
+  repositoryUrl            String
+  defaultBranch            String   @default("main")
+  executionProfileId       String?
+  orchestrationProfileId   String?
+  reviewProfileId          String?
+  dependencyPolicy         Json?
+  notificationBindings     Json?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  connector                Connector          @relation(fields: [connectorId], references: [id])
+  executionProfile         ExecutionProfile?  @relation(fields: [executionProfileId], references: [id])
+  routingRules             RoutingRule[]
+  inboundWorkItems         InboundWorkItem[]
+  workflowRuns             WorkflowRun[]
+  featureDeliveryRuns      FeatureDeliveryRun[]
+  scenarioBindings         WorkflowScenarioBinding[]
+  eventSubscriptions       RepositoryEventSubscription[]
+
+  @@index([tenantId])
+  @@index([connectorId])
+  @@index([executionProfileId])
+  @@map("repository_mappings")
+}
+
+// 9. RoutingRule
+model RoutingRule {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  connectorId         String?
+  repositoryMappingId String?
+  priority            Int
+  conditions          Json
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  connector         Connector?        @relation(fields: [connectorId], references: [id])
+  repositoryMapping RepositoryMapping? @relation(fields: [repositoryMappingId], references: [id])
+  targets           RoutingTarget[]
+
+  @@index([tenantId])
+  @@index([connectorId])
+  @@index([repositoryMappingId])
+  @@map("routing_rules")
+}
+
+// 10. RoutingTarget
+model RoutingTarget {
+  id                      String   @id @default(uuid())
+  routingRuleId           String
+  outboundDestinationId   String
+  isActive                Boolean  @default(true)
+  createdAt               DateTime @default(now())
+
+  routingRule          RoutingRule          @relation(fields: [routingRuleId], references: [id])
+  outboundDestination  OutboundDestination  @relation(fields: [outboundDestinationId], references: [id])
+
+  @@index([routingRuleId])
+  @@index([outboundDestinationId])
+  @@map("routing_targets")
+}
+
+// 11. TriggerPolicy
+model TriggerPolicy {
+  id           String       @id @default(uuid())
+  tenantId     String
+  name         String
+  workflowType WorkflowType
+  isEnabled    Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  conditions        TriggerCondition[]
+  actions           TriggerAction[]
+  workflowScenarios WorkflowScenario[]
+
+  @@index([tenantId])
+  @@map("trigger_policies")
+}
+
+// 12. TriggerCondition
+model TriggerCondition {
+  id              String   @id @default(uuid())
+  triggerPolicyId String
+  conditionType   String
+  field           String
+  operator        String
+  value           String
+  createdAt       DateTime @default(now())
+
+  triggerPolicy TriggerPolicy @relation(fields: [triggerPolicyId], references: [id])
+
+  @@index([triggerPolicyId])
+  @@map("trigger_conditions")
+}
+
+// 13. TriggerAction
+model TriggerAction {
+  id              String            @id @default(uuid())
+  triggerPolicyId String
+  actionType      TriggerActionType
+  config          Json
+  createdAt       DateTime          @default(now())
+
+  triggerPolicy TriggerPolicy @relation(fields: [triggerPolicyId], references: [id])
+
+  @@index([triggerPolicyId])
+  @@map("trigger_actions")
+}
+
+// 14. WorkflowScenario
+model WorkflowScenario {
+  id                     String       @id @default(uuid())
+  tenantId               String
+  key                    String
+  displayName            String
+  workflowType           WorkflowType
+  isEnabled              Boolean      @default(true)
+  triggerPolicyId        String?
+  dependencyPolicyConfig Json?
+  executionProfileId     String?
+  orchestrationProfileId String?
+  reviewProfileId        String?
+  prAllowed              Boolean      @default(false)
+  prIntent               String?
+  mergeAllowed           Boolean      @default(false)
+  notificationConfig     Json?
+  distributionConfig     Json?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  triggerPolicy    TriggerPolicy?    @relation(fields: [triggerPolicyId], references: [id])
+  executionProfile ExecutionProfile? @relation(fields: [executionProfileId], references: [id])
+  bindings         WorkflowScenarioBinding[]
+  steps            WorkflowScenarioStep[]
+  workflowRuns     WorkflowRun[]
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@index([triggerPolicyId])
+  @@index([executionProfileId])
+  @@map("workflow_scenarios")
+}
+
+// 15. WorkflowScenarioBinding
+model WorkflowScenarioBinding {
+  id                  String   @id @default(uuid())
+  scenarioId          String
+  connectorId         String?
+  repositoryMappingId String?
+  priority            Int
+  createdAt           DateTime @default(now())
+
+  scenario          WorkflowScenario   @relation(fields: [scenarioId], references: [id])
+  connector         Connector?         @relation(fields: [connectorId], references: [id])
+  repositoryMapping RepositoryMapping? @relation(fields: [repositoryMappingId], references: [id])
+
+  @@index([scenarioId])
+  @@index([connectorId])
+  @@index([repositoryMappingId])
+  @@map("workflow_scenario_bindings")
+}
+
+// 16. WorkflowScenarioStep
+model WorkflowScenarioStep {
+  id         String   @id @default(uuid())
+  scenarioId String
+  stepOrder  Int
+  stepType   String
+  config     Json
+  createdAt  DateTime @default(now())
+
+  scenario WorkflowScenario @relation(fields: [scenarioId], references: [id])
+
+  @@index([scenarioId])
+  @@map("workflow_scenario_steps")
+}
+
+// 17. InboundWorkItem
+model InboundWorkItem {
+  id                   String       @id @default(uuid())
+  connectorInstanceId  String
+  platformType         String
+  workItemKind         WorkItemKind
+  externalItemId       String
+  externalUrl          String?
+  title                String
+  body                 String?      @db.Text
+  priority             String?
+  severity             String?
+  status               String?
+  taxonomy             Json?
+  attachments          Json?
+  comments             Json?
+  dependencyRefs       Json?
+  sourcePayloadRef     String?
+  repositoryMappingId  String?
+  dedupeKey            String?
+  repositoryRef        String?
+  baseRef              String?
+  headRef              String?
+  commitRange          String?
+  diffRef              String?
+  reviewTargetType     String?
+  reviewTargetNumber   Int?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  connector         Connector          @relation(fields: [connectorInstanceId], references: [id])
+  repositoryMapping RepositoryMapping? @relation(fields: [repositoryMappingId], references: [id])
+  workflowRuns      WorkflowRun[]
+  commentThreads    ConnectorCommentThread[]
+  dependenciesFrom  WorkItemDependency[]  @relation("DependencySource")
+  dependenciesTo    WorkItemDependency[]  @relation("DependencyTarget")
+  dependencySnapshots  DependencySnapshot[]
+  dependencyOverrides  DependencyOverride[]
+  featureDeliveryWorkItems FeatureDeliveryWorkItem[]
+
+  @@index([connectorInstanceId])
+  @@index([repositoryMappingId])
+  @@index([dedupeKey])
+  @@map("inbound_work_items")
+}
+
+// 18. WorkflowRun
+model WorkflowRun {
+  id                       String            @id @default(uuid())
+  tenantId                 String
+  workflowType             WorkflowType
+  workItemId               String
+  repositoryMappingId      String
+  executionProfileId       String?
+  orchestrationProfileId   String?
+  reviewProfileId          String?
+  workflowScenarioId       String?
+  parentWorkflowRunId      String?
+  status                   WorkflowRunStatus @default(queued)
+  currentStage             String?
+  attemptNumber            Int               @default(1)
+  blockedReason            String?
+  providerExecutionRef     String?
+  acceptedDispatchAttempt  String?
+  createdAt                DateTime          @default(now())
+  startedAt                DateTime?
+  completedAt              DateTime?
+  updatedAt                DateTime          @updatedAt
+
+  workItem            InboundWorkItem     @relation(fields: [workItemId], references: [id])
+  repositoryMapping   RepositoryMapping   @relation(fields: [repositoryMappingId], references: [id])
+  executionProfile    ExecutionProfile?   @relation(fields: [executionProfileId], references: [id])
+  workflowScenario    WorkflowScenario?   @relation(fields: [workflowScenarioId], references: [id])
+  parentWorkflowRun   WorkflowRun?        @relation("WorkflowRunChildren", fields: [parentWorkflowRunId], references: [id])
+  childWorkflowRuns   WorkflowRun[]       @relation("WorkflowRunChildren")
+  logEvents           WorkflowLogEvent[]
+  findings            Finding[]
+  deliveryAttempts    OutboundDeliveryAttempt[]
+  dispatches          WorkerDispatch[]
+  reviews             WorkflowRunReview[]
+  conversationThreads ConversationThread[]
+
+  @@index([tenantId])
+  @@index([workItemId])
+  @@index([repositoryMappingId])
+  @@index([executionProfileId])
+  @@index([workflowScenarioId])
+  @@index([parentWorkflowRunId])
+  @@index([status])
+  @@map("workflow_runs")
+}
+
+// 19. WorkflowLogEvent
+model WorkflowLogEvent {
+  id            String   @id @default(uuid())
+  workflowRunId String
+  timestamp     DateTime @default(now())
+  streamType    String
+  stage         String?
+  message       String   @db.Text
+  hostMeta      Json?
+  createdAt     DateTime @default(now())
+
+  workflowRun WorkflowRun @relation(fields: [workflowRunId], references: [id])
+
+  @@index([workflowRunId])
+  @@map("workflow_log_events")
+}
+
+// 20. Finding
+model Finding {
+  id                    String   @id @default(uuid())
+  workflowRunId         String
+  summary               String   @db.Text
+  rootCauseHypothesis   String?  @db.Text
+  confidence            Float?
+  reproductionStatus    String?
+  affectedAreas         Json?
+  evidenceRefs          Json?
+  recommendedNextAction String?  @db.Text
+  outboundSummary       String?  @db.Text
+  suspectCommits        Json?
+  suspectFiles          Json?
+  userVisibleImpact     String?  @db.Text
+  designNotes           String?  @db.Text
+  createdAt             DateTime @default(now())
+
+  workflowRun       WorkflowRun               @relation(fields: [workflowRunId], references: [id])
+  deliveryAttempts  OutboundDeliveryAttempt[]
+
+  @@index([workflowRunId])
+  @@map("findings")
+}
+
+// 21. OutboundDestination
+model OutboundDestination {
+  id              String   @id @default(uuid())
+  tenantId        String
+  connectorId     String?
+  name            String
+  destinationType String
+  config          Json
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  connector        Connector?              @relation(fields: [connectorId], references: [id])
+  routingTargets   RoutingTarget[]
+  deliveryAttempts OutboundDeliveryAttempt[]
+
+  @@index([tenantId])
+  @@index([connectorId])
+  @@map("outbound_destinations")
+}
+
+// 22. OutboundDeliveryAttempt
+model OutboundDeliveryAttempt {
+  id                      String         @id @default(uuid())
+  outboundDestinationId   String
+  workflowRunId           String
+  findingId               String?
+  status                  DeliveryStatus @default(pending)
+  payload                 Json?
+  response                Json?
+  errorMessage            String?
+  attemptNumber           Int            @default(1)
+  createdAt               DateTime       @default(now())
+
+  outboundDestination OutboundDestination @relation(fields: [outboundDestinationId], references: [id])
+  workflowRun         WorkflowRun         @relation(fields: [workflowRunId], references: [id])
+  finding             Finding?            @relation(fields: [findingId], references: [id])
+
+  @@index([outboundDestinationId])
+  @@index([workflowRunId])
+  @@index([findingId])
+  @@map("outbound_delivery_attempts")
+}
+
+// 23. ExecutionProfile
+model ExecutionProfile {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  key                 String
+  displayName         String
+  os                  String?
+  browserRequired     Boolean  @default(false)
+  dockerRequired      Boolean  @default(false)
+  androidRequired     Boolean  @default(false)
+  macRequired         Boolean  @default(false)
+  networkRequirements Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  runtimeProfiles    RuntimeProfile[]
+  repositoryMappings RepositoryMapping[]
+  workflowScenarios  WorkflowScenario[]
+  workflowRuns       WorkflowRun[]
+
+  @@index([tenantId])
+  @@map("execution_profiles")
+}
+
+// 24. RuntimeProfile
+model RuntimeProfile {
+  id                 String   @id @default(uuid())
+  executionProfileId String
+  imageRef           String?
+  toolchainConfig    Json?
+  createdAt          DateTime @default(now())
+
+  executionProfile ExecutionProfile @relation(fields: [executionProfileId], references: [id])
+
+  @@index([executionProfileId])
+  @@map("runtime_profiles")
+}
+
+// 25. ExecutionProvider
+model ExecutionProvider {
+  id                String         @id @default(uuid())
+  tenantId          String
+  providerType      String
+  name              String
+  isEnabled         Boolean        @default(true)
+  connectionMode    ConnectionMode
+  supportedProfiles Json?
+  maxConcurrency    Int
+  networkZone       String?
+  secretRefs        Json?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  hosts      ExecutionProviderHost[]
+  dispatches WorkerDispatch[]
+
+  @@index([tenantId])
+  @@map("execution_providers")
+}
+
+// 26. ExecutionProviderHost
+model ExecutionProviderHost {
+  id              String      @id @default(uuid())
+  providerId      String
+  hostname        String
+  os              String?
+  capabilities    Json?
+  runtimeMode     RuntimeMode
+  maxConcurrency  Int
+  currentLoad     Int         @default(0)
+  isOnline        Boolean     @default(false)
+  lastHeartbeatAt DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  provider   ExecutionProvider       @relation(fields: [providerId], references: [id])
+  sessions   ExecutionHostSession[]
+  dispatches WorkerDispatch[]
+
+  @@index([providerId])
+  @@map("execution_provider_hosts")
+}
+
+// 27. ExecutionHostSession
+model ExecutionHostSession {
+  id                String    @id @default(uuid())
+  hostId            String
+  sessionToken      String
+  connectedAt       DateTime  @default(now())
+  disconnectedAt    DateTime?
+  lastHeartbeatAt   DateTime?
+  isActive          Boolean   @default(true)
+  metadata          Json?
+
+  host ExecutionProviderHost @relation(fields: [hostId], references: [id])
+
+  @@index([hostId])
+  @@map("execution_host_sessions")
+}
+
+// 28. RuntimeApiKey
+model RuntimeApiKey {
+  id              String       @id @default(uuid())
+  tenantId        String
+  label           String
+  keyHash         String
+  keyPrefix       String
+  runtimeMode     RuntimeMode?
+  allowedProfiles Json?
+  lastUsedAt      DateTime?
+  isDisabled      Boolean      @default(false)
+  revokedAt       DateTime?
+  createdAt       DateTime     @default(now())
+
+  auditEvents RuntimeApiKeyAuditEvent[]
+
+  @@index([tenantId])
+  @@map("runtime_api_keys")
+}
+
+// 29. RuntimeApiKeyAuditEvent
+model RuntimeApiKeyAuditEvent {
+  id              String   @id @default(uuid())
+  runtimeApiKeyId String
+  action          String
+  ipAddress       String?
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  runtimeApiKey RuntimeApiKey @relation(fields: [runtimeApiKeyId], references: [id])
+
+  @@index([runtimeApiKeyId])
+  @@map("runtime_api_key_audit_events")
+}
+
+// 30. WorkerDispatch
+model WorkerDispatch {
+  id                   String    @id @default(uuid())
+  workflowRunId        String
+  executionProviderId  String
+  hostId               String?
+  workerSharedSecret   String
+  jobPayload           Json
+  providerJobId        String?
+  providerExecutionUrl String?
+  status               String
+  attemptNumber        Int       @default(1)
+  createdAt            DateTime  @default(now())
+  startedAt            DateTime?
+  completedAt          DateTime?
+
+  workflowRun       WorkflowRun           @relation(fields: [workflowRunId], references: [id])
+  executionProvider ExecutionProvider      @relation(fields: [executionProviderId], references: [id])
+  host              ExecutionProviderHost? @relation(fields: [hostId], references: [id])
+
+  @@index([workflowRunId])
+  @@index([executionProviderId])
+  @@index([hostId])
+  @@map("worker_dispatches")
+}
+
+// 31. OrchestrationProfile
+model OrchestrationProfile {
+  id               String   @id @default(uuid())
+  tenantId         String
+  key              String
+  displayName      String
+  modelRoutingMode String?
+  claudeRequired   Boolean  @default(false)
+  codexRequired    Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  versions OrchestrationProfileVersion[]
+
+  @@index([tenantId])
+  @@map("orchestration_profiles")
+}
+
+// 32. OrchestrationProfileVersion
+model OrchestrationProfileVersion {
+  id                      String   @id @default(uuid())
+  orchestrationProfileId  String
+  version                 Int
+  config                  Json
+  createdAt               DateTime @default(now())
+
+  orchestrationProfile OrchestrationProfile @relation(fields: [orchestrationProfileId], references: [id])
+
+  @@index([orchestrationProfileId])
+  @@map("orchestration_profile_versions")
+}
+
+// 33. PromptManifest
+model PromptManifest {
+  id          String   @id @default(uuid())
+  tenantId    String
+  key         String
+  displayName String
+  version     Int
+  content     Json
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("prompt_manifests")
+}
+
+// 34. ReviewProfile
+model ReviewProfile {
+  id                 String   @id @default(uuid())
+  tenantId           String
+  key                String
+  displayName        String
+  reviewGoal         String?
+  maxRounds          Int      @default(3)
+  passThreshold      Float?
+  requiresSecondModel Boolean @default(false)
+  requiredArtifacts  Json?
+  outputSchema       Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  versions     ReviewProfileVersion[]
+  promptSets   ReviewPromptSet[]
+  reviews      WorkflowRunReview[]
+
+  @@index([tenantId])
+  @@map("review_profiles")
+}
+
+// 35. ReviewProfileVersion
+model ReviewProfileVersion {
+  id              String   @id @default(uuid())
+  reviewProfileId String
+  version         Int
+  config          Json
+  createdAt       DateTime @default(now())
+
+  reviewProfile ReviewProfile @relation(fields: [reviewProfileId], references: [id])
+
+  @@index([reviewProfileId])
+  @@map("review_profile_versions")
+}
+
+// 36. ReviewPromptSet
+model ReviewPromptSet {
+  id              String   @id @default(uuid())
+  reviewProfileId String
+  promptKey       String
+  promptTemplate  String   @db.Text
+  version         Int
+  createdAt       DateTime @default(now())
+
+  reviewProfile ReviewProfile @relation(fields: [reviewProfileId], references: [id])
+
+  @@index([reviewProfileId])
+  @@map("review_prompt_sets")
+}
+
+// 37. WorkflowRunReview
+model WorkflowRunReview {
+  id                    String          @id @default(uuid())
+  workflowRunId         String
+  reviewProfileId       String
+  profileVersion        Int
+  decision              ReviewDecision?
+  operatorOverride      Boolean         @default(false)
+  operatorOverrideReason String?
+  startedAt             DateTime?
+  completedAt           DateTime?
+  createdAt             DateTime        @default(now())
+
+  workflowRun   WorkflowRun   @relation(fields: [workflowRunId], references: [id])
+  reviewProfile ReviewProfile @relation(fields: [reviewProfileId], references: [id])
+  roundOutputs  ReviewRoundOutput[]
+  evaluations   ReviewEvaluation[]
+  comments      ReviewComment[]
+
+  @@index([workflowRunId])
+  @@index([reviewProfileId])
+  @@map("workflow_run_reviews")
+}
+
+// 38. ReviewRoundOutput
+model ReviewRoundOutput {
+  id                    String          @id @default(uuid())
+  workflowRunReviewId   String
+  roundNumber           Int
+  input                 Json?
+  output                Json?
+  findings              Json?
+  decision              ReviewDecision?
+  createdAt             DateTime        @default(now())
+
+  workflowRunReview WorkflowRunReview @relation(fields: [workflowRunReviewId], references: [id])
+
+  @@index([workflowRunReviewId])
+  @@map("review_round_outputs")
+}
+
+// 39. ReviewEvaluation
+model ReviewEvaluation {
+  id                    String   @id @default(uuid())
+  workflowRunReviewId   String
+  evaluationType        String
+  result                Json?
+  createdAt             DateTime @default(now())
+
+  workflowRunReview WorkflowRunReview @relation(fields: [workflowRunReviewId], references: [id])
+
+  @@index([workflowRunReviewId])
+  @@map("review_evaluations")
+}
+
+// 40. ReviewComment
+model ReviewComment {
+  id                    String   @id @default(uuid())
+  workflowRunReviewId   String
+  roundNumber           Int?
+  author                String
+  body                  String   @db.Text
+  createdAt             DateTime @default(now())
+
+  workflowRunReview WorkflowRunReview @relation(fields: [workflowRunReviewId], references: [id])
+
+  @@index([workflowRunReviewId])
+  @@map("review_comments")
+}
+
+// 41. WorkItemDependency
+model WorkItemDependency {
+  id                   String    @id @default(uuid())
+  workItemId           String
+  dependsOnWorkItemId  String
+  dependencyType       String
+  isResolved           Boolean   @default(false)
+  resolvedAt           DateTime?
+  createdAt            DateTime  @default(now())
+
+  workItem         InboundWorkItem @relation("DependencySource", fields: [workItemId], references: [id])
+  dependsOnWorkItem InboundWorkItem @relation("DependencyTarget", fields: [dependsOnWorkItemId], references: [id])
+
+  @@index([workItemId])
+  @@index([dependsOnWorkItemId])
+  @@map("work_item_dependencies")
+}
+
+// 42. DependencySnapshot
+model DependencySnapshot {
+  id           String   @id @default(uuid())
+  workItemId   String
+  snapshotData Json
+  createdAt    DateTime @default(now())
+
+  workItem InboundWorkItem @relation(fields: [workItemId], references: [id])
+
+  @@index([workItemId])
+  @@map("dependency_snapshots")
+}
+
+// 43. DependencyPolicy
+model DependencyPolicy {
+  id        String   @id @default(uuid())
+  tenantId  String
+  name      String
+  config    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("dependency_policies")
+}
+
+// 44. DependencyOverride
+model DependencyOverride {
+  id           String   @id @default(uuid())
+  workItemId   String
+  overriddenBy String
+  reason       String
+  createdAt    DateTime @default(now())
+
+  workItem InboundWorkItem @relation(fields: [workItemId], references: [id])
+
+  @@index([workItemId])
+  @@map("dependency_overrides")
+}
+
+// 45. FeatureDeliveryRun
+model FeatureDeliveryRun {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  epicRef             String?
+  epicTitle           String?
+  repositoryMappingId String
+  branchStrategy      String?
+  parallelExecution   Boolean  @default(false)
+  distributionTarget  Json?
+  status              String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  repositoryMapping RepositoryMapping         @relation(fields: [repositoryMappingId], references: [id])
+  workItems         FeatureDeliveryWorkItem[]
+  batches           FeatureDeliveryBatch[]
+  assets            FeatureDeliveryAsset[]
+
+  @@index([tenantId])
+  @@index([repositoryMappingId])
+  @@map("feature_delivery_runs")
+}
+
+// 46. FeatureDeliveryWorkItem
+model FeatureDeliveryWorkItem {
+  id                    String   @id @default(uuid())
+  featureDeliveryRunId  String
+  workItemId            String
+  order                 Int
+  status                String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  featureDeliveryRun FeatureDeliveryRun @relation(fields: [featureDeliveryRunId], references: [id])
+  workItem           InboundWorkItem    @relation(fields: [workItemId], references: [id])
+
+  @@index([featureDeliveryRunId])
+  @@index([workItemId])
+  @@map("feature_delivery_work_items")
+}
+
+// 47. FeatureDeliveryBatch
+model FeatureDeliveryBatch {
+  id                    String    @id @default(uuid())
+  featureDeliveryRunId  String
+  batchNumber           Int
+  status                String
+  createdAt             DateTime  @default(now())
+  completedAt           DateTime?
+
+  featureDeliveryRun FeatureDeliveryRun @relation(fields: [featureDeliveryRunId], references: [id])
+
+  @@index([featureDeliveryRunId])
+  @@map("feature_delivery_batches")
+}
+
+// 48. FeatureDeliveryAsset
+model FeatureDeliveryAsset {
+  id                    String   @id @default(uuid())
+  featureDeliveryRunId  String
+  assetType             String
+  url                   String
+  description           String?
+  createdAt             DateTime @default(now())
+
+  featureDeliveryRun FeatureDeliveryRun @relation(fields: [featureDeliveryRunId], references: [id])
+
+  @@index([featureDeliveryRunId])
+  @@map("feature_delivery_assets")
+}
+
+// 49. ConnectorCommentThread
+model ConnectorCommentThread {
+  id               String    @id @default(uuid())
+  connectorId      String
+  externalThreadId String
+  workItemId       String?
+  lastSyncedAt     DateTime?
+  createdAt        DateTime  @default(now())
+
+  connector Connector        @relation(fields: [connectorId], references: [id])
+  workItem  InboundWorkItem? @relation(fields: [workItemId], references: [id])
+  messages  ConnectorCommentMessage[]
+
+  @@index([connectorId])
+  @@index([workItemId])
+  @@map("connector_comment_threads")
+}
+
+// 50. ConnectorCommentMessage
+model ConnectorCommentMessage {
+  id                String   @id @default(uuid())
+  threadId          String
+  externalMessageId String?
+  author            String
+  body              String   @db.Text
+  isBotMention      Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  thread   ConnectorCommentThread @relation(fields: [threadId], references: [id])
+  mentions ConnectorMention[]
+
+  @@index([threadId])
+  @@map("connector_comment_messages")
+}
+
+// 51. ConnectorMention
+model ConnectorMention {
+  id              String   @id @default(uuid())
+  messageId       String
+  mentionedEntity String
+  mentionType     String
+  createdAt       DateTime @default(now())
+
+  message ConnectorCommentMessage @relation(fields: [messageId], references: [id])
+
+  @@index([messageId])
+  @@map("connector_mentions")
+}
+
+// 52. CommunicationChannelType
+model CommunicationChannelType {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  displayName String
+  createdAt   DateTime @default(now())
+
+  channels CommunicationChannel[]
+
+  @@map("communication_channel_types")
+}
+
+// 53. CommunicationChannel
+model CommunicationChannel {
+  id            String   @id @default(uuid())
+  tenantId      String
+  channelTypeId String
+  name          String
+  config        Json
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  channelType   CommunicationChannelType       @relation(fields: [channelTypeId], references: [id])
+  pairings      CommunicationChannelPairing[]
+  memberships   CommunicationChannelMembership[]
+  policies      CommunicationChannelPolicy[]
+  threads       ConversationThread[]
+  subscriptions ConversationSubscription[]
+
+  @@index([tenantId])
+  @@index([channelTypeId])
+  @@map("communication_channels")
+}
+
+// 54. CommunicationChannelPairing
+model CommunicationChannelPairing {
+  id                       String   @id @default(uuid())
+  channelId                String
+  scopeType                String
+  scopeId                  String
+  externalConversationId   String
+  createdAt                DateTime @default(now())
+
+  channel CommunicationChannel @relation(fields: [channelId], references: [id])
+
+  @@index([channelId])
+  @@map("communication_channel_pairings")
+}
+
+// 55. CommunicationChannelMembership
+model CommunicationChannelMembership {
+  id        String   @id @default(uuid())
+  channelId String
+  userId    String
+  role      String
+  joinedAt  DateTime @default(now())
+
+  channel CommunicationChannel @relation(fields: [channelId], references: [id])
+
+  @@index([channelId])
+  @@map("communication_channel_memberships")
+}
+
+// 56. CommunicationChannelPolicy
+model CommunicationChannelPolicy {
+  id                      String   @id @default(uuid())
+  channelId               String
+  allowedActions          Json
+  notificationPreferences Json
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  channel CommunicationChannel @relation(fields: [channelId], references: [id])
+
+  @@index([channelId])
+  @@map("communication_channel_policies")
+}
+
+// 57. ConversationThread
+model ConversationThread {
+  id               String   @id @default(uuid())
+  channelId        String
+  workflowRunId    String?
+  externalThreadId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  channel       CommunicationChannel       @relation(fields: [channelId], references: [id])
+  workflowRun   WorkflowRun?               @relation(fields: [workflowRunId], references: [id])
+  messages      ConversationMessage[]
+  actionRequests ConversationActionRequest[]
+
+  @@index([channelId])
+  @@index([workflowRunId])
+  @@map("conversation_threads")
+}
+
+// 58. ConversationMessage
+model ConversationMessage {
+  id        String   @id @default(uuid())
+  threadId  String
+  author    String
+  body      String   @db.Text
+  direction String
+  createdAt DateTime @default(now())
+
+  thread ConversationThread @relation(fields: [threadId], references: [id])
+
+  @@index([threadId])
+  @@map("conversation_messages")
+}
+
+// 59. ConversationActionRequest
+model ConversationActionRequest {
+  id              String    @id @default(uuid())
+  threadId        String
+  requestedAction String
+  status          String
+  resolvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  thread ConversationThread @relation(fields: [threadId], references: [id])
+
+  @@index([threadId])
+  @@map("conversation_action_requests")
+}
+
+// 60. ConversationSubscription
+model ConversationSubscription {
+  id            String   @id @default(uuid())
+  channelId     String
+  subscriberRef String
+  eventTypes    Json
+  createdAt     DateTime @default(now())
+
+  channel CommunicationChannel @relation(fields: [channelId], references: [id])
+
+  @@index([channelId])
+  @@map("conversation_subscriptions")
+}
+
+// 61. IdentityProvider
+model IdentityProvider {
+  id           String   @id @default(uuid())
+  tenantId     String
+  providerType String
+  displayName  String
+  config       Json
+  isEnabled    Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  identityLinks FederatedIdentityLink[]
+
+  @@index([tenantId])
+  @@map("identity_providers")
+}
+
+// 62. FederatedIdentityLink
+model FederatedIdentityLink {
+  id                 String   @id @default(uuid())
+  identityProviderId String
+  externalUserId     String
+  internalUserId     String
+  email              String?
+  displayName        String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  identityProvider IdentityProvider @relation(fields: [identityProviderId], references: [id])
+
+  @@index([identityProviderId])
+  @@index([internalUserId])
+  @@map("federated_identity_links")
+}
+
+// 63. ServiceIntegration
+model ServiceIntegration {
+  id               String   @id @default(uuid())
+  tenantId         String
+  serviceKey       String
+  displayName      String
+  signingPublicKey String?  @db.Text
+  jwksUrl          String?
+  config           Json
+  isEnabled        Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  sessionLinks IntegrationSessionLink[]
+
+  @@index([tenantId])
+  @@map("service_integrations")
+}
+
+// 64. IntegrationSessionLink
+model IntegrationSessionLink {
+  id                     String    @id @default(uuid())
+  serviceIntegrationId   String
+  upstreamSessionId      String
+  internalSessionId      String
+  userId                 String?
+  tenantId               String?
+  scopes                 Json?
+  createdAt              DateTime  @default(now())
+  expiresAt              DateTime?
+
+  serviceIntegration ServiceIntegration @relation(fields: [serviceIntegrationId], references: [id])
+
+  @@index([serviceIntegrationId])
+  @@map("integration_session_links")
+}
+
+// 65. RepositoryEventSubscription
+model RepositoryEventSubscription {
+  id                  String   @id @default(uuid())
+  repositoryMappingId String
+  eventType           String
+  isActive            Boolean  @default(true)
+  config              Json?
+  createdAt           DateTime @default(now())
+
+  repositoryMapping RepositoryMapping @relation(fields: [repositoryMappingId], references: [id])
+
+  @@index([repositoryMappingId])
+  @@map("repository_event_subscriptions")
+}
+
+// 66. AuditEvent
+model AuditEvent {
+  id           String      @id @default(uuid())
+  tenantId     String
+  actorId      String?
+  actorType    String?
+  action       AuditAction
+  resourceType String
+  resourceId   String
+  metadata     Json?
+  createdAt    DateTime    @default(now())
+
+  @@index([tenantId])
+  @@index([resourceType, resourceId])
+  @@map("audit_events")
+}
