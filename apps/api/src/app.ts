@@ -18,6 +18,7 @@ import {
 } from './routes/outbound-destinations.js';
 import { dispatcherRoutes } from './routes/dispatcher.js';
 import { authRoutes } from './routes/auth.js';
+import { settingsRoutes } from './routes/settings.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
@@ -65,6 +66,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
     { prefix: '/worker/jobs' },
   );
+  await app.register(settingsRoutes, { prefix: '/v1/settings' });
   await app.register(dispatcherRoutes, { prefix: '/v1/dispatcher' });
 
   // Webhook routes use a custom JSON parser (parseAs: string) for signature

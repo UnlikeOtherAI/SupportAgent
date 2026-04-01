@@ -218,11 +218,16 @@ export async function authRoutes(app: FastifyInstance) {
       const email = getString(payload, ['email']) ?? '';
       const displayName = getString(payload, ['name', 'displayName']) ?? email.split('@')[0];
       const avatarUrl = getString(payload, ['picture', 'avatar', 'avatar_url', 'avatarUrl']) ?? '';
-      const orgPayload = payload.org as { org_id?: string; org_role?: string } | undefined;
+      const orgPayload = payload.org as {
+        org_id?: string;
+        org_role?: string;
+        org_name?: string;
+      } | undefined;
       const tenantId = orgPayload?.org_id ?? 'default';
       const role = orgPayload?.org_role ?? 'member';
+      const orgName = orgPayload?.org_name ?? email.split('@')[1] ?? 'My Organization';
 
-      // Find or create identity provider record
+      // Find or create identity provider record (acts as tenant record)
       let idp = await app.prisma.identityProvider.findFirst({
         where: { tenantId, providerType: 'unlikeotherai' },
       });
@@ -232,7 +237,7 @@ export async function authRoutes(app: FastifyInstance) {
           data: {
             tenantId,
             providerType: 'unlikeotherai',
-            displayName: 'UnlikeOtherAI SSO',
+            displayName: orgName,
             config: { baseUrl: env.SSO_BASE_URL },
             isEnabled: true,
           },
@@ -244,8 +249,6 @@ export async function authRoutes(app: FastifyInstance) {
         where: { identityProviderId: idp.id, externalUserId },
       });
 
-      let onboardingRequired = false;
-
       if (!existingLink) {
         await app.prisma.federatedIdentityLink.create({
           data: {
@@ -256,7 +259,6 @@ export async function authRoutes(app: FastifyInstance) {
             displayName: displayName || null,
           },
         });
-        onboardingRequired = true;
       } else {
         await app.prisma.federatedIdentityLink.update({
           where: { id: existingLink.id },
@@ -281,7 +283,7 @@ export async function authRoutes(app: FastifyInstance) {
       redirectUrl.searchParams.set('email', email);
       if (avatarUrl) redirectUrl.searchParams.set('avatarUrl', avatarUrl);
       redirectUrl.searchParams.set('role', role);
-      redirectUrl.searchParams.set('onboardingRequired', String(onboardingRequired));
+      redirectUrl.searchParams.set('onboardingRequired', 'false');
 
       return reply.redirect(redirectUrl.toString());
     },

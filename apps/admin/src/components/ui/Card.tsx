@@ -7,7 +7,7 @@ interface CardProps {
 
 export function Card({ children, className = '' }: CardProps) {
   return (
-    <div className={`overflow-hidden rounded-[var(--radius-lg)] border border-gray-100 bg-white ${className}`}>
+    <div className={`overflow-hidden rounded-[var(--radius-lg)] border border-white/8 bg-gray-950 ${className}`}>
       {children}
     </div>
   )
@@ -21,9 +21,9 @@ interface CardHeaderProps {
 
 export function CardHeader({ title, subtitle, action }: CardHeaderProps) {
   return (
-    <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+    <div className="flex items-center justify-between border-b border-white/8 px-5 py-4">
       <div className="flex items-center gap-4">
-        <h2 className="text-sm font-semibold text-gray-900">
+        <h2 className="text-sm font-semibold text-gray-100">
           {title}
           {subtitle && <span className="ml-2 font-normal text-gray-400">{subtitle}</span>}
         </h2>

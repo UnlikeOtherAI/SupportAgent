@@ -9,7 +9,7 @@ export function Layout() {
         <Sidebar />
       </div>
       <TopBar />
-      <main className="overflow-y-auto bg-gray-50 p-7">
+      <main className="overflow-y-auto bg-gray-900 p-7">
         <Outlet />
       </main>
     </div>
