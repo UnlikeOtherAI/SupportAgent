@@ -16,6 +16,7 @@
     "@support-agent/contracts": "workspace:*",
     "bullmq": "^5.34.8",
     "fastify": "^5.2.1",
+    "fastify-plugin": "^5.1.0",
     "ioredis": "^5.4.2",
     "zod": "^3.24.1"
   },
