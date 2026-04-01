@@ -1,1 +1,10 @@
 .ninja/
+node_modules/
+dist/
+.turbo/
+.env
+.env.*
+!.env.example
+prisma/generated/
+*.tsbuildinfo
+coverage/
