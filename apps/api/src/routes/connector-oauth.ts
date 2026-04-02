@@ -91,6 +91,10 @@ export async function connectorOAuthRoutes(app: FastifyInstance) {
       return reply.redirect(`${adminUrl}/apps?oauth_error=invalid_state`);
     }
 
+    if (payload.platformKey !== platformKey) {
+      return reply.redirect(`${adminUrl}/apps?oauth_error=state_platform_mismatch`);
+    }
+
     const { connectorId, tenantId } = payload;
     const creds = getOAuthCredentials(platformKey, env);
     if (!creds) {
