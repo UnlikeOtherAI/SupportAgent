@@ -1,15 +1,40 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { BoltIcon, ProvidersIcon } from '@/components/icons/NavIcons'
 import { Card } from '@/components/ui/Card'
 import { authApi } from '@/api/auth'
+import { useAuth } from '@/lib/auth'
 
 export default function LoginPage() {
+  const navigate = useNavigate()
+  const setAuth = useAuth((s) => s.setAuth)
+  const [devLoading, setDevLoading] = useState(false)
+
   const { data, isLoading } = useQuery({
     queryKey: ['auth-providers'],
     queryFn: authApi.getProviders,
   })
 
   const providers = data?.providers.filter((provider) => provider.enabled) ?? []
+  const showDevLogin = import.meta.env.DEV && !isLoading && providers.length === 0
+
+  async function handleDevLogin() {
+    setDevLoading(true)
+    try {
+      const res = await authApi.devLogin()
+      setAuth(res.token, {
+        userId: res.userId,
+        displayName: res.displayName,
+        email: res.email,
+        avatarUrl: res.avatarUrl,
+        role: res.role,
+      })
+      void navigate('/dashboard', { replace: true })
+    } finally {
+      setDevLoading(false)
+    }
+  }
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-10">
@@ -50,6 +75,29 @@ export default function LoginPage() {
                   <span>{provider.buttonText}</span>
                 </button>
               ))
+            )}
+
+            {showDevLogin && (
+              <>
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-dashed border-gray-200" />
+                  </div>
+                  <div className="relative flex justify-center">
+                    <span className="bg-white px-2 text-[11px] font-medium uppercase tracking-widest text-gray-400">
+                      Dev only
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={devLoading}
+                  onClick={() => void handleDevLogin()}
+                  className="flex w-full items-center justify-center gap-2 rounded-[var(--radius-sm)] border border-dashed border-gray-300 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-50"
+                >
+                  {devLoading ? 'Signing in...' : 'Dev Login'}
+                </button>
+              </>
             )}
           </div>
 

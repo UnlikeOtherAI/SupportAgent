@@ -59,6 +59,32 @@ function getString(record: Record<string, unknown>, keys: string[]): string | nu
 /* ── Routes ───────────────────────────────────────────────── */
 
 export async function authRoutes(app: FastifyInstance) {
+  /* POST /dev-login — mint a dev JWT; only active in non-production without SSO */
+  app.post('/dev-login', async (_request, reply) => {
+    const env = getEnv();
+
+    if (env.NODE_ENV === 'production' || env.SSO_SHARED_SECRET) {
+      return reply.status(404).send({ error: 'Not found' });
+    }
+
+    const userId = '00000000-0000-0000-0000-000000000001';
+    const tenantId = '00000000-0000-0000-0000-000000000002';
+
+    const token = app.jwt.sign(
+      { sub: userId, tenantId, role: 'admin' },
+      { expiresIn: '24h' },
+    );
+
+    return {
+      token,
+      userId,
+      displayName: 'Dev User',
+      email: 'dev@localhost',
+      avatarUrl: null,
+      role: 'admin',
+    };
+  });
+
   /* GET /providers — list available identity providers */
   app.get('/providers', async () => {
     const env = getEnv();
