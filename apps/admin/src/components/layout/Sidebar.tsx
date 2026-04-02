@@ -4,6 +4,7 @@ import {
   RoutingIcon, ScenariosIcon, ChannelsIcon, ProvidersIcon,
   ApiKeysIcon, ReviewIcon, SettingsIcon, BoltIcon,
 } from '@/components/icons/NavIcons'
+import { AppsIcon } from '@/components/icons/PlatformIcons'
 import { useAuth } from '@/lib/auth'
 import type { ReactNode } from 'react'
 
@@ -30,6 +31,7 @@ const NAV: NavSection[] = [
   {
     label: 'Configuration',
     items: [
+      { label: 'Apps', to: '/apps', icon: <AppsIcon /> },
       { label: 'Connectors', to: '/connectors', icon: <ConnectorsIcon /> },
       { label: 'Repositories', to: '/repositories', icon: <RepositoriesIcon /> },
       { label: 'Routing', to: '/routing', icon: <RoutingIcon /> },

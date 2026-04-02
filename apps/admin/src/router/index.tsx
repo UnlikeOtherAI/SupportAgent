@@ -33,6 +33,11 @@ export const router = createBrowserRouter([
         { path: 'runs',     element: load(() => import('@/pages/RunsPage')) },
         { path: 'runs/:id', element: load(() => import('@/pages/RunDetailPage')) },
 
+        /* Apps */
+        { path: 'apps',                                          element: load(() => import('@/pages/AppsPage')) },
+        { path: 'apps/:platformKey/enable',                      element: load(() => import('@/pages/AppEnablePage')) },
+        { path: 'apps/:platformKey/configure/:connectorId',      element: load(() => import('@/pages/AppConfigurePage')) },
+
         /* Connectors */
         { path: 'connectors',              element: load(() => import('@/pages/ConnectorsPage')) },
         { path: 'connectors/new',          element: load(() => import('@/pages/ConnectorNewPage')) },
