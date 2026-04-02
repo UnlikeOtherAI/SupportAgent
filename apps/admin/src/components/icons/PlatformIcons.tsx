@@ -144,3 +144,8 @@ const platformIcons: Record<string, PlatformIcon> = {
 export function getPlatformIcon(iconSlug: string): React.ComponentType<{ className?: string }> {
   return platformIcons[iconSlug] ?? PuzzleIcon
 }
+
+export function PlatformIcon({ slug, className }: { slug: string; className?: string }) {
+  const Comp = platformIcons[slug] ?? PuzzleIcon
+  return <Comp className={className} />
+}

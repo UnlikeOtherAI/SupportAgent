@@ -14,7 +14,7 @@ export interface PlatformTypeDetail {
   supportsCustomServer: boolean
   defaultDirection: 'inbound' | 'outbound' | 'both'
   defaultIntakeMode: 'webhook' | 'polling' | 'manual'
-  configFields: Array<{
+  configFields: {
     key: string
     label: string
     type: 'text' | 'password' | 'url' | 'number' | 'toggle'
@@ -22,7 +22,7 @@ export interface PlatformTypeDetail {
     helpText?: string
     required: boolean
     secretType?: string
-  }>
+  }[]
 }
 
 export const platformTypesApi = {

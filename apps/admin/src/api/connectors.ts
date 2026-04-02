@@ -63,7 +63,7 @@ export const connectorsApi = {
   get: (id: string) => api.get<ConnectorDetail>(`/v1/connectors/${id}`),
   create: (data: Partial<Connector>) => api.post<Connector>('/v1/connectors', data),
   update: (id: string, data: Partial<Connector>) => api.put<Connector>(`/v1/connectors/${id}`, data),
-  delete: (id: string) => api.delete<void>(`/v1/connectors/${id}`),
+  delete: (id: string) => api.delete(`/v1/connectors/${id}`),
   getSecrets: (id: string) => api.get<ConnectorSecret[]>('/v1/connectors/' + id + '/secrets'),
   setSecrets: (id: string, secrets: Record<string, string>) =>
     api.put<ConnectorSecret[]>('/v1/connectors/' + id + '/secrets', secrets),
@@ -71,5 +71,5 @@ export const connectorsApi = {
   discoverCapabilities: (id: string) => api.post<{ capabilities: ConnectorCapability[] }>(`/v1/connectors/${id}/discover-capabilities`),
   getCapabilities: (id: string) => api.get<{ capabilities: ConnectorCapability[] }>(`/v1/connectors/${id}/capabilities`),
   getTriggerPolicies: (id: string) => api.get<{ policies: TriggerPolicy[] }>(`/v1/connectors/${id}/trigger-policies`),
-  updateTriggerPolicies: (id: string, policies: TriggerPolicy[]) => api.put<void>(`/v1/connectors/${id}/trigger-policies`, { policies }),
+  updateTriggerPolicies: (id: string, policies: TriggerPolicy[]) => api.put(`/v1/connectors/${id}/trigger-policies`, { policies }),
 }

@@ -5,7 +5,7 @@ import { connectorsApi } from '@/api/connectors'
 import { PageShell } from '@/components/ui/PageShell'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { getPlatformIcon } from '@/components/icons/PlatformIcons'
+import { PlatformIcon } from '@/components/icons/PlatformIcons'
 
 const CATEGORIES = [
   { key: 'error-monitoring', label: 'Error Monitoring' },
@@ -24,12 +24,11 @@ function StatusBadge({ hasConnector }: { hasConnector: boolean }) {
 }
 
 function PlatformCard({ platform, connectorId }: { platform: PlatformTypeDetail; connectorId?: string }) {
-  const Icon = getPlatformIcon(platform.iconSlug)
   return (
     <Card className="flex flex-col p-5">
       <div className="mb-3 flex items-start justify-between">
         <div className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-sm)] bg-gray-50">
-          <Icon className="h-6 w-6 text-gray-700" />
+          <PlatformIcon slug={platform.iconSlug} className="h-6 w-6 text-gray-700" />
         </div>
         <StatusBadge hasConnector={!!connectorId} />
       </div>
@@ -53,7 +52,7 @@ function PlatformCard({ platform, connectorId }: { platform: PlatformTypeDetail;
 export default function AppsPage() {
   const { data: platforms, isLoading } = useQuery({
     queryKey: ['platform-types'],
-    queryFn: platformTypesApi.list,
+    queryFn: () => platformTypesApi.list(),
   })
   const { data: connectorsData } = useQuery({
     queryKey: ['connectors'],
