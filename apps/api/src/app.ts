@@ -7,6 +7,7 @@ import { authPlugin } from './plugins/auth.js';
 import { workerAuthPlugin } from './plugins/worker-auth.js';
 import { healthRoutes } from './routes/health.js';
 import { connectorRoutes } from './routes/connectors.js';
+import { platformTypeRoutes } from './routes/platform-types.js';
 import { workflowRunRoutes } from './routes/workflow-runs.js';
 import { repositoryMappingRoutes } from './routes/repository-mappings.js';
 import { workerApiRoutes } from './routes/worker-api.js';
@@ -47,6 +48,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(healthRoutes, { prefix: '/health' });
   await app.register(authRoutes, { prefix: '/v1/auth' });
   await app.register(connectorRoutes, { prefix: '/v1/connectors' });
+  await app.register(platformTypeRoutes, { prefix: '/v1/platform-types' });
   await app.register(workflowRunRoutes, { prefix: '/v1/runs' });
   await app.register(findingRunRoutes, { prefix: '/v1/runs' });
   await app.register(deliveryAttemptRunRoutes, { prefix: '/v1/runs' });
