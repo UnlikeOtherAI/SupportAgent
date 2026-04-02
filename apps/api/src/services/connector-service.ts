@@ -82,6 +82,22 @@ export function createConnectorService(repo: ConnectorRepository, prisma: Prisma
       await repo.delete(id, tenantId);
     },
 
+    async getConnectorSecrets(connectorId: string, tenantId: string) {
+      await this.getConnector(connectorId, tenantId);
+      return repo.listSecrets(connectorId);
+    },
+
+    async setConnectorSecret(
+      connectorId: string,
+      tenantId: string,
+      secretType: string,
+      value: string,
+    ) {
+      await this.getConnector(connectorId, tenantId);
+      const maskedHint = `${'*'.repeat(Math.max(0, value.length - 4))}${value.slice(-4)}`;
+      await repo.upsertSecret(connectorId, secretType, value, maskedHint);
+    },
+
     async discoverCapabilities(id: string, tenantId: string) {
       const connector = await this.getConnector(id, tenantId);
       const caps = [

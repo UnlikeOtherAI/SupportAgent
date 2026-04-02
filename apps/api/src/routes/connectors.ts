@@ -24,6 +24,8 @@ const UpdateConnectorBody = z.object({
   imageDescriptionPolicy: z.string().optional(),
 });
 
+const UpdateConnectorSecretsBody = z.record(z.string(), z.string());
+
 export async function connectorRoutes(app: FastifyInstance) {
   const repo = createConnectorRepository(app.prisma);
   const service = createConnectorService(repo, app.prisma);
@@ -46,6 +48,10 @@ export async function connectorRoutes(app: FastifyInstance) {
     return service.getConnector(request.params.connectorId, request.user.tenantId);
   });
 
+  app.get<{ Params: { connectorId: string } }>('/:connectorId/secrets', async (request) => {
+    return service.getConnectorSecrets(request.params.connectorId, request.user.tenantId);
+  });
+
   app.post('/', async (request, reply) => {
     const body = CreateConnectorBody.parse(request.body);
     const connector = await service.createConnector(request.user.tenantId, body);
@@ -55,6 +61,20 @@ export async function connectorRoutes(app: FastifyInstance) {
   app.patch<{ Params: { connectorId: string } }>('/:connectorId', async (request) => {
     const body = UpdateConnectorBody.parse(request.body);
     return service.updateConnector(request.params.connectorId, request.user.tenantId, body);
+  });
+
+  app.put<{ Params: { connectorId: string } }>('/:connectorId/secrets', async (request) => {
+    const body = UpdateConnectorSecretsBody.parse(request.body);
+    for (const [secretType, value] of Object.entries(body)) {
+      if (value.length === 0) continue;
+      await service.setConnectorSecret(
+        request.params.connectorId,
+        request.user.tenantId,
+        secretType,
+        value,
+      );
+    }
+    return service.getConnectorSecrets(request.params.connectorId, request.user.tenantId);
   });
 
   app.delete<{ Params: { connectorId: string } }>('/:connectorId', async (request, reply) => {

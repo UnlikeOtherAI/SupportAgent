@@ -46,6 +46,55 @@ export function createConnectorRepository(prisma: PrismaClient) {
       return prisma.connectorCapability.findMany({ where: { connectorId } });
     },
 
+    async listSecrets(connectorId: string) {
+      return prisma.connectionSecret.findMany({
+        where: { connectorId },
+        select: {
+          id: true,
+          secretType: true,
+          maskedHint: true,
+          createdAt: true,
+          rotatedAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    },
+
+    async upsertSecret(
+      connectorId: string,
+      secretType: string,
+      encryptedValue: string,
+      maskedHint: string,
+    ) {
+      const existing = await prisma.connectionSecret.findFirst({
+        where: { connectorId, secretType },
+      });
+      if (existing) {
+        return prisma.connectionSecret.update({
+          where: { id: existing.id },
+          data: {
+            encryptedValue,
+            maskedHint,
+            rotatedAt: new Date(),
+          },
+        });
+      }
+      return prisma.connectionSecret.create({
+        data: {
+          connectorId,
+          secretType,
+          encryptedValue,
+          maskedHint,
+        },
+      });
+    },
+
+    async deleteSecret(connectorId: string, secretType: string) {
+      return prisma.connectionSecret.deleteMany({
+        where: { connectorId, secretType },
+      });
+    },
+
     async upsertCapability(
       connectorId: string,
       capabilityKey: string,
