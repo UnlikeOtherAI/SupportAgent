@@ -17,6 +17,7 @@ export interface PlatformRegistryEntry {
   defaultDirection: 'inbound' | 'outbound' | 'both';
   defaultIntakeMode: 'webhook' | 'polling' | 'manual';
   supportsCustomServer: boolean;
+  supportsOAuth: boolean;
   configFields: PlatformConfigField[];
 }
 
@@ -30,6 +31,7 @@ export const PLATFORM_REGISTRY: Record<string, PlatformRegistryEntry> = {
     defaultDirection: 'inbound',
     defaultIntakeMode: 'webhook',
     supportsCustomServer: true,
+    supportsOAuth: false,
     configFields: [
       {
         key: 'auth_token',
@@ -84,6 +86,7 @@ export const PLATFORM_REGISTRY: Record<string, PlatformRegistryEntry> = {
     defaultDirection: 'inbound',
     defaultIntakeMode: 'webhook',
     supportsCustomServer: false,
+    supportsOAuth: false,
     configFields: [
       {
         key: 'service_account_json',
@@ -113,6 +116,7 @@ export const PLATFORM_REGISTRY: Record<string, PlatformRegistryEntry> = {
     defaultDirection: 'both',
     defaultIntakeMode: 'webhook',
     supportsCustomServer: false,
+    supportsOAuth: true,
     configFields: [
       {
         key: 'api_key',
@@ -159,6 +163,7 @@ export const PLATFORM_REGISTRY: Record<string, PlatformRegistryEntry> = {
     defaultDirection: 'both',
     defaultIntakeMode: 'webhook',
     supportsCustomServer: true,
+    supportsOAuth: true,
     configFields: [
       {
         key: 'access_token',
@@ -197,6 +202,7 @@ export const PLATFORM_REGISTRY: Record<string, PlatformRegistryEntry> = {
     defaultDirection: 'both',
     defaultIntakeMode: 'webhook',
     supportsCustomServer: true,
+    supportsOAuth: true,
     configFields: [
       {
         key: 'access_token',
@@ -251,6 +257,7 @@ export const PLATFORM_REGISTRY: Record<string, PlatformRegistryEntry> = {
     defaultDirection: 'both',
     defaultIntakeMode: 'webhook',
     supportsCustomServer: true,
+    supportsOAuth: false,
     configFields: [
       {
         key: 'api_token',
@@ -305,6 +312,7 @@ export const PLATFORM_REGISTRY: Record<string, PlatformRegistryEntry> = {
     defaultDirection: 'both',
     defaultIntakeMode: 'webhook',
     supportsCustomServer: false,
+    supportsOAuth: false,
     configFields: [
       {
         key: 'api_key',
@@ -352,6 +360,7 @@ export const PLATFORM_REGISTRY: Record<string, PlatformRegistryEntry> = {
     defaultDirection: 'both',
     defaultIntakeMode: 'webhook',
     supportsCustomServer: true,
+    supportsOAuth: true,
     configFields: [
       {
         key: 'access_token',
@@ -390,6 +399,7 @@ export const PLATFORM_REGISTRY: Record<string, PlatformRegistryEntry> = {
     defaultDirection: 'both',
     defaultIntakeMode: 'webhook',
     supportsCustomServer: true,
+    supportsOAuth: false,
     configFields: [
       {
         key: 'app_password',

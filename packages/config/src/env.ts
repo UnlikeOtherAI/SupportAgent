@@ -18,6 +18,14 @@ const envSchema = z.object({
   SSO_IDENTIFIER: z.string().default('authentication.unlikeotherai.com'),
   SSO_DOMAIN: z.string().default('app.appbuildbox.com'),
   ADMIN_APP_URL: z.string().url().default('http://localhost:5173'),
+  // OAuth App credentials — set by the operator for each platform they register.
+  // When absent, that platform's OAuth option is hidden and token auth is used instead.
+  GITHUB_OAUTH_CLIENT_ID: z.string().optional(),
+  GITHUB_OAUTH_CLIENT_SECRET: z.string().optional(),
+  GITLAB_OAUTH_CLIENT_ID: z.string().optional(),
+  GITLAB_OAUTH_CLIENT_SECRET: z.string().optional(),
+  LINEAR_OAUTH_CLIENT_ID: z.string().optional(),
+  LINEAR_OAUTH_CLIENT_SECRET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
