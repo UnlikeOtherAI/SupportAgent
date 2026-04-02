@@ -1,5 +1,9 @@
 import { type Env } from '@support-agent/config';
 
+type StringEnvKey = {
+  [K in keyof Env]-?: Env[K] extends string | undefined ? K : never;
+}[keyof Env];
+
 export interface OAuthPlatformConfig {
   /** Authorization endpoint on the provider */
   authorizeUrl: string;
@@ -8,9 +12,9 @@ export interface OAuthPlatformConfig {
   /** Default scopes to request */
   scopes: string[];
   /** Env key holding the client ID */
-  clientIdKey: keyof Env;
+  clientIdKey: StringEnvKey;
   /** Env key holding the client secret */
-  clientSecretKey: keyof Env;
+  clientSecretKey: StringEnvKey;
 }
 
 /**
@@ -56,8 +60,8 @@ export function getOAuthCredentials(
 ): { clientId: string; clientSecret: string } | null {
   const config = OAUTH_PLATFORM_MAP[platformKey];
   if (!config) return null;
-  const clientId = env[config.clientIdKey] as string | undefined;
-  const clientSecret = env[config.clientSecretKey] as string | undefined;
+  const clientId = env[config.clientIdKey];
+  const clientSecret = env[config.clientSecretKey];
   if (!clientId || !clientSecret) return null;
   return { clientId, clientSecret };
 }
