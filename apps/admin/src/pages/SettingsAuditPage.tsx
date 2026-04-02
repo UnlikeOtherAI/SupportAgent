@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { settingsApi, type AuditEvent } from '@/api/settings'
 import { Card, CardHeader } from '@/components/ui/Card'
@@ -12,6 +12,7 @@ export default function SettingsAuditPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['audit-events', page],
     queryFn: () => settingsApi.listAuditEvents({ page, limit: 25 }),
+    placeholderData: keepPreviousData,
   })
   const columns: Column<AuditEvent>[] = [
     { key: 'timestamp', header: 'Timestamp', render: (event) => <span className="font-mono text-xs text-gray-500">{event.timestamp}</span> },
@@ -26,10 +27,6 @@ export default function SettingsAuditPage() {
     },
   ]
 
-  if (isLoading) {
-    return <PageShell title="Audit Log"><p className="text-sm text-gray-400">Loading...</p></PageShell>
-  }
-
   const events = data?.data ?? []
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / (data?.limit ?? 25)))
 
@@ -38,7 +35,7 @@ export default function SettingsAuditPage() {
       <Link to="/settings" className="mb-4 inline-block text-sm text-gray-500 hover:text-gray-700">&larr; Back to Settings</Link>
       <Card>
         <CardHeader title="Recent Events" subtitle={`${data?.total ?? 0} total`} />
-        <DataTable columns={columns} rows={events} keyExtractor={(event) => event.id} emptyMessage="No audit events found" />
+        <DataTable columns={columns} rows={events} keyExtractor={(event) => event.id} emptyMessage="No audit events found" isLoading={isLoading} />
         {totalPages > 1 && (
           <div className="flex items-center justify-between border-t border-gray-100 px-5 py-3">
             <span className="text-xs text-gray-400">Page {page} of {totalPages}</span>

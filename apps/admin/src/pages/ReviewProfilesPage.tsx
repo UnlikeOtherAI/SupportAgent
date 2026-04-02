@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { PlusIcon } from '@/components/icons/NavIcons'
 import { reviewProfilesApi, type ReviewProfile } from '@/api/review-profiles'
@@ -53,11 +53,8 @@ export default function ReviewProfilesPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['review-profiles', page],
     queryFn: () => reviewProfilesApi.list({ page }),
+    placeholderData: keepPreviousData,
   })
-
-  if (isLoading) {
-    return <PageShell title="Review Profiles"><p className="text-sm text-gray-400">Loading...</p></PageShell>
-  }
 
   const profiles = data?.data ?? []
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / (data?.limit ?? 20)))
@@ -69,7 +66,7 @@ export default function ReviewProfilesPage() {
     >
       <Card>
         <CardHeader title="All Review Profiles" subtitle={`${data?.total ?? 0} total`} />
-        <DataTable columns={columns} rows={profiles} keyExtractor={(profile) => profile.id} emptyMessage="No review profiles found" />
+        <DataTable columns={columns} rows={profiles} keyExtractor={(profile) => profile.id} emptyMessage="No review profiles found" isLoading={isLoading} />
         {totalPages > 1 && (
           <div className="flex items-center justify-between border-t border-gray-100 px-5 py-3">
             <span className="text-xs text-gray-400">Page {page} of {totalPages}</span>

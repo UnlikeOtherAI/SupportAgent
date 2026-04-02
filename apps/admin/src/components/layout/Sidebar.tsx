@@ -67,7 +67,7 @@ export function Sidebar() {
     : '??'
 
   return (
-    <aside className="grid grid-rows-[var(--height-topbar)_1fr_auto] border-r border-white/6 bg-gray-950" style={{ width: 'var(--width-sidebar)' }}>
+    <aside className="grid h-full grid-rows-[var(--height-topbar)_1fr_auto] border-r border-white/6 bg-gray-950" style={{ width: 'var(--width-sidebar)' }}>
       {/* Brand */}
       <div className="flex items-center gap-2.5 border-b border-white/6 px-5">
         <div className="flex h-6 w-6 items-center justify-center rounded-[6px] bg-accent-500">

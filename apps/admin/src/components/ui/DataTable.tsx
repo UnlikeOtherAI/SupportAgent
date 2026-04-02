@@ -12,9 +12,10 @@ interface DataTableProps<T> {
   rows: T[]
   keyExtractor: (row: T) => string
   emptyMessage?: string
+  isLoading?: boolean
 }
 
-export function DataTable<T>({ columns, rows, keyExtractor, emptyMessage = 'No data' }: DataTableProps<T>) {
+export function DataTable<T>({ columns, rows, keyExtractor, emptyMessage = 'No data', isLoading }: DataTableProps<T>) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse">
@@ -31,7 +32,17 @@ export function DataTable<T>({ columns, rows, keyExtractor, emptyMessage = 'No d
           </tr>
         </thead>
         <tbody>
-          {rows.length === 0 ? (
+          {isLoading ? (
+            Array.from({ length: 8 }).map((_, i) => (
+              <tr key={i}>
+                {columns.map((col) => (
+                  <td key={col.key} className="border-b border-gray-100 px-5 py-3">
+                    <div className="h-4 w-3/4 animate-pulse rounded bg-gray-100" />
+                  </td>
+                ))}
+              </tr>
+            ))
+          ) : rows.length === 0 ? (
             <tr>
               <td
                 colSpan={columns.length}

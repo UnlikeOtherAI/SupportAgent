@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { scenariosApi, type WorkflowScenario } from '@/api/scenarios'
 import { PlusIcon } from '@/components/icons/NavIcons'
 import { Button } from '@/components/ui/Button'
@@ -55,15 +55,8 @@ export default function ScenariosPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['scenarios', page],
     queryFn: () => scenariosApi.list({ page }),
+    placeholderData: keepPreviousData,
   })
-
-  if (isLoading) {
-    return (
-      <PageShell title="Workflow Scenarios">
-        <p className="text-sm text-gray-400">Loading...</p>
-      </PageShell>
-    )
-  }
 
   const scenarios = data?.data ?? []
   const totalPages = Math.ceil((data?.total ?? 0) / (data?.limit ?? 20))
@@ -86,6 +79,7 @@ export default function ScenariosPage() {
           rows={scenarios}
           keyExtractor={(scenario) => scenario.id}
           emptyMessage="No scenarios found"
+          isLoading={isLoading}
         />
         {totalPages > 1 && (
           <div className="flex items-center justify-between border-t border-gray-100 px-5 py-3">

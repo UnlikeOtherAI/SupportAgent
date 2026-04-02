@@ -52,16 +52,12 @@ export default function SettingsUsersPage() {
     },
   ]
 
-  if (isLoading) {
-    return <PageShell title="Users"><p className="text-sm text-gray-400">Loading...</p></PageShell>
-  }
-
   return (
     <PageShell title="Users">
       <Link to="/settings" className="mb-4 inline-block text-sm text-gray-500 hover:text-gray-700">&larr; Back to Settings</Link>
       <Card>
         <CardHeader title="Tenant Users" subtitle={`${allUsers.length} loaded`} />
-        <DataTable columns={columns} rows={users} keyExtractor={(user) => user.id} emptyMessage="No users found" />
+        <DataTable columns={columns} rows={users} keyExtractor={(user) => user.id} emptyMessage="No users found" isLoading={isLoading} />
         {totalPages > 1 && (
           <div className="flex items-center justify-between border-t border-gray-100 px-5 py-3">
             <span className="text-xs text-gray-400">Page {page} of {totalPages}</span>

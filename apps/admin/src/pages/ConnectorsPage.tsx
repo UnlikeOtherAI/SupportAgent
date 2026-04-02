@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { connectorsApi, type Connector } from '@/api/connectors'
 import { PlusIcon } from '@/components/icons/NavIcons'
 import { Button } from '@/components/ui/Button'
@@ -53,11 +53,8 @@ export default function ConnectorsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['connectors', page],
     queryFn: () => connectorsApi.list({ page }),
+    placeholderData: keepPreviousData,
   })
-
-  if (isLoading) {
-    return <PageShell title="Connectors"><p className="text-sm text-gray-400">Loading...</p></PageShell>
-  }
 
   const connectors = data?.data ?? []
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / Math.max(data?.limit ?? 20, 1)))
@@ -73,7 +70,7 @@ export default function ConnectorsPage() {
     >
       <Card>
         <CardHeader title="All Connectors" subtitle={`${data?.total ?? 0} total`} />
-        <DataTable columns={columns} rows={connectors} keyExtractor={(connector) => connector.id} emptyMessage="No connectors found" />
+        <DataTable columns={columns} rows={connectors} keyExtractor={(connector) => connector.id} emptyMessage="No connectors found" isLoading={isLoading} />
         {totalPages > 1 && (
           <div className="flex items-center justify-between border-t border-gray-100 px-5 py-3">
             <span className="text-xs text-gray-400">Page {page} of {totalPages}</span>

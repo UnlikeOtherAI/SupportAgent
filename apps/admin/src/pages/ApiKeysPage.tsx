@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { PlusIcon } from '@/components/icons/NavIcons'
 import { providersApi, type RuntimeApiKey } from '@/api/providers'
@@ -17,6 +17,7 @@ export default function ApiKeysPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['api-keys', page],
     queryFn: () => providersApi.listApiKeys({ page }),
+    placeholderData: keepPreviousData,
   })
   const revokeMutation = useMutation({
     mutationFn: (id: string) => providersApi.revokeApiKey(id),
@@ -53,10 +54,6 @@ export default function ApiKeysPage() {
     },
   ]
 
-  if (isLoading) {
-    return <PageShell title="Runtime API Keys"><p className="text-sm text-gray-400">Loading...</p></PageShell>
-  }
-
   const apiKeys = data?.data ?? []
   const total = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / (data?.limit ?? 20)))
@@ -72,7 +69,7 @@ export default function ApiKeysPage() {
     >
       <Card>
         <CardHeader title="All Runtime API Keys" subtitle={`${total} total`} />
-        <DataTable columns={columns} rows={apiKeys} keyExtractor={(key) => key.id} emptyMessage="No API keys found" />
+        <DataTable columns={columns} rows={apiKeys} keyExtractor={(key) => key.id} emptyMessage="No API keys found" isLoading={isLoading} />
         {totalPages > 1 ? (
           <div className="flex items-center justify-between border-t border-gray-100 px-5 py-3">
             <span className="text-xs text-gray-400">Page {page} of {totalPages}</span>

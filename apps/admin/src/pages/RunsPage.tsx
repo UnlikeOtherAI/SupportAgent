@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { DownloadIcon } from '@/components/icons/NavIcons'
 import { runsApi, type WorkflowRun } from '@/api/runs'
@@ -75,18 +75,8 @@ export default function RunsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['runs', typeFilter, statusFilter, page],
     queryFn: () => runsApi.list({ page, type: typeFilter, status: statusFilter }),
+    placeholderData: keepPreviousData,
   })
-
-  if (isLoading) {
-    return (
-      <PageShell
-        title="Workflow Runs"
-        action={<Button variant="secondary" icon={<DownloadIcon />}>Export</Button>}
-      >
-        <p className="text-sm text-gray-400">Loading...</p>
-      </PageShell>
-    )
-  }
 
   const runs = data?.data ?? []
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / (data?.limit ?? 20)))
@@ -115,7 +105,7 @@ export default function RunsPage() {
         />
       </div>
       <Card>
-        <DataTable columns={columns} rows={runs} keyExtractor={(run) => run.id} emptyMessage="No workflow runs found" />
+        <DataTable columns={columns} rows={runs} keyExtractor={(run) => run.id} emptyMessage="No workflow runs found" isLoading={isLoading} />
         <div className="flex items-center justify-between border-t border-gray-100 px-5 py-3">
           <span className="text-xs text-gray-400">Page {page} of {totalPages}</span>
           <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />

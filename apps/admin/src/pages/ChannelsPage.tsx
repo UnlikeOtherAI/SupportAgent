@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { PlusIcon } from '@/components/icons/NavIcons'
 import { Button } from '@/components/ui/Button'
@@ -60,15 +60,8 @@ export default function ChannelsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['channels', page],
     queryFn: () => channelsApi.list({ page }),
+    placeholderData: keepPreviousData,
   })
-
-  if (isLoading) {
-    return (
-      <PageShell title="Communication Channels">
-        <p className="text-sm text-gray-400">Loading...</p>
-      </PageShell>
-    )
-  }
 
   const channels = data?.data ?? []
   const total = data?.total ?? 0
@@ -90,6 +83,7 @@ export default function ChannelsPage() {
           rows={channels}
           keyExtractor={(channel) => channel.id}
           emptyMessage="No channels found"
+          isLoading={isLoading}
         />
         {totalPages > 1 ? (
           <div className="flex items-center justify-between border-t border-gray-100 px-5 py-3">

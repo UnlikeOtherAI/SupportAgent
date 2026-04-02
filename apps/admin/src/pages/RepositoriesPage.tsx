@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { PlusIcon } from '@/components/icons/NavIcons'
 import { Button } from '@/components/ui/Button'
 import { Card, CardHeader } from '@/components/ui/Card'
@@ -71,15 +71,8 @@ export default function RepositoriesPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['repositories', page],
     queryFn: () => repositoriesApi.list({ page }),
+    placeholderData: keepPreviousData,
   })
-
-  if (isLoading) {
-    return (
-      <PageShell title="Repository Mappings">
-        <p className="text-sm text-gray-400">Loading...</p>
-      </PageShell>
-    )
-  }
 
   const mappings = data?.data ?? []
   const total = data?.total ?? 0
@@ -103,6 +96,7 @@ export default function RepositoriesPage() {
           rows={mappings}
           keyExtractor={(mapping) => mapping.id}
           emptyMessage="No repository mappings found"
+          isLoading={isLoading}
         />
         {totalPages > 1 ? (
           <div className="flex items-center justify-between border-t border-gray-100 px-5 py-3">

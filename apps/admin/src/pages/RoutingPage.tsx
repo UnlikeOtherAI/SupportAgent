@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { PlusIcon } from '@/components/icons/NavIcons'
 import { routingApi, type RoutingRule } from '@/api/routing'
 import { Button } from '@/components/ui/Button'
@@ -65,11 +65,8 @@ export default function RoutingPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['routing-rules', page],
     queryFn: () => routingApi.listRules({ page }),
+    placeholderData: keepPreviousData,
   })
-
-  if (isLoading) {
-    return <PageShell title="Routing Rules"><p className="text-sm text-gray-400">Loading...</p></PageShell>
-  }
 
   const rules = data?.data ?? []
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / (data?.limit ?? 20)))
@@ -90,7 +87,7 @@ export default function RoutingPage() {
     >
       <Card>
         <CardHeader title="All Rules" subtitle={`${data?.total ?? 0} total`} />
-        <DataTable columns={columns} rows={rules} keyExtractor={(rule) => rule.id} emptyMessage="No routing rules found" />
+        <DataTable columns={columns} rows={rules} keyExtractor={(rule) => rule.id} emptyMessage="No routing rules found" isLoading={isLoading} />
         {totalPages > 1 && (
           <div className="flex items-center justify-between border-t border-gray-100 px-5 py-3">
             <span className="text-xs text-gray-400">Page {page} of {totalPages}</span>
