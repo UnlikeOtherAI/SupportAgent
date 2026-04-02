@@ -19,6 +19,7 @@ import {
 } from './routes/outbound-destinations.js';
 import { dispatcherRoutes } from './routes/dispatcher.js';
 import { authRoutes } from './routes/auth.js';
+import { connectorOAuthRoutes } from './routes/connector-oauth.js';
 import { settingsRoutes } from './routes/settings.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -48,6 +49,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(healthRoutes, { prefix: '/health' });
   await app.register(authRoutes, { prefix: '/v1/auth' });
   await app.register(connectorRoutes, { prefix: '/v1/connectors' });
+  await app.register(connectorOAuthRoutes, { prefix: '/v1/connector-oauth' });
   await app.register(platformTypeRoutes, { prefix: '/v1/platform-types' });
   await app.register(workflowRunRoutes, { prefix: '/v1/runs' });
   await app.register(findingRunRoutes, { prefix: '/v1/runs' });
