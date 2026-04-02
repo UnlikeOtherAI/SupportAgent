@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import {
-  DashboardIcon, JobsIcon, ConnectorsIcon, RepositoriesIcon,
+  DashboardIcon, JobsIcon, RepositoriesIcon,
   RoutingIcon, ScenariosIcon, ChannelsIcon, ProvidersIcon,
   ApiKeysIcon, ReviewIcon, SettingsIcon, BoltIcon,
 } from '@/components/icons/NavIcons'
@@ -32,7 +32,6 @@ const NAV: NavSection[] = [
     label: 'Configuration',
     items: [
       { label: 'Apps', to: '/apps', icon: <AppsIcon /> },
-      { label: 'Connectors', to: '/connectors', icon: <ConnectorsIcon /> },
       { label: 'Repositories', to: '/repositories', icon: <RepositoriesIcon /> },
       { label: 'Routing', to: '/routing', icon: <RoutingIcon /> },
       { label: 'Scenarios', to: '/scenarios', icon: <ScenariosIcon /> },
