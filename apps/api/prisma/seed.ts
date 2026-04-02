@@ -12,6 +12,9 @@ async function main() {
       supportsPolling: true,
       supportsInbound: true,
       supportsOutbound: false,
+      description:
+        'Monitor production errors and ingest Sentry issues through a shared connector contract.',
+      category: 'error-monitoring',
     },
     {
       key: 'crashlytics',
@@ -20,6 +23,8 @@ async function main() {
       supportsPolling: true,
       supportsInbound: true,
       supportsOutbound: false,
+      description: 'Receive mobile crash reports from Firebase Crashlytics.',
+      category: 'error-monitoring',
     },
     {
       key: 'linear',
@@ -28,6 +33,9 @@ async function main() {
       supportsPolling: true,
       supportsInbound: true,
       supportsOutbound: true,
+      description:
+        'Sync issues and comments with Linear for inbound intake and outbound follow-up.',
+      category: 'issue-tracker',
     },
     {
       key: 'github',
@@ -36,6 +44,9 @@ async function main() {
       supportsPolling: true,
       supportsInbound: true,
       supportsOutbound: true,
+      description:
+        'Connect repositories and pull request events from GitHub or GitHub Enterprise.',
+      category: 'version-control',
     },
     {
       key: 'github_issues',
@@ -44,6 +55,9 @@ async function main() {
       supportsPolling: true,
       supportsInbound: true,
       supportsOutbound: true,
+      description:
+        'Use GitHub Issues as an issue tracker for intake, comment sync, and outbound updates.',
+      category: 'issue-tracker',
     },
     {
       key: 'jira',
@@ -52,6 +66,9 @@ async function main() {
       supportsPolling: true,
       supportsInbound: true,
       supportsOutbound: true,
+      description:
+        'Integrate Atlassian Jira projects for issue intake, updates, and workflow routing.',
+      category: 'issue-tracker',
     },
     {
       key: 'trello',
@@ -60,6 +77,9 @@ async function main() {
       supportsPolling: true,
       supportsInbound: true,
       supportsOutbound: true,
+      description:
+        'Connect Trello boards for card-based intake, routing, and outbound status updates.',
+      category: 'project-management',
     },
     {
       key: 'gitlab',
@@ -68,6 +88,9 @@ async function main() {
       supportsPolling: true,
       supportsInbound: true,
       supportsOutbound: true,
+      description:
+        'Connect GitLab repositories and merge request events from cloud or self-managed instances.',
+      category: 'version-control',
     },
     {
       key: 'bitbucket',
@@ -76,6 +99,9 @@ async function main() {
       supportsPolling: true,
       supportsInbound: true,
       supportsOutbound: true,
+      description:
+        'Integrate Bitbucket repositories and pull request activity from cloud or self-hosted setups.',
+      category: 'version-control',
     },
   ];
 

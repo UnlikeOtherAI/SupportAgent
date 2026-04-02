@@ -108,6 +108,8 @@ model PlatformType {
   supportsPolling  Boolean
   supportsInbound  Boolean
   supportsOutbound Boolean
+  description      String   @default("")
+  category         String   @default("issue-tracker")
   createdAt        DateTime @default(now())
 
   connectors Connector[]
