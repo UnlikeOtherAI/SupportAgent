@@ -17,7 +17,7 @@ export default function LoginPage() {
   })
 
   const providers = data?.providers.filter((provider) => provider.enabled) ?? []
-  const showDevLogin = import.meta.env.DEV && !isLoading && providers.length === 0
+  const showDevLogin = import.meta.env.DEV
 
   async function handleDevLogin() {
     setDevLoading(true)
