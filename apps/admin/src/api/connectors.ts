@@ -23,6 +23,14 @@ export interface ConnectorCapability {
   detectedAt: string | null
 }
 
+export interface ConnectorSecret {
+  id: string
+  secretType: string
+  maskedHint: string | null
+  createdAt: string
+  rotatedAt: string | null
+}
+
 export interface TaxonomyConfig {
   labels: string[]
   projects: string[]
@@ -56,6 +64,9 @@ export const connectorsApi = {
   create: (data: Partial<Connector>) => api.post<Connector>('/v1/connectors', data),
   update: (id: string, data: Partial<Connector>) => api.put<Connector>(`/v1/connectors/${id}`, data),
   delete: (id: string) => api.delete<void>(`/v1/connectors/${id}`),
+  getSecrets: (id: string) => api.get<ConnectorSecret[]>('/v1/connectors/' + id + '/secrets'),
+  setSecrets: (id: string, secrets: Record<string, string>) =>
+    api.put<ConnectorSecret[]>('/v1/connectors/' + id + '/secrets', secrets),
   getPlatformTypes: () => api.get<{ platformTypes: PlatformType[] }>('/v1/connectors/platform-types'),
   discoverCapabilities: (id: string) => api.post<{ capabilities: ConnectorCapability[] }>(`/v1/connectors/${id}/discover-capabilities`),
   getCapabilities: (id: string) => api.get<{ capabilities: ConnectorCapability[] }>(`/v1/connectors/${id}/capabilities`),
