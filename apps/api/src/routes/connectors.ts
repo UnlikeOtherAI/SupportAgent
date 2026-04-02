@@ -3,14 +3,21 @@ import { z } from 'zod';
 import { createConnectorRepository } from '../repositories/connector-repository.js';
 import { createConnectorService } from '../services/connector-service.js';
 
-const CreateConnectorBody = z.object({
-  platformTypeId: z.string().uuid(),
-  name: z.string().min(1).max(255),
-  direction: z.enum(['inbound', 'outbound', 'both']),
-  configuredIntakeMode: z.enum(['webhook', 'polling', 'manual']),
-  apiBaseUrl: z.string().url().optional(),
-  pollingIntervalSeconds: z.number().int().min(10).optional(),
-});
+const CreateConnectorBody = z
+  .object({
+    platformTypeKey: z.string().optional(),
+    platformTypeId: z.string().uuid().optional(),
+    name: z.string().min(1).max(255),
+    direction: z.enum(['inbound', 'outbound', 'both']),
+    configuredIntakeMode: z.enum(['webhook', 'polling', 'manual']),
+    apiBaseUrl: z.string().url().optional(),
+    pollingIntervalSeconds: z.number().int().min(10).optional(),
+    config: z.record(z.string(), z.string()).optional(),
+    secrets: z.record(z.string(), z.string()).optional(),
+  })
+  .refine((d) => d.platformTypeKey || d.platformTypeId, {
+    message: 'Either platformTypeKey or platformTypeId is required',
+  });
 
 const UpdateConnectorBody = z.object({
   name: z.string().min(1).max(255).optional(),

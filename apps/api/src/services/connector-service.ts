@@ -16,21 +16,35 @@ export function createConnectorService(repo: ConnectorRepository, prisma: Prisma
     async createConnector(
       tenantId: string,
       input: {
-        platformTypeId: string;
+        platformTypeKey?: string;
+        platformTypeId?: string;
         name: string;
         direction: string;
         configuredIntakeMode: string;
         apiBaseUrl?: string;
         pollingIntervalSeconds?: number;
+        config?: Record<string, string>;
+        secrets?: Record<string, string>;
       },
     ) {
+      const platformTypeId =
+        input.platformTypeId ??
+        (
+          await prisma.platformType.findUnique({
+            where: { key: input.platformTypeKey },
+          })
+        )?.id;
+
+      if (!platformTypeId)
+        throw Object.assign(new Error('Platform type not found'), { statusCode: 400 });
+
       const platformType = await prisma.platformType.findUnique({
-        where: { id: input.platformTypeId },
+        where: { id: platformTypeId },
       });
       if (!platformType)
         throw Object.assign(new Error('Platform type not found'), { statusCode: 400 });
 
-      return repo.create({
+      const connector = await repo.create({
         tenantId,
         name: input.name,
         direction: input.direction as 'inbound' | 'outbound' | 'both',
@@ -39,8 +53,21 @@ export function createConnectorService(repo: ConnectorRepository, prisma: Prisma
         isEnabled: true,
         apiBaseUrl: input.apiBaseUrl,
         pollingIntervalSeconds: input.pollingIntervalSeconds,
-        platformType: { connect: { id: input.platformTypeId } },
+        platformType: { connect: { id: platformTypeId } },
       });
+
+      if (input.config) {
+        await repo.update(connector.id, tenantId, { capabilities: input.config });
+      }
+
+      if (input.secrets) {
+        for (const [secretType, value] of Object.entries(input.secrets)) {
+          if (value.length === 0) continue;
+          await this.setConnectorSecret(connector.id, tenantId, secretType, value);
+        }
+      }
+
+      return this.getConnector(connector.id, tenantId);
     },
 
     async updateConnector(
