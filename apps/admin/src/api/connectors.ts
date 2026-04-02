@@ -68,6 +68,10 @@ export const connectorsApi = {
   setSecrets: (id: string, secrets: Record<string, string>) =>
     api.put<ConnectorSecret[]>('/v1/connectors/' + id + '/secrets', secrets),
   getPlatformTypes: () => api.get<{ platformTypes: PlatformType[] }>('/v1/connectors/platform-types'),
+  getOAuthStartUrl: (platformKey: string, connectorId: string) =>
+    api.get<{ redirectUrl: string }>(
+      `/v1/connector-oauth/${platformKey}/start?connectorId=${encodeURIComponent(connectorId)}`
+    ),
   discoverCapabilities: (id: string) => api.post<{ capabilities: ConnectorCapability[] }>(`/v1/connectors/${id}/discover-capabilities`),
   getCapabilities: (id: string) => api.get<{ capabilities: ConnectorCapability[] }>(`/v1/connectors/${id}/capabilities`),
   getTriggerPolicies: (id: string) => api.get<{ policies: TriggerPolicy[] }>(`/v1/connectors/${id}/trigger-policies`),

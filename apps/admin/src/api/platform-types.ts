@@ -14,6 +14,7 @@ export interface PlatformTypeDetail {
   supportsCustomServer: boolean
   defaultDirection: 'inbound' | 'outbound' | 'both'
   defaultIntakeMode: 'webhook' | 'polling' | 'manual'
+  oauthAvailable: boolean
   configFields: {
     key: string
     label: string
