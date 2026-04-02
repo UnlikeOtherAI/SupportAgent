@@ -59,8 +59,8 @@ function getString(record: Record<string, unknown>, keys: string[]): string | nu
 /* ── Routes ───────────────────────────────────────────────── */
 
 export async function authRoutes(app: FastifyInstance) {
-  /* POST /dev-login — mint a dev JWT; only active in non-production without SSO */
-  app.post('/dev-login', async (_request, reply) => {
+  /* GET /dev-login — mint a dev JWT; only active in non-production without SSO */
+  app.get('/dev-login', async (_request, reply) => {
     const env = getEnv();
 
     if (env.NODE_ENV === 'production' || env.SSO_SHARED_SECRET) {

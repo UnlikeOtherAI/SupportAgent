@@ -25,5 +25,5 @@ export interface DevLoginResponse {
 
 export const authApi = {
   getProviders: () => api.get<AuthProvidersResponse>('/v1/auth/providers'),
-  devLogin: () => api.post<DevLoginResponse>('/v1/auth/dev-login'),
+  devLogin: () => api.get<DevLoginResponse>('/v1/auth/dev-login'),
 }
