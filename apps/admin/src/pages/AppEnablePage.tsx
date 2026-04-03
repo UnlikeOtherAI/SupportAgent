@@ -65,7 +65,15 @@ export default function AppEnablePage() {
         config: {},
         secrets: {},
       } as Parameters<typeof connectorsApi.create>[0])
-      const { redirectUrl } = await connectorsApi.getOAuthStartUrl(platform.key, connector.id)
+      let redirectUrl: string
+      try {
+        const result = await connectorsApi.getOAuthStartUrl(platform.key, connector.id)
+        redirectUrl = result.redirectUrl
+      } catch (err) {
+        await connectorsApi.delete(connector.id).catch(() => undefined)
+        throw err
+      }
+      if (!redirectUrl.startsWith('https://')) throw new Error('Invalid OAuth redirect URL')
       return redirectUrl
     },
     onSuccess: (redirectUrl) => {
@@ -111,12 +119,11 @@ export default function AppEnablePage() {
   function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
-    if (platform) {
-      for (const field of platform.configFields) {
-        if (field.required && !values[field.key]) {
-          setError(`${field.label} is required`)
-          return
-        }
+    if (!platform) return
+    for (const field of platform.configFields) {
+      if (field.required && !values[field.key]) {
+        setError(`${field.label} is required`)
+        return
       }
     }
     createMutation.mutate()
