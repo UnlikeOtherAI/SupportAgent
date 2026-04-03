@@ -43,6 +43,9 @@ export default function AppEnablePage() {
   const navigate = useNavigate()
   const [values, setValues] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
+  // 'choose' shows the method picker; 'token' shows the PAT form.
+  // Platforms without oauthAvailable skip straight to 'token'.
+  const [authMethod, setAuthMethod] = useState<'choose' | 'token'>('choose')
 
   const { data: platform, isLoading } = useQuery({
     queryKey: ['platform-type', platformKey],
@@ -50,10 +53,33 @@ export default function AppEnablePage() {
     enabled: !!platformKey,
   })
 
+  // OAuth flow: create a connector shell, then redirect to the provider
+  const oauthMutation = useMutation({
+    mutationFn: async () => {
+      if (!platform) throw new Error('Platform not loaded')
+      const connector = await connectorsApi.create({
+        platformTypeKey: platform.key,
+        name: platform.displayName,
+        direction: platform.defaultDirection,
+        configuredIntakeMode: platform.defaultIntakeMode,
+        config: {},
+        secrets: {},
+      } as Parameters<typeof connectorsApi.create>[0])
+      const { redirectUrl } = await connectorsApi.getOAuthStartUrl(platform.key, connector.id)
+      return redirectUrl
+    },
+    onSuccess: (redirectUrl) => {
+      window.location.href = redirectUrl
+    },
+    onError: (err: Error) => {
+      setError(err.message)
+    },
+  })
+
+  // Token flow: create the connector with secrets from the form
   const createMutation = useMutation({
     mutationFn: async () => {
       if (!platform) throw new Error('Platform not loaded')
-
       const secrets: Record<string, string> = {}
       const config: Record<string, string> = {}
       for (const field of platform.configFields) {
@@ -65,7 +91,6 @@ export default function AppEnablePage() {
           config[field.key] = val
         }
       }
-
       return connectorsApi.create({
         platformTypeKey: platform.key,
         name: platform.displayName,
@@ -86,7 +111,6 @@ export default function AppEnablePage() {
   function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
-
     if (platform) {
       for (const field of platform.configFields) {
         if (field.required && !values[field.key]) {
@@ -95,21 +119,69 @@ export default function AppEnablePage() {
         }
       }
     }
-
     createMutation.mutate()
   }
 
   if (isLoading) {
-    return <PageShell title="Enable App"><p className="text-sm text-gray-400">Loading...</p></PageShell>
+    return <PageShell title="Install App"><p className="text-sm text-gray-400">Loading...</p></PageShell>
   }
 
   if (!platform) {
-    return <PageShell title="Enable App"><p className="text-sm text-gray-400">Platform not found</p></PageShell>
+    return <PageShell title="Install App"><p className="text-sm text-gray-400">Platform not found</p></PageShell>
   }
 
+  // Method picker — shown for OAuth-capable platforms before the user picks a path
+  if (platform.oauthAvailable && authMethod === 'choose') {
+    return (
+      <PageShell title={`Connect ${platform.displayName}`}>
+        <Link to="/apps" className="mb-4 inline-block text-sm text-gray-500 hover:text-gray-700">&larr; Back</Link>
+        <Card className="max-w-md">
+          <CardHeader title={`Connect ${platform.displayName}`} subtitle="How would you like to authenticate?" />
+          <div className="space-y-3 px-5 pb-5">
+            {/* OAuth option */}
+            <button
+              type="button"
+              disabled={oauthMutation.isPending}
+              onClick={() => { setError(null); oauthMutation.mutate() }}
+              className="flex w-full items-center gap-4 rounded-[var(--radius-sm)] border border-gray-200 bg-white px-4 py-3 text-left transition-colors hover:border-accent-400 hover:bg-accent-50 disabled:opacity-50"
+            >
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-accent-50">
+                <PlatformIcon slug={platform.iconSlug} className="h-5 w-5 text-accent-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">
+                  {oauthMutation.isPending ? 'Redirecting…' : `Connect with ${platform.displayName}`}
+                </p>
+                <p className="text-xs text-gray-500">Authorize via our registered OAuth app — no tokens to copy</p>
+              </div>
+            </button>
+
+            {/* Token option */}
+            <button
+              type="button"
+              onClick={() => { setAuthMethod('token') }}
+              className="flex w-full items-center gap-4 rounded-[var(--radius-sm)] border border-gray-200 bg-white px-4 py-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50"
+            >
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-gray-50">
+                <span className="text-sm font-medium text-gray-500">PAT</span>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Use a personal access token</p>
+                <p className="text-xs text-gray-500">For self-hosted / enterprise instances, or manual credential management</p>
+              </div>
+            </button>
+
+            {error && <p className="pt-1 text-sm text-signal-red-500">{error}</p>}
+          </div>
+        </Card>
+      </PageShell>
+    )
+  }
+
+  // Token form (always available; default for platforms without OAuth)
   return (
-    <PageShell title={`Enable ${platform.displayName}`}>
-      <Link to="/apps" className="mb-4 inline-block text-sm text-gray-500 hover:text-gray-700">&larr; Back to Apps</Link>
+    <PageShell title={`Connect ${platform.displayName}`}>
+      <Link to="/apps" className="mb-4 inline-block text-sm text-gray-500 hover:text-gray-700">&larr; Back</Link>
 
       <Card>
         <CardHeader title={platform.displayName} subtitle={platform.description} />
@@ -138,8 +210,13 @@ export default function AppEnablePage() {
 
           <div className="flex gap-3 pt-2">
             <Button type="submit" variant="primary" disabled={createMutation.isPending}>
-              {createMutation.isPending ? 'Enabling...' : 'Enable'}
+              {createMutation.isPending ? 'Connecting…' : 'Connect'}
             </Button>
+            {platform.oauthAvailable && (
+              <Button type="button" variant="secondary" onClick={() => { setAuthMethod('choose') }}>
+                Back
+              </Button>
+            )}
             <Link to="/apps">
               <Button type="button" variant="secondary">Cancel</Button>
             </Link>
