@@ -9,4 +9,5 @@ prisma/generated/
 *.tsbuildinfo
 coverage/
 .playwright-cli/
+.playwright-mcp/
 test-results/
