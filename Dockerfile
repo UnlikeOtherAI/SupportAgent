@@ -1,5 +1,5 @@
 # ── Build stage ──────────────────────────────
-FROM node:20-slim AS build
+FROM node:22-slim AS build
 
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 WORKDIR /app
@@ -23,7 +23,7 @@ RUN pnpm --filter @support-agent/api exec prisma generate
 RUN pnpm turbo build --filter=@support-agent/api...
 
 # ── Production stage ─────────────────────────
-FROM node:20-slim
+FROM node:22-slim
 
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*

@@ -13,10 +13,10 @@ jobs:
   deploy-api:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - id: auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
@@ -31,36 +31,23 @@ jobs:
           docker push $IMAGE:latest
 
       - name: Deploy API to Cloud Run
-        uses: google-github-actions/deploy-cloudrun@v2
+        uses: google-github-actions/deploy-cloudrun@v3
         with:
           service: supportagent-api
           region: ${{ env.REGION }}
           image: ${{ env.REGISTRY }}/supportagent-api:${{ github.sha }}
           env_vars: |
-            NODE_ENV=production
-            PORT=8080
-            DATABASE_URL=${{ secrets.DATABASE_URL }}
-            REDIS_URL=${{ secrets.REDIS_URL }}
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            API_BASE_URL=https://supportagent-api-193510011126.${{ env.REGION }}.run.app
-            CORS_ORIGIN=https://supportagent-admin-193510011126.${{ env.REGION }}.run.app
-            QUEUE_BACKEND=${{ secrets.QUEUE_BACKEND }}
-            GCP_PROJECT_ID=${{ env.PROJECT }}
-            ADMIN_APP_URL=https://supportagent-admin-193510011126.${{ env.REGION }}.run.app
-            GITHUB_OAUTH_CLIENT_ID=${{ secrets.GITHUB_OAUTH_CLIENT_ID }}
-            GITHUB_OAUTH_CLIENT_SECRET=${{ secrets.GITHUB_OAUTH_CLIENT_SECRET }}
-            GITLAB_OAUTH_CLIENT_ID=${{ secrets.GITLAB_OAUTH_CLIENT_ID }}
-            GITLAB_OAUTH_CLIENT_SECRET=${{ secrets.GITLAB_OAUTH_CLIENT_SECRET }}
-            LINEAR_OAUTH_CLIENT_ID=${{ secrets.LINEAR_OAUTH_CLIENT_ID }}
-            LINEAR_OAUTH_CLIENT_SECRET=${{ secrets.LINEAR_OAUTH_CLIENT_SECRET }}
+            NODE_ENV=production,QUEUE_BACKEND=bullmq,API_BASE_URL=https://supportagent-api-193510011126.${{ env.REGION }}.run.app,CORS_ORIGIN=https://supportagent-admin-193510011126.${{ env.REGION }}.run.app,GCP_PROJECT_ID=${{ env.PROJECT }},ADMIN_APP_URL=https://supportagent-admin-193510011126.${{ env.REGION }}.run.app
+          secrets: |
+            DATABASE_URL=${{ secrets.DATABASE_URL_SECRET_NAME }}:latest,JWT_SECRET=${{ secrets.JWT_SECRET_NAME }}:latest
 
   deploy-admin:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - id: auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
@@ -76,9 +63,8 @@ jobs:
           docker push $IMAGE:latest
 
       - name: Deploy admin to Cloud Run
-        uses: google-github-actions/deploy-cloudrun@v2
+        uses: google-github-actions/deploy-cloudrun@v3
         with:
           service: supportagent-admin
           region: ${{ env.REGION }}
           image: ${{ env.REGISTRY }}/supportagent-admin:${{ github.sha }}
-          args: --port 80
