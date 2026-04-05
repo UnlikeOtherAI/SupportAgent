@@ -15,13 +15,14 @@ function parseWorkflowTypes(value: string) {
 }
 
 export default function ReviewProfileEditPage() {
-  const { id } = useParams<{ id: string }>()
+  const { id: rawId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { data, isLoading } = useQuery({
-    queryKey: ['review-profile', id],
-    queryFn: () => reviewProfilesApi.get(id!),
-    enabled: !!id,
+    queryKey: ['review-profile', rawId],
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards this
+    queryFn: () => reviewProfilesApi.get(rawId!),
+    enabled: !!rawId,
   })
   const [name, setName] = useState('')
   const [maxRounds, setMaxRounds] = useState(1)
@@ -42,8 +43,20 @@ export default function ReviewProfileEditPage() {
     setActive(data.active)
   }, [data])
 
+  if (isLoading) {
+    return <PageShell title="Edit Review Profile"><p className="text-sm text-gray-400">Loading...</p></PageShell>
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards queryFn; id is always defined when mutation callbacks fire
+  const id = rawId!
+
+  if (!data) {
+    return <PageShell title="Edit Review Profile"><p className="text-sm text-gray-400">Not found</p></PageShell>
+  }
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- enabled: !!rawId guards data; id is defined before the if (!data) guard
   const mutation = useMutation({
-    mutationFn: () => reviewProfilesApi.update(id!, {
+    mutationFn: () => reviewProfilesApi.update(id, {
       name,
       maxRounds,
       mandatoryHumanApproval,
@@ -55,17 +68,9 @@ export default function ReviewProfileEditPage() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['review-profiles'] })
       void queryClient.invalidateQueries({ queryKey: ['review-profile', id] })
-      navigate(`/review-profiles/${id}`)
+      void navigate(`/review-profiles/${id}`)
     },
   })
-
-  if (isLoading) {
-    return <PageShell title="Edit Review Profile"><p className="text-sm text-gray-400">Loading...</p></PageShell>
-  }
-
-  if (!data) {
-    return <PageShell title="Edit Review Profile"><p className="text-sm text-gray-400">Not found</p></PageShell>
-  }
 
   return (
     <PageShell title={`Edit ${data.name}`}>
@@ -75,13 +80,13 @@ export default function ReviewProfileEditPage() {
       <Card>
         <form onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}>
           <div className="space-y-4 px-5 py-5">
-            <div><label className="mb-1.5 block text-xs font-medium text-gray-500">Name</label><input value={name} onChange={(event) => setName(event.target.value)} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
-            <div><label className="mb-1.5 block text-xs font-medium text-gray-500">Max Rounds</label><input type="number" min="1" value={maxRounds} onChange={(event) => setMaxRounds(Number(event.target.value) || 1)} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
-            <div><label className="mb-1.5 block text-xs font-medium text-gray-500">Allowed Workflow Types</label><input value={allowedWorkflowTypes} onChange={(event) => setAllowedWorkflowTypes(event.target.value)} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
-            <div><label className="mb-1.5 block text-xs font-medium text-gray-500">Prompt Set Ref</label><input value={promptSetRef} onChange={(event) => setPromptSetRef(event.target.value)} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
-            <label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={mandatoryHumanApproval} onChange={(event) => setMandatoryHumanApproval(event.target.checked)} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />Mandatory Human Approval</label>
-            <label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={continueAfterPassing} onChange={(event) => setContinueAfterPassing(event.target.checked)} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />Continue After Passing</label>
-            <label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />Active</label>
+            <div><label htmlFor="review-profile-name" className="mb-1.5 block text-xs font-medium text-gray-500">Name</label><input id="review-profile-name" value={name} onChange={(event) => { setName(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
+            <div><label htmlFor="review-profile-max-rounds" className="mb-1.5 block text-xs font-medium text-gray-500">Max Rounds</label><input id="review-profile-max-rounds" type="number" min="1" value={maxRounds} onChange={(event) => { setMaxRounds(Number(event.target.value) || 1); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
+            <div><label htmlFor="review-profile-workflow-types" className="mb-1.5 block text-xs font-medium text-gray-500">Allowed Workflow Types</label><input id="review-profile-workflow-types" value={allowedWorkflowTypes} onChange={(event) => { setAllowedWorkflowTypes(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
+            <div><label htmlFor="review-profile-prompt-set-ref" className="mb-1.5 block text-xs font-medium text-gray-500">Prompt Set Ref</label><input id="review-profile-prompt-set-ref" value={promptSetRef} onChange={(event) => { setPromptSetRef(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
+            <label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={mandatoryHumanApproval} onChange={(event) => { setMandatoryHumanApproval(event.target.checked); }} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />Mandatory Human Approval</label>
+            <label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={continueAfterPassing} onChange={(event) => { setContinueAfterPassing(event.target.checked); }} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />Continue After Passing</label>
+            <label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={active} onChange={(event) => { setActive(event.target.checked); }} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />Active</label>
           </div>
           <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-5 py-4">
             <Button type="button" variant="ghost" onClick={() => navigate(`/review-profiles/${id}`)}>Cancel</Button>

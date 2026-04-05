@@ -12,7 +12,7 @@ function nullableValue(value: string) {
 }
 
 export default function RepositoryEditPage() {
-  const { id } = useParams<{ id: string }>()
+  const { id: rawId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
@@ -24,9 +24,10 @@ export default function RepositoryEditPage() {
   const [autoPr, setAutoPr] = useState(false)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['repository', id],
-    queryFn: () => repositoriesApi.get(id!),
-    enabled: !!id,
+    queryKey: ['repository', rawId],
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards this
+    queryFn: () => repositoriesApi.get(rawId!),
+    enabled: !!rawId,
   })
 
   useEffect(() => {
@@ -40,9 +41,29 @@ export default function RepositoryEditPage() {
     setAutoPr(data.autoPr)
   }, [data])
 
+  if (isLoading) {
+    return (
+      <PageShell title="Edit Repository Mapping">
+        <p className="text-sm text-gray-400">Loading...</p>
+      </PageShell>
+    )
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards queryFn; id is always defined when mutation callbacks fire
+  const id = rawId!
+
+  if (!data) {
+    return (
+      <PageShell title="Edit Repository Mapping">
+        <p className="text-sm text-gray-400">Not found</p>
+      </PageShell>
+    )
+  }
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- enabled: !!rawId guards data; id is defined before the if (!data) guard
   const mutation = useMutation({
     mutationFn: () =>
-      repositoriesApi.update(id!, {
+      repositoriesApi.update(id, {
         name: name.trim(),
         connectorId: connectorId.trim(),
         repositoryUrl: repositoryUrl.trim(),
@@ -54,25 +75,9 @@ export default function RepositoryEditPage() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['repositories'] })
       void queryClient.invalidateQueries({ queryKey: ['repository', id] })
-      navigate(`/repositories/${id}`)
+      void navigate(`/repositories/${id}`)
     },
   })
-
-  if (isLoading) {
-    return (
-      <PageShell title="Edit Repository Mapping">
-        <p className="text-sm text-gray-400">Loading...</p>
-      </PageShell>
-    )
-  }
-
-  if (!data) {
-    return (
-      <PageShell title="Edit Repository Mapping">
-        <p className="text-sm text-gray-400">Not found</p>
-      </PageShell>
-    )
-  }
 
   const errorMessage =
     mutation.error instanceof Error ? mutation.error.message : 'Failed to save mapping'
@@ -94,59 +99,65 @@ export default function RepositoryEditPage() {
         >
           <div className="space-y-4 px-5 py-5">
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-gray-500">Name</label>
+              <label htmlFor="repo-name" className="mb-1.5 block text-xs font-medium text-gray-500">Name</label>
               <input
+                id="repo-name"
                 required
                 value={name}
-                onChange={(event) => setName(event.target.value)}
+                onChange={(event) => { setName(event.target.value); }}
                 className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-gray-500">Connector ID</label>
+              <label htmlFor="repo-connector-id" className="mb-1.5 block text-xs font-medium text-gray-500">Connector ID</label>
               <input
+                id="repo-connector-id"
                 required
                 value={connectorId}
-                onChange={(event) => setConnectorId(event.target.value)}
+                onChange={(event) => { setConnectorId(event.target.value); }}
                 className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-gray-500">Repository URL</label>
+              <label htmlFor="repo-url" className="mb-1.5 block text-xs font-medium text-gray-500">Repository URL</label>
               <input
+                id="repo-url"
                 required
                 value={repositoryUrl}
-                onChange={(event) => setRepositoryUrl(event.target.value)}
+                onChange={(event) => { setRepositoryUrl(event.target.value); }}
                 className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-gray-500">
+                <label htmlFor="repo-execution-profile-id" className="mb-1.5 block text-xs font-medium text-gray-500">
                   Execution Profile ID
                 </label>
                 <input
+                  id="repo-execution-profile-id"
                   value={executionProfileId}
-                  onChange={(event) => setExecutionProfileId(event.target.value)}
+                  onChange={(event) => { setExecutionProfileId(event.target.value); }}
                   className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-gray-500">
+                <label htmlFor="repo-orchestration-profile-id" className="mb-1.5 block text-xs font-medium text-gray-500">
                   Orchestration Profile ID
                 </label>
                 <input
+                  id="repo-orchestration-profile-id"
                   value={orchestrationProfileId}
-                  onChange={(event) => setOrchestrationProfileId(event.target.value)}
+                  onChange={(event) => { setOrchestrationProfileId(event.target.value); }}
                   className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
                 />
               </div>
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-gray-500">Review Profile ID</label>
+              <label htmlFor="repo-review-profile-id" className="mb-1.5 block text-xs font-medium text-gray-500">Review Profile ID</label>
               <input
+                id="repo-review-profile-id"
                 value={reviewProfileId}
-                onChange={(event) => setReviewProfileId(event.target.value)}
+                onChange={(event) => { setReviewProfileId(event.target.value); }}
                 className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
               />
             </div>
@@ -154,7 +165,7 @@ export default function RepositoryEditPage() {
               <input
                 type="checkbox"
                 checked={autoPr}
-                onChange={(event) => setAutoPr(event.target.checked)}
+                onChange={(event) => { setAutoPr(event.target.checked); }}
                 className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500"
               />
               Auto PR

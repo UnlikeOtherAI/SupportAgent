@@ -23,34 +23,42 @@ function renderValues(values: string[]) {
 }
 
 export default function ConnectorDetailPage() {
-  const { id } = useParams<{ id: string }>()
+  const { id: rawId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { data, isLoading } = useQuery({
-    queryKey: ['connector', id],
-    queryFn: () => connectorsApi.get(id!),
-    enabled: !!id,
-  })
-  const discoverMutation = useMutation({
-    mutationFn: () => connectorsApi.discoverCapabilities(id!),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['connector', id] }) },
-  })
-  const deleteMutation = useMutation({
-    mutationFn: () => connectorsApi.delete(id!),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['connectors'] })
-      navigate('/connectors')
-    },
+    queryKey: ['connector', rawId],
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards this
+    queryFn: () => connectorsApi.get(rawId!),
+    enabled: !!rawId,
   })
 
   if (isLoading) {
     return <PageShell title="Connector"><p className="text-sm text-gray-400">Loading...</p></PageShell>
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards queryFn; id is always defined when mutation callbacks fire
+  const id = rawId!
+
   if (!data) {
     return <PageShell title="Connector"><p className="text-sm text-gray-400">Not found</p></PageShell>
   }
 
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- enabled: !!rawId guards data; id is defined before the if (!data) guard
+  const discoverMutation = useMutation({
+    mutationFn: () => connectorsApi.discoverCapabilities(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['connector', id] })
+    },
+  })
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- enabled: !!rawId guards data; id is defined before the if (!data) guard
+  const deleteMutation = useMutation({
+    mutationFn: () => connectorsApi.delete(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['connectors'] })
+      void navigate('/connectors')
+    },
+  })
   const capabilities: ConnectorCapability[] = discoverMutation.data?.capabilities ?? data.capabilities
 
   return (
@@ -86,7 +94,7 @@ export default function ConnectorDetailPage() {
         <CardHeader
           title="Capabilities"
           action={
-            <Button variant="secondary" disabled={discoverMutation.isPending} onClick={() => discoverMutation.mutate()}>
+            <Button variant="secondary" disabled={discoverMutation.isPending} onClick={() => { discoverMutation.mutate(); }}>
               {discoverMutation.isPending ? 'Discovering...' : 'Discover Capabilities'}
             </Button>
           }

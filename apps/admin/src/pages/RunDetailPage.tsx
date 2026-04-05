@@ -63,19 +63,13 @@ function canCancel(status: WorkflowRun['status']) {
 }
 
 export default function RunDetailPage() {
-  const { id } = useParams<{ id: string }>()
+  const { id: rawId } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
   const { data, isLoading } = useQuery({
-    queryKey: ['run', id],
-    queryFn: () => runsApi.get(id!),
-    enabled: !!id,
-  })
-  const cancelMutation = useMutation({
-    mutationFn: () => runsApi.cancel(id!),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['runs'] })
-      void queryClient.invalidateQueries({ queryKey: ['run', id] })
-    },
+    queryKey: ['run', rawId],
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards this
+    queryFn: () => runsApi.get(rawId!),
+    enabled: !!rawId,
   })
 
   if (isLoading) {
@@ -86,6 +80,9 @@ export default function RunDetailPage() {
     )
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards queryFn; id is always defined when mutation callbacks fire
+  const id = rawId!
+
   if (!data) {
     return (
       <PageShell title="Workflow Run">
@@ -93,6 +90,15 @@ export default function RunDetailPage() {
       </PageShell>
     )
   }
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- enabled: !!rawId guards data; id is defined before the if (!data) guard
+  const cancelMutation = useMutation({
+    mutationFn: () => runsApi.cancel(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['runs'] })
+      void queryClient.invalidateQueries({ queryKey: ['run', id] })
+    },
+  })
 
   return (
     <PageShell
@@ -103,7 +109,7 @@ export default function RunDetailPage() {
             <Button variant="secondary">Back to Runs</Button>
           </Link>
           {canCancel(data.status) && (
-            <Button variant="danger" onClick={() => cancelMutation.mutate()} disabled={cancelMutation.isPending}>
+            <Button variant="danger" onClick={() => { cancelMutation.mutate(); }} disabled={cancelMutation.isPending}>
               {cancelMutation.isPending ? 'Cancelling...' : 'Cancel Run'}
             </Button>
           )}

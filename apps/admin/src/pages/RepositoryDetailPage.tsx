@@ -15,20 +15,14 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 }
 
 export default function RepositoryDetailPage() {
-  const { id } = useParams<{ id: string }>()
+  const { id: rawId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { data, isLoading } = useQuery({
-    queryKey: ['repository', id],
-    queryFn: () => repositoriesApi.get(id!),
-    enabled: !!id,
-  })
-  const deleteMutation = useMutation({
-    mutationFn: () => repositoriesApi.delete(id!),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['repositories'] })
-      navigate('/repositories')
-    },
+    queryKey: ['repository', rawId],
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards this
+    queryFn: () => repositoriesApi.get(rawId!),
+    enabled: !!rawId,
   })
 
   if (isLoading) {
@@ -39,6 +33,9 @@ export default function RepositoryDetailPage() {
     )
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards queryFn; id is always defined when mutation callbacks fire
+  const id = rawId!
+
   if (!data) {
     return (
       <PageShell title="Repository Mapping">
@@ -46,6 +43,15 @@ export default function RepositoryDetailPage() {
       </PageShell>
     )
   }
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- enabled: !!rawId guards data; id is defined before the if (!data) guard
+  const deleteMutation = useMutation({
+    mutationFn: () => repositoriesApi.delete(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['repositories'] })
+      void navigate('/repositories')
+    },
+  })
 
   return (
     <PageShell
@@ -58,7 +64,7 @@ export default function RepositoryDetailPage() {
           <Button
             variant="danger"
             disabled={deleteMutation.isPending}
-            onClick={() => deleteMutation.mutate()}
+            onClick={() => { deleteMutation.mutate(); }}
           >
             {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
           </Button>

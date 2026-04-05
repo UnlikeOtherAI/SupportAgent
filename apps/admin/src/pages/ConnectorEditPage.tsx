@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/Card'
 import { PageShell } from '@/components/ui/PageShell'
 
 export default function ConnectorEditPage() {
-  const { id } = useParams<{ id: string }>()
+  const { id: rawId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
@@ -15,21 +15,14 @@ export default function ConnectorEditPage() {
   const [roles, setRoles] = useState<('inbound' | 'outbound')[]>([])
   const [intakeMode, setIntakeMode] = useState<'webhook' | 'polling'>('webhook')
   const { data, isLoading } = useQuery({
-    queryKey: ['connector', id],
-    queryFn: () => connectorsApi.get(id!),
-    enabled: !!id,
+    queryKey: ['connector', rawId],
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards queryFn
+    queryFn: () => connectorsApi.get(rawId!),
+    enabled: !!rawId,
   })
   const { data: platformData, isLoading: platformLoading } = useQuery({
     queryKey: ['connector-platform-types'],
     queryFn: () => connectorsApi.getPlatformTypes(),
-  })
-  const mutation = useMutation({
-    mutationFn: () => connectorsApi.update(id!, { name, platformType, roles, intakeMode }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['connectors'] })
-      void queryClient.invalidateQueries({ queryKey: ['connector', id] })
-      navigate(`/connectors/${id}`)
-    },
   })
 
   useEffect(() => {
@@ -48,9 +41,22 @@ export default function ConnectorEditPage() {
     return <PageShell title="Edit Connector"><p className="text-sm text-gray-400">Loading...</p></PageShell>
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards queryFn; id is always defined when mutation callbacks fire
+  const id = rawId!
+
   if (!data) {
     return <PageShell title="Edit Connector"><p className="text-sm text-gray-400">Not found</p></PageShell>
   }
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- enabled: !!rawId guards data; id is defined before the if (!data) guard
+  const mutation = useMutation({
+    mutationFn: () => connectorsApi.update(id, { name, platformType, roles, intakeMode }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['connectors'] })
+      void queryClient.invalidateQueries({ queryKey: ['connector', id] })
+      void navigate(`/connectors/${id}`)
+    },
+  })
 
   return (
     <PageShell title="Edit Connector">
@@ -59,12 +65,12 @@ export default function ConnectorEditPage() {
         <form onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}>
           <div className="space-y-4 px-5 py-5">
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-gray-500">Name</label>
-              <input value={name} onChange={(event) => setName(event.target.value)} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" />
+              <label htmlFor="connector-name" className="mb-1.5 block text-xs font-medium text-gray-500">Name</label>
+              <input id="connector-name" value={name} onChange={(event) => { setName(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" />
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-gray-500">Platform Type</label>
-              <select value={platformType} onChange={(event) => setPlatformType(event.target.value)} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500">
+              <label htmlFor="connector-platform-type" className="mb-1.5 block text-xs font-medium text-gray-500">Platform Type</label>
+              <select id="connector-platform-type" value={platformType} onChange={(event) => { setPlatformType(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500">
                 <option value="">Select a platform</option>
                 {(platformData?.platformTypes ?? []).map((type) => (
                   <option key={type.key} value={type.key}>{type.label}</option>
@@ -72,19 +78,19 @@ export default function ConnectorEditPage() {
               </select>
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-gray-500">Roles</label>
+              <div className="mb-1.5 block text-xs font-medium text-gray-500">Roles</div>
               <div className="flex flex-col gap-2">
                 {(['inbound', 'outbound'] as const).map((role) => (
-                  <label key={role} className="flex items-center gap-2 text-sm text-gray-700">
-                    <input type="checkbox" checked={roles.includes(role)} onChange={() => toggleRole(role)} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />
+                  <label key={role} htmlFor={`connector-role-${role}`} className="flex items-center gap-2 text-sm text-gray-700">
+                    <input id={`connector-role-${role}`} type="checkbox" checked={roles.includes(role)} onChange={() => { toggleRole(role); }} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />
                     {role}
                   </label>
                 ))}
               </div>
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-gray-500">Intake Mode</label>
-              <select value={intakeMode} onChange={(event) => setIntakeMode(event.target.value as 'webhook' | 'polling')} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500">
+              <label htmlFor="connector-intake-mode" className="mb-1.5 block text-xs font-medium text-gray-500">Intake Mode</label>
+              <select id="connector-intake-mode" value={intakeMode} onChange={(event) => { setIntakeMode(event.target.value as 'webhook' | 'polling'); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500">
                 <option value="webhook">webhook</option>
                 <option value="polling">polling</option>
               </select>

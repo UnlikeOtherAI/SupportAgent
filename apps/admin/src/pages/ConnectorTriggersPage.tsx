@@ -26,22 +26,15 @@ function splitCsv(value: string) {
 }
 
 export default function ConnectorTriggersPage() {
-  const { id } = useParams<{ id: string }>()
+  const { id: rawId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [policies, setPolicies] = useState<TriggerPolicy[]>(normalizePolicies([]))
+  const [policies, setPolicies] = useState(normalizePolicies([]))
   const { data, isLoading } = useQuery({
-    queryKey: ['connector-trigger-policies', id],
-    queryFn: () => connectorsApi.getTriggerPolicies(id!),
-    enabled: !!id,
-  })
-  const mutation = useMutation({
-    mutationFn: () => connectorsApi.updateTriggerPolicies(id!, policies),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['connector-trigger-policies', id] })
-      void queryClient.invalidateQueries({ queryKey: ['connector', id] })
-      navigate(`/connectors/${id}`)
-    },
+    queryKey: ['connector-trigger-policies', rawId],
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards this
+    queryFn: () => connectorsApi.getTriggerPolicies(rawId!),
+    enabled: !!rawId,
   })
 
   useEffect(() => {
@@ -58,11 +51,28 @@ export default function ConnectorTriggersPage() {
     return <PageShell title="Trigger Policies"><p className="text-sm text-gray-400">Loading...</p></PageShell>
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards queryFn; id is always defined when mutation callbacks fire
+  const id = rawId!
+
+  if (!data) {
+    return <PageShell title="Trigger Policies"><p className="text-sm text-gray-400">Not found</p></PageShell>
+  }
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- enabled: !!rawId guards data; id is defined before the if (!data) guard
+  const mutation = useMutation({
+    mutationFn: () => connectorsApi.updateTriggerPolicies(id, policies),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['connector-trigger-policies', id] })
+      void queryClient.invalidateQueries({ queryKey: ['connector', id] })
+      void navigate(`/connectors/${id}`)
+    },
+  })
+
   return (
     <PageShell
       title="Trigger Policies"
       action={
-        <Button variant="primary" disabled={mutation.isPending} onClick={() => mutation.mutate()}>
+        <Button variant="primary" disabled={mutation.isPending} onClick={() => { mutation.mutate(); }}>
           {mutation.isPending ? 'Saving...' : 'Save Changes'}
         </Button>
       }
@@ -74,19 +84,19 @@ export default function ConnectorTriggersPage() {
             <CardHeader title={`${policy.workflowType[0].toUpperCase()}${policy.workflowType.slice(1)} Triggers`} action={<TypePill type={policy.workflowType} />} />
             <div className="space-y-4 px-5 py-5">
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-gray-500">Events</label>
-                <input value={policy.events.join(', ')} onChange={(event) => updatePolicy(policy.workflowType, { events: splitCsv(event.target.value) })} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" />
+                <label htmlFor={`policy-${policy.workflowType}-events`} className="mb-1.5 block text-xs font-medium text-gray-500">Events</label>
+                <input id={`policy-${policy.workflowType}-events`} value={policy.events.join(', ')} onChange={(event) => { updatePolicy(policy.workflowType, { events: splitCsv(event.target.value) }); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-gray-500">Labels</label>
-                <input value={policy.labels.join(', ')} onChange={(event) => updatePolicy(policy.workflowType, { labels: splitCsv(event.target.value) })} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" />
+                <label htmlFor={`policy-${policy.workflowType}-labels`} className="mb-1.5 block text-xs font-medium text-gray-500">Labels</label>
+                <input id={`policy-${policy.workflowType}-labels`} value={policy.labels.join(', ')} onChange={(event) => { updatePolicy(policy.workflowType, { labels: splitCsv(event.target.value) }); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-gray-500">Trigger Intent</label>
-                <input value={policy.triggerIntent ?? ''} onChange={(event) => updatePolicy(policy.workflowType, { triggerIntent: event.target.value || null })} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" />
+                <label htmlFor={`policy-${policy.workflowType}-trigger-intent`} className="mb-1.5 block text-xs font-medium text-gray-500">Trigger Intent</label>
+                <input id={`policy-${policy.workflowType}-trigger-intent`} value={policy.triggerIntent ?? ''} onChange={(event) => { updatePolicy(policy.workflowType, { triggerIntent: event.target.value || null }); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" />
               </div>
               <label className="flex items-center gap-2 text-sm text-gray-700">
-                <input type="checkbox" checked={policy.autoPr} onChange={(event) => updatePolicy(policy.workflowType, { autoPr: event.target.checked })} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />
+                <input type="checkbox" checked={policy.autoPr} onChange={(event) => { updatePolicy(policy.workflowType, { autoPr: event.target.checked }); }} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />
                 Auto PR
               </label>
             </div>
