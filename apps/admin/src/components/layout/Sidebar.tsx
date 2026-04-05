@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import {
   DashboardIcon, JobsIcon, RepositoriesIcon,
   RoutingIcon, ScenariosIcon, ChannelsIcon, ProvidersIcon,
@@ -61,9 +61,16 @@ const NAV: NavSection[] = [
 
 export function Sidebar() {
   const user = useAuth((s) => s.user)
+  const clearAuth = useAuth((s) => s.clearAuth)
+  const navigate = useNavigate()
   const initials = user
     ? user.displayName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
     : '??'
+
+  function handleLogout() {
+    clearAuth()
+    void navigate('/login')
+  }
 
   return (
     <aside className="flex h-full w-[var(--width-sidebar)] flex-col border-r border-white/6 bg-gray-950">
@@ -114,12 +121,23 @@ export function Sidebar() {
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-accent-600 to-accent-400 text-[11px] font-semibold text-white">
               {initials}
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="truncate text-[13px] font-medium text-gray-200">
                 {user?.displayName ?? 'Unknown'}
               </div>
               <div className="text-[11px] text-gray-500">{user?.role ?? 'Operator'}</div>
             </div>
+            <button
+              onClick={handleLogout}
+              className="shrink-0 rounded p-1 text-gray-500 transition-colors hover:bg-white/6 hover:text-gray-300"
+              title="Log out"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
           </div>
         </div>
       </nav>
