@@ -1,0 +1,84 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+env:
+  PROJECT: gen-lang-client-0561071620
+  REGION: europe-west1
+  REGISTRY: europe-west1-docker.pkg.dev/gen-lang-client-0561071620/uoa-docker
+
+jobs:
+  deploy-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push API image
+        run: |
+          IMAGE=${{ env.REGISTRY }}/supportagent-api
+          docker build -f Dockerfile -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
+
+      - name: Deploy API to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: supportagent-api
+          region: ${{ env.REGION }}
+          image: ${{ env.REGISTRY }}/supportagent-api:${{ github.sha }}
+          env_vars: |
+            NODE_ENV=production
+            PORT=8080
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            REDIS_URL=${{ secrets.REDIS_URL }}
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            API_BASE_URL=https://supportagent-api-193510011126.${{ env.REGION }}.run.app
+            CORS_ORIGIN=https://supportagent-admin-193510011126.${{ env.REGION }}.run.app
+            QUEUE_BACKEND=${{ secrets.QUEUE_BACKEND }}
+            GCP_PROJECT_ID=${{ env.PROJECT }}
+            ADMIN_APP_URL=https://supportagent-admin-193510011126.${{ env.REGION }}.run.app
+            GITHUB_OAUTH_CLIENT_ID=${{ secrets.GITHUB_OAUTH_CLIENT_ID }}
+            GITHUB_OAUTH_CLIENT_SECRET=${{ secrets.GITHUB_OAUTH_CLIENT_SECRET }}
+            GITLAB_OAUTH_CLIENT_ID=${{ secrets.GITLAB_OAUTH_CLIENT_ID }}
+            GITLAB_OAUTH_CLIENT_SECRET=${{ secrets.GITLAB_OAUTH_CLIENT_SECRET }}
+            LINEAR_OAUTH_CLIENT_ID=${{ secrets.LINEAR_OAUTH_CLIENT_ID }}
+            LINEAR_OAUTH_CLIENT_SECRET=${{ secrets.LINEAR_OAUTH_CLIENT_SECRET }}
+
+  deploy-admin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push admin image
+        run: |
+          IMAGE=${{ env.REGISTRY }}/supportagent-admin
+          docker build -f Dockerfile.admin -t $IMAGE:${{ github.sha }} -t $IMAGE:latest \
+            --build-arg VITE_API_URL=https://supportagent-api-193510011126.${{ env.REGION }}.run.app .
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
+
+      - name: Deploy admin to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: supportagent-admin
+          region: ${{ env.REGION }}
+          image: ${{ env.REGISTRY }}/supportagent-admin:${{ github.sha }}
+          args: --port 80
