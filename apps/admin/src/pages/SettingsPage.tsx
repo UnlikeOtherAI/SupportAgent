@@ -25,6 +25,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (!data) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: populate controlled inputs from server data
     setOrgName(data.orgName)
     setProductMode(data.productMode)
     setHostingMode(data.hostingMode)
@@ -32,6 +33,7 @@ export default function SettingsPage() {
     setOutputVisibilityPolicy(data.outputVisibilityPolicy)
     setOnboardingRequired(data.onboardingRequired)
   }, [data])
+  // eslint-enable react-hooks/set-state-in-effect
 
   const mutation = useMutation({
     mutationFn: () => settingsApi.updateTenant({ orgName, productMode, hostingMode, modelAccessMode, outputVisibilityPolicy, onboardingRequired }),
@@ -47,12 +49,12 @@ export default function SettingsPage() {
       <Card>
         <form onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}>
           <div className="space-y-4 px-5 py-5">
-            <div><label className="mb-1.5 block text-xs font-medium text-gray-500">Org Name</label><input value={orgName} onChange={(event) => setOrgName(event.target.value)} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
-            <div><label className="mb-1.5 block text-xs font-medium text-gray-500">Product Mode</label><select value={productMode} onChange={(event) => setProductMode(event.target.value as 'standalone-saas' | 'standalone-enterprise' | 'integrated')} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"><option value="standalone-saas">standalone-saas</option><option value="standalone-enterprise">standalone-enterprise</option><option value="integrated">integrated</option></select></div>
-            <div><label className="mb-1.5 block text-xs font-medium text-gray-500">Hosting Mode</label><input value={hostingMode} onChange={(event) => setHostingMode(event.target.value)} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
-            <div><label className="mb-1.5 block text-xs font-medium text-gray-500">Model Access Mode</label><input value={modelAccessMode} onChange={(event) => setModelAccessMode(event.target.value)} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
-            <div><label className="mb-1.5 block text-xs font-medium text-gray-500">Output Visibility Policy</label><input value={outputVisibilityPolicy} onChange={(event) => setOutputVisibilityPolicy(event.target.value)} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
-            <label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={onboardingRequired} onChange={(event) => setOnboardingRequired(event.target.checked)} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />Onboarding Required</label>
+            <div><label htmlFor="tenant-org-name" className="mb-1.5 block text-xs font-medium text-gray-500">Org Name</label><input id="tenant-org-name" value={orgName} onChange={(event) => { setOrgName(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
+            <div><label htmlFor="tenant-product-mode" className="mb-1.5 block text-xs font-medium text-gray-500">Product Mode</label><select id="tenant-product-mode" value={productMode} onChange={(event) => { setProductMode(event.target.value as 'standalone-saas' | 'standalone-enterprise' | 'integrated'); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"><option value="standalone-saas">standalone-saas</option><option value="standalone-enterprise">standalone-enterprise</option><option value="integrated">integrated</option></select></div>
+            <div><label htmlFor="tenant-hosting-mode" className="mb-1.5 block text-xs font-medium text-gray-500">Hosting Mode</label><input id="tenant-hosting-mode" value={hostingMode} onChange={(event) => { setHostingMode(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
+            <div><label htmlFor="tenant-model-access-mode" className="mb-1.5 block text-xs font-medium text-gray-500">Model Access Mode</label><input id="tenant-model-access-mode" value={modelAccessMode} onChange={(event) => { setModelAccessMode(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
+            <div><label htmlFor="tenant-output-visibility-policy" className="mb-1.5 block text-xs font-medium text-gray-500">Output Visibility Policy</label><input id="tenant-output-visibility-policy" value={outputVisibilityPolicy} onChange={(event) => { setOutputVisibilityPolicy(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
+            <label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={onboardingRequired} onChange={(event) => { setOnboardingRequired(event.target.checked); }} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />Onboarding Required</label>
           </div>
           <div className="flex items-center justify-end border-t border-gray-100 px-5 py-4">
             <Button type="submit" variant="primary" disabled={mutation.isPending}>{mutation.isPending ? 'Saving...' : 'Save Settings'}</Button>

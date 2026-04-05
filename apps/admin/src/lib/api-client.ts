@@ -16,15 +16,6 @@ export interface ApiError {
   body: unknown
 }
 
-function createApiError(status: number, body: Record<string, unknown>): ApiError {
-  return {
-    status,
-    message: typeof body.message === 'string' ? body.message : `Request failed (${String(status)})`,
-    errorCode: typeof body.errorCode === 'string' ? body.errorCode : null,
-    body,
-  }
-}
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = useAuth.getState().token
   const headers: Record<string, string> = {
@@ -32,7 +23,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init?.headers as Record<string, string> | undefined,
   }
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`
+    headers.Authorization = `Bearer ${token}`
   }
 
   const res = await fetch(`${BASE_URL}${path}`, { ...init, headers })
@@ -40,12 +31,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (res.status === 401) {
     useAuth.getState().clearAuth()
     window.location.href = '/login'
-    throw createApiError(401, { message: 'Session expired' })
+    throw new Error('Session expired')
   }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({})) as Record<string, unknown>
-    throw createApiError(res.status, body)
+    throw Object.assign(new Error(typeof body.message === 'string' ? body.message : `Request failed (${res.status})`), { status: res.status, body })
   }
 
   if (res.status === 204) return undefined as T

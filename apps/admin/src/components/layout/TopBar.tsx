@@ -17,7 +17,7 @@ const routeLabels: Record<string, string> = {
 
 function useBreadcrumb(): string {
   const { pathname } = useLocation()
-  const base = '/' + pathname.split('/').filter(Boolean)[0]
+  const base = '/' + (pathname.split('/').find(Boolean) ?? '')
   return routeLabels[base] ?? 'Page'
 }
 

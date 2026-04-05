@@ -26,5 +26,5 @@ export const repositoriesApi = {
   get: (id: string) => api.get<RepositoryMapping>(`/v1/repository-mappings/${id}`),
   create: (data: Partial<RepositoryMapping>) => api.post<RepositoryMapping>('/v1/repository-mappings', data),
   update: (id: string, data: Partial<RepositoryMapping>) => api.put<RepositoryMapping>(`/v1/repository-mappings/${id}`, data),
-  delete: (id: string) => api.delete<void>(`/v1/repository-mappings/${id}`),
+  delete: (id: string) => api.delete<undefined>(`/v1/repository-mappings/${id}`),
 }

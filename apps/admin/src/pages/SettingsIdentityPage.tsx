@@ -15,7 +15,7 @@ export default function SettingsIdentityPage() {
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [draft, setDraft] = useState<ProviderDraft>(emptyDraft)
+  const [draft, setDraft] = useState(emptyDraft)
   const { data, isLoading } = useQuery({ queryKey: ['identity-providers'], queryFn: () => settingsApi.listIdentityProviders() })
   const saveMutation = useMutation({
     mutationFn: () => editingId ? settingsApi.updateIdentityProvider(editingId, draft) : settingsApi.createIdentityProvider(draft),
@@ -47,7 +47,7 @@ export default function SettingsIdentityPage() {
       render: (provider) => (
         <div className="flex items-center gap-2">
           <Button type="button" variant="ghost" onClick={() => { setEditingId(provider.id); setDraft({ label: provider.label, protocol: provider.protocol, issuerUrl: provider.issuerUrl, clientId: provider.clientId, enabled: provider.enabled }); setShowForm(true) }}>Edit</Button>
-          <Button type="button" variant="ghost" className="text-signal-red-500 hover:bg-signal-red-50 hover:text-signal-red-600" onClick={() => deleteMutation.mutate(provider.id)}>Delete</Button>
+          <Button type="button" variant="ghost" className="text-signal-red-500 hover:bg-signal-red-50 hover:text-signal-red-600" onClick={() => { deleteMutation.mutate(provider.id); }}>Delete</Button>
         </div>
       ),
       className: 'w-1',
@@ -66,12 +66,12 @@ export default function SettingsIdentityPage() {
         {showForm && (
           <form onSubmit={(event) => { event.preventDefault(); saveMutation.mutate() }} className="border-b border-gray-100 px-5 py-5">
             <div className="grid gap-4 md:grid-cols-2">
-              <div><label className="mb-1.5 block text-xs font-medium text-gray-500">Label</label><input value={draft.label} onChange={(event) => setDraft({ ...draft, label: event.target.value })} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
-              <div><label className="mb-1.5 block text-xs font-medium text-gray-500">Protocol</label><select value={draft.protocol} onChange={(event) => setDraft({ ...draft, protocol: event.target.value as IdentityProviderConfig['protocol'] })} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"><option value="oidc">oidc</option><option value="saml">saml</option><option value="oauth-broker">oauth-broker</option></select></div>
-              <div><label className="mb-1.5 block text-xs font-medium text-gray-500">Issuer URL</label><input value={draft.issuerUrl} onChange={(event) => setDraft({ ...draft, issuerUrl: event.target.value })} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
-              <div><label className="mb-1.5 block text-xs font-medium text-gray-500">Client ID</label><input value={draft.clientId} onChange={(event) => setDraft({ ...draft, clientId: event.target.value })} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
+              <div><label htmlFor="identity-provider-label" className="mb-1.5 block text-xs font-medium text-gray-500">Label</label><input id="identity-provider-label" value={draft.label} onChange={(event) => { setDraft({ ...draft, label: event.target.value }); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
+              <div><label htmlFor="identity-provider-protocol" className="mb-1.5 block text-xs font-medium text-gray-500">Protocol</label><select id="identity-provider-protocol" value={draft.protocol} onChange={(event) => { setDraft({ ...draft, protocol: event.target.value as IdentityProviderConfig['protocol'] }); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"><option value="oidc">oidc</option><option value="saml">saml</option><option value="oauth-broker">oauth-broker</option></select></div>
+              <div><label htmlFor="identity-provider-issuer-url" className="mb-1.5 block text-xs font-medium text-gray-500">Issuer URL</label><input id="identity-provider-issuer-url" value={draft.issuerUrl} onChange={(event) => { setDraft({ ...draft, issuerUrl: event.target.value }); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
+              <div><label htmlFor="identity-provider-client-id" className="mb-1.5 block text-xs font-medium text-gray-500">Client ID</label><input id="identity-provider-client-id" value={draft.clientId} onChange={(event) => { setDraft({ ...draft, clientId: event.target.value }); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
             </div>
-            <label className="mt-4 flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />Enabled</label>
+            <label className="mt-4 flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={draft.enabled} onChange={(event) => { setDraft({ ...draft, enabled: event.target.checked }); }} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />Enabled</label>
             <div className="mt-4 flex items-center justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => { setShowForm(false); setEditingId(null); setDraft(emptyDraft) }}>Cancel</Button>
               <Button type="submit" variant="primary" disabled={saveMutation.isPending}>{saveMutation.isPending ? 'Saving...' : editingId ? 'Save Changes' : 'Save Provider'}</Button>

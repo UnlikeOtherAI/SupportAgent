@@ -10,11 +10,12 @@ function valueClassName(mono = false) {
 }
 
 export default function ReviewProfileDetailPage() {
-  const { id } = useParams<{ id: string }>()
+  const { id: rawId } = useParams<{ id: string }>()
   const { data, isLoading } = useQuery({
-    queryKey: ['review-profile', id],
-    queryFn: () => reviewProfilesApi.get(id!),
-    enabled: !!id,
+    queryKey: ['review-profile', rawId],
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards this
+    queryFn: () => reviewProfilesApi.get(rawId!),
+    enabled: !!rawId,
   })
 
   if (isLoading) {

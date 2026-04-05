@@ -21,7 +21,7 @@ export default function ConnectorNewPage() {
     mutationFn: () => connectorsApi.create({ name, platformType, roles, intakeMode }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['connectors'] })
-      navigate('/connectors')
+      void navigate('/connectors')
     },
   })
 
@@ -40,12 +40,12 @@ export default function ConnectorNewPage() {
         <form onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}>
           <div className="space-y-4 px-5 py-5">
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-gray-500">Name</label>
-              <input value={name} onChange={(event) => setName(event.target.value)} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" />
+              <label htmlFor="connector-name" className="mb-1.5 block text-xs font-medium text-gray-500">Name</label>
+              <input id="connector-name" value={name} onChange={(event) => { setName(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" />
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-gray-500">Platform Type</label>
-              <select value={platformType} onChange={(event) => setPlatformType(event.target.value)} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500">
+              <label htmlFor="connector-platform-type" className="mb-1.5 block text-xs font-medium text-gray-500">Platform Type</label>
+              <select id="connector-platform-type" value={platformType} onChange={(event) => { setPlatformType(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500">
                 <option value="">Select a platform</option>
                 {(platformData?.platformTypes ?? []).map((type) => (
                   <option key={type.key} value={type.key}>{type.label}</option>
@@ -53,19 +53,19 @@ export default function ConnectorNewPage() {
               </select>
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-gray-500">Roles</label>
+              <div className="mb-1.5 block text-xs font-medium text-gray-500">Roles</div>
               <div className="flex flex-col gap-2">
                 {(['inbound', 'outbound'] as const).map((role) => (
-                  <label key={role} className="flex items-center gap-2 text-sm text-gray-700">
-                    <input type="checkbox" checked={roles.includes(role)} onChange={() => toggleRole(role)} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />
+                  <label key={role} htmlFor={`connector-role-${role}`} className="flex items-center gap-2 text-sm text-gray-700">
+                    <input id={`connector-role-${role}`} type="checkbox" checked={roles.includes(role)} onChange={() => { toggleRole(role); }} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />
                     {role}
                   </label>
                 ))}
               </div>
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-gray-500">Intake Mode</label>
-              <select value={intakeMode} onChange={(event) => setIntakeMode(event.target.value as 'webhook' | 'polling')} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500">
+              <label htmlFor="connector-intake-mode" className="mb-1.5 block text-xs font-medium text-gray-500">Intake Mode</label>
+              <select id="connector-intake-mode" value={intakeMode} onChange={(event) => { setIntakeMode(event.target.value as 'webhook' | 'polling'); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500">
                 <option value="webhook">webhook</option>
                 <option value="polling">polling</option>
               </select>

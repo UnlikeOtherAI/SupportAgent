@@ -16,7 +16,7 @@ export function FilterTabs({ tabs, active, onChange }: FilterTabsProps) {
         <button
           key={tab.value}
           type="button"
-          onClick={() => onChange(tab.value)}
+          onClick={() => { onChange(tab.value); }}
           className={`rounded-[4px] px-3 py-[5px] font-sans text-xs font-medium transition-all duration-100 ${
             active === tab.value
               ? 'bg-white text-gray-800 shadow-[0_1px_2px_rgba(0,0,0,0.06)]'

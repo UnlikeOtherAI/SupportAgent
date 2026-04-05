@@ -31,7 +31,7 @@ export const routingApi = {
   getRule: (id: string) => api.get<RoutingRule>(`/v1/routing-rules/${id}`),
   createRule: (data: Partial<RoutingRule>) => api.post<RoutingRule>('/v1/routing-rules', data),
   updateRule: (id: string, data: Partial<RoutingRule>) => api.put<RoutingRule>(`/v1/routing-rules/${id}`, data),
-  deleteRule: (id: string) => api.delete<void>(`/v1/routing-rules/${id}`),
+  deleteRule: (id: string) => api.delete<undefined>(`/v1/routing-rules/${id}`),
 
   listDestinations: (params?: { page?: number }) => {
     const search = new URLSearchParams()
@@ -42,5 +42,5 @@ export const routingApi = {
   getDestination: (id: string) => api.get<OutboundDestination>(`/v1/outbound-destinations/${id}`),
   createDestination: (data: Partial<OutboundDestination>) => api.post<OutboundDestination>('/v1/outbound-destinations', data),
   updateDestination: (id: string, data: Partial<OutboundDestination>) => api.put<OutboundDestination>(`/v1/outbound-destinations/${id}`, data),
-  deleteDestination: (id: string) => api.delete<void>(`/v1/outbound-destinations/${id}`),
+  deleteDestination: (id: string) => api.delete<undefined>(`/v1/outbound-destinations/${id}`),
 }

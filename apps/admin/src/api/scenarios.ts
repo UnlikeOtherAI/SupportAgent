@@ -26,5 +26,5 @@ export const scenariosApi = {
   get: (id: string) => api.get<WorkflowScenario>(`/v1/workflow-scenarios/${id}`),
   create: (data: Partial<WorkflowScenario>) => api.post<WorkflowScenario>('/v1/workflow-scenarios', data),
   update: (id: string, data: Partial<WorkflowScenario>) => api.put<WorkflowScenario>(`/v1/workflow-scenarios/${id}`, data),
-  delete: (id: string) => api.delete<void>(`/v1/workflow-scenarios/${id}`),
+  delete: (id: string) => api.delete<undefined>(`/v1/workflow-scenarios/${id}`),
 }

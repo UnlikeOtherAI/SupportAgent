@@ -44,11 +44,11 @@ export const settingsApi = {
   listIdentityProviders: () => api.get<{ providers: IdentityProviderConfig[] }>('/v1/settings/identity-providers'),
   createIdentityProvider: (data: Partial<IdentityProviderConfig>) => api.post<IdentityProviderConfig>('/v1/settings/identity-providers', data),
   updateIdentityProvider: (id: string, data: Partial<IdentityProviderConfig>) => api.put<IdentityProviderConfig>(`/v1/settings/identity-providers/${id}`, data),
-  deleteIdentityProvider: (id: string) => api.delete<void>(`/v1/settings/identity-providers/${id}`),
+  deleteIdentityProvider: (id: string) => api.delete<undefined>(`/v1/settings/identity-providers/${id}`),
 
   listUsers: () => api.get<PaginatedResponse<User>>('/v1/users'),
   updateUserRole: (id: string, role: string) => api.put<User>(`/v1/users/${id}/role`, { role }),
-  deactivateUser: (id: string) => api.delete<void>(`/v1/users/${id}`),
+  deactivateUser: (id: string) => api.delete<undefined>(`/v1/users/${id}`),
 
   listAuditEvents: (params?: { page?: number; limit?: number }) => {
     const search = new URLSearchParams()

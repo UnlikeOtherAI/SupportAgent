@@ -39,7 +39,7 @@ export const providersApi = {
   getHosts: (id: string) => api.get<{ hosts: ExecutionProviderHost[] }>(`/v1/execution-providers/${id}/hosts`),
   create: (data: Partial<ExecutionProvider>) => api.post<ExecutionProvider>('/v1/execution-providers', data),
   update: (id: string, data: Partial<ExecutionProvider>) => api.put<ExecutionProvider>(`/v1/execution-providers/${id}`, data),
-  delete: (id: string) => api.delete<void>(`/v1/execution-providers/${id}`),
+  delete: (id: string) => api.delete<undefined>(`/v1/execution-providers/${id}`),
 
   listApiKeys: (params?: { page?: number }) => {
     const search = new URLSearchParams()
@@ -49,5 +49,5 @@ export const providersApi = {
   },
   createApiKey: (data: { label: string; allowedMode: string; allowedProfiles: string[] }) =>
     api.post<{ key: RuntimeApiKey; secret: string }>('/v1/runtime-api-keys', data),
-  revokeApiKey: (id: string) => api.delete<void>(`/v1/runtime-api-keys/${id}`),
+  revokeApiKey: (id: string) => api.delete<undefined>(`/v1/runtime-api-keys/${id}`),
 }

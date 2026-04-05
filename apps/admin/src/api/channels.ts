@@ -23,5 +23,5 @@ export const channelsApi = {
   get: (id: string) => api.get<CommunicationChannel>(`/v1/communication-channels/${id}`),
   create: (data: Partial<CommunicationChannel>) => api.post<CommunicationChannel>('/v1/communication-channels', data),
   update: (id: string, data: Partial<CommunicationChannel>) => api.put<CommunicationChannel>(`/v1/communication-channels/${id}`, data),
-  delete: (id: string) => api.delete<void>(`/v1/communication-channels/${id}`),
+  delete: (id: string) => api.delete<undefined>(`/v1/communication-channels/${id}`),
 }

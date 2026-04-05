@@ -41,12 +41,12 @@ export default function SettingsUsersPage() {
       header: 'Actions',
       render: (user) => (
         <div className="flex items-center gap-2">
-          <select value={user.role} onChange={(event) => roleMutation.mutate({ id: user.id, role: event.target.value as User['role'] })} className="rounded-[var(--radius-sm)] border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500">
+          <select value={user.role} onChange={(event) => { roleMutation.mutate({ id: user.id, role: event.target.value as User['role'] }); }} className="rounded-[var(--radius-sm)] border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500">
             <option value="admin">admin</option>
             <option value="operator">operator</option>
             <option value="viewer">viewer</option>
           </select>
-          <Button type="button" variant="ghost" className="text-signal-red-500 hover:bg-signal-red-50 hover:text-signal-red-600" onClick={() => deactivateMutation.mutate(user.id)}>Deactivate</Button>
+          <Button type="button" variant="ghost" className="text-signal-red-500 hover:bg-signal-red-50 hover:text-signal-red-600" onClick={() => { deactivateMutation.mutate(user.id); }}>Deactivate</Button>
         </div>
       ),
     },

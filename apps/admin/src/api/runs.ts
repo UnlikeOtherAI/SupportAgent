@@ -53,5 +53,5 @@ export const runsApi = {
     return api.get<{ logs: LogEvent[] }>(`/v1/workflow-runs/${id}/logs${qs}`)
   },
   getFindings: (id: string) => api.get<{ findings: Finding[] }>(`/v1/workflow-runs/${id}/findings`),
-  cancel: (id: string) => api.post<void>(`/v1/workflow-runs/${id}/cancel`),
+  cancel: (id: string) => api.post<undefined>(`/v1/workflow-runs/${id}/cancel`),
 }
