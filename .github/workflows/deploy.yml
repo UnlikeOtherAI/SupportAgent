@@ -37,7 +37,7 @@ jobs:
           region: ${{ env.REGION }}
           image: ${{ env.REGISTRY }}/supportagent-api:${{ github.sha }}
           env_vars: |
-            NODE_ENV=production,QUEUE_BACKEND=bullmq,API_BASE_URL=https://supportagent-api-193510011126.${{ env.REGION }}.run.app,CORS_ORIGIN=https://supportagent-admin-193510011126.${{ env.REGION }}.run.app,GCP_PROJECT_ID=${{ env.PROJECT }},ADMIN_APP_URL=https://supportagent-admin-193510011126.${{ env.REGION }}.run.app
+            NODE_ENV=production,QUEUE_BACKEND=bullmq,API_BASE_URL=https://api.appbuildbox.com,CORS_ORIGIN=https://app.appbuildbox.com,GCP_PROJECT_ID=${{ env.PROJECT }},ADMIN_APP_URL=https://app.appbuildbox.com
           secrets: |
             DATABASE_URL=${{ secrets.DATABASE_URL_SECRET_NAME }}:latest,JWT_SECRET=${{ secrets.JWT_SECRET_NAME }}:latest
 
@@ -58,7 +58,7 @@ jobs:
         run: |
           IMAGE=${{ env.REGISTRY }}/supportagent-admin
           docker build -f Dockerfile.admin -t $IMAGE:${{ github.sha }} -t $IMAGE:latest \
-            --build-arg VITE_API_URL=https://supportagent-api-193510011126.${{ env.REGION }}.run.app .
+            --build-arg VITE_API_URL=https://api.appbuildbox.com .
           docker push $IMAGE:${{ github.sha }}
           docker push $IMAGE:latest
 

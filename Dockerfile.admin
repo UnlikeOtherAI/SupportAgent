@@ -1,6 +1,6 @@
 FROM node:22-alpine AS build
 
-ARG VITE_API_URL=https://supportagent-api-193510011126.europe-west1.run.app
+ARG VITE_API_URL=https://api.appbuildbox.com
 ENV VITE_API_URL=$VITE_API_URL
 
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
