@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "{ lsof -ti:4441 | xargs kill -9; } 2>/dev/null; tsx watch src/index.ts",
     "build": "tsc",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
