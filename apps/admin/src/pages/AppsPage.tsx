@@ -160,7 +160,7 @@ export default function AppsPage() {
     queryFn: () => connectorsApi.list({ limit: 100 }),
   })
 
-  const connectors = connectorsData?.data ?? []
+  const connectors = Array.isArray(connectorsData) ? connectorsData : (connectorsData?.data ?? [])
 
   // Group connectors by platform key
   const installedByPlatform = new Map<string, typeof connectors>()
