@@ -13,14 +13,17 @@ const columns: Column<RepositoryMapping>[] = [
   {
     key: 'name',
     header: 'Name',
-    render: (mapping) => (
-      <Link
-        to={`/repositories/${mapping.id}`}
-        className="font-medium text-gray-900 hover:underline"
-      >
-        {mapping.name}
-      </Link>
-    ),
+    render: (mapping) => {
+      const name = mapping.repositoryUrl.replace(/^https?:\/\/github\.com\//, '')
+      return (
+        <Link
+          to={`/repositories/${mapping.id}`}
+          className="font-medium text-gray-900 hover:underline"
+        >
+          {name}
+        </Link>
+      )
+    },
   },
   {
     key: 'connector',
@@ -74,9 +77,9 @@ export default function RepositoriesPage() {
     placeholderData: keepPreviousData,
   })
 
-  const mappings = data?.data ?? []
+  const mappings = data?.items ?? []
   const total = data?.total ?? 0
-  const totalPages = Math.ceil(total / (data?.limit ?? 20))
+  const totalPages = Math.ceil(total / 20)
 
   return (
     <PageShell

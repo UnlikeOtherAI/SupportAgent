@@ -12,7 +12,7 @@ export interface WorkflowRun {
 }
 
 export interface WorkflowRunDetail extends WorkflowRun {
-  logs: LogEvent[]
+  logEvents: LogEvent[]
   findings: Finding[]
 }
 

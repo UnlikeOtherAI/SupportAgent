@@ -72,6 +72,16 @@ export default function RunDetailPage() {
     enabled: !!rawId,
   })
 
+  // Always call useMutation at the top level — never inside conditionals
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- rawId is always defined per useParams contract
+  const cancelMutation = useMutation({
+    mutationFn: () => runsApi.cancel(rawId!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['runs'] })
+      void queryClient.invalidateQueries({ queryKey: ['run', rawId] })
+    },
+  })
+
   if (isLoading) {
     return (
       <PageShell title="Workflow Run">
@@ -80,9 +90,6 @@ export default function RunDetailPage() {
     )
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards queryFn; id is always defined when mutation callbacks fire
-  const id = rawId!
-
   if (!data) {
     return (
       <PageShell title="Workflow Run">
@@ -90,15 +97,6 @@ export default function RunDetailPage() {
       </PageShell>
     )
   }
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- enabled: !!rawId guards data; id is defined before the if (!data) guard
-  const cancelMutation = useMutation({
-    mutationFn: () => runsApi.cancel(id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['runs'] })
-      void queryClient.invalidateQueries({ queryKey: ['run', id] })
-    },
-  })
 
   return (
     <PageShell
@@ -139,11 +137,11 @@ export default function RunDetailPage() {
         <CardHeader title="Execution Logs" />
         <div className="p-5">
           <div className="max-h-96 overflow-y-auto rounded-[var(--radius-md)] bg-gray-950 p-4">
-            {data.logs.length === 0 ? (
+            {data.logEvents.length === 0 ? (
               <p className="text-sm text-gray-500">No logs recorded.</p>
             ) : (
               <div className="space-y-2">
-                {data.logs.map((log) => (
+                {data.logEvents.map((log) => (
                   <div key={log.id} className="flex items-start gap-3">
                     <span className="shrink-0 font-mono text-[11px] text-gray-500">{log.timestamp}</span>
                     <span className={`shrink-0 text-[11px] font-semibold uppercase ${levelClasses[log.level]}`}>{log.level}</span>
