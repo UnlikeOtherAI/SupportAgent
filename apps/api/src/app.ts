@@ -23,6 +23,7 @@ import { authRoutes } from './routes/auth.js';
 import { connectorOAuthRoutes } from './routes/connector-oauth.js';
 import { settingsRoutes } from './routes/settings.js';
 import { syncPlatformTypes } from './lib/sync-platform-types.js';
+import { pollingRoutes } from './routes/polling.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
@@ -76,6 +77,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(settingsRoutes, { prefix: '/v1/settings' });
   await app.register(dispatcherRoutes, { prefix: '/v1/dispatcher' });
   await app.register(workflowChainRoutes, { prefix: '/v1/workflow-chain' });
+  await app.register(pollingRoutes, { prefix: '/v1/polling' });
 
   // Webhook routes use a custom JSON parser (parseAs: string) for signature
   // verification. Registered in an encapsulated scope so it does not affect

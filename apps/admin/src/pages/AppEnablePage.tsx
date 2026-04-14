@@ -8,6 +8,8 @@ import { Card, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { PlatformIcon } from '@/components/icons/PlatformIcons'
 
+const LOCAL_GH_PLATFORMS = new Set(['github', 'github_issues'])
+
 function ConfigField({
   field,
   value,
@@ -52,6 +54,8 @@ export default function AppEnablePage() {
     queryFn: () => platformTypesApi.get(platformKey ?? ''),
     enabled: !!platformKey,
   })
+
+  const supportsLocalGhInstall = platform ? LOCAL_GH_PLATFORMS.has(platform.key) : false
 
   // OAuth flow: create a connector shell, then redirect to the provider
   const oauthMutation = useMutation({
@@ -116,6 +120,29 @@ export default function AppEnablePage() {
     },
   })
 
+  const localGhMutation = useMutation({
+    mutationFn: async () => {
+      if (!platform) throw new Error('Platform not loaded')
+      return connectorsApi.create({
+        platformTypeKey: platform.key,
+        name: platform.displayName,
+        direction: platform.defaultDirection,
+        configuredIntakeMode: 'polling',
+        pollingIntervalSeconds: 300,
+        config: {
+          auth_mode: 'local_gh',
+        },
+        secrets: {},
+      } as Parameters<typeof connectorsApi.create>[0])
+    },
+    onSuccess: (connector) => {
+      void navigate(`/apps/${platformKey}/configure/${connector.id}`)
+    },
+    onError: (err: Error) => {
+      setError(err.message)
+    },
+  })
+
   function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
@@ -138,7 +165,7 @@ export default function AppEnablePage() {
   }
 
   // Method picker — shown for OAuth-capable platforms before the user picks a path
-  if (platform.oauthAvailable && authMethod === 'choose') {
+  if ((platform.oauthAvailable || supportsLocalGhInstall) && authMethod === 'choose') {
     return (
       <PageShell title={`Connect ${platform.displayName}`}>
         <Link to="/apps" className="mb-4 inline-block text-sm text-gray-500 hover:text-gray-700">&larr; Back</Link>
@@ -177,6 +204,27 @@ export default function AppEnablePage() {
                 <p className="text-xs text-gray-500">For self-hosted / enterprise instances, or manual credential management</p>
               </div>
             </button>
+
+            {supportsLocalGhInstall && (
+              <button
+                type="button"
+                disabled={localGhMutation.isPending}
+                onClick={() => { setError(null); localGhMutation.mutate() }}
+                className="flex w-full items-center gap-4 rounded-[var(--radius-sm)] border border-gray-200 bg-white px-4 py-3 text-left transition-colors hover:border-accent-400 hover:bg-accent-50 disabled:opacity-50"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-accent-50">
+                  <span className="text-sm font-semibold text-accent-700">gh</span>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">
+                    {localGhMutation.isPending ? 'Connecting…' : 'Use local gh CLI'}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Reuse the GitHub CLI session on this machine and start in polling mode every 5 minutes
+                  </p>
+                </div>
+              </button>
+            )}
 
             {error && <p className="pt-1 text-sm text-signal-red-500">{error}</p>}
           </div>

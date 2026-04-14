@@ -12,6 +12,7 @@
   "dependencies": {
     "@support-agent/config": "workspace:*",
     "@support-agent/contracts": "workspace:*",
+    "@support-agent/github-cli": "workspace:*",
     "bullmq": "^5.34.8",
     "ioredis": "^5.4.2",
     "ws": "^8.18.0",

@@ -1,5 +1,16 @@
 import { type ConnectorRepository } from '../repositories/connector-repository.js';
 import { type PrismaClient } from '@prisma/client';
+import { GitHubConnectorConfigSchema } from '@support-agent/contracts';
+import { ghListAccessibleRepos } from '@support-agent/github-cli';
+
+function getConnectorConfig(
+  capabilities: unknown,
+): ReturnType<typeof GitHubConnectorConfigSchema.parse> {
+  if (!capabilities || typeof capabilities !== 'object' || Array.isArray(capabilities)) {
+    return {};
+  }
+  return GitHubConnectorConfigSchema.parse(capabilities);
+}
 
 export function createConnectorService(repo: ConnectorRepository, prisma: PrismaClient) {
   return {
@@ -83,6 +94,7 @@ export function createConnectorService(repo: ConnectorRepository, prisma: Prisma
         pollingIntervalSeconds?: number;
         taxonomyConfig?: Record<string, unknown>;
         imageDescriptionPolicy?: string;
+        config?: Record<string, string>;
       },
     ) {
       await this.getConnector(id, tenantId);
@@ -100,8 +112,28 @@ export function createConnectorService(repo: ConnectorRepository, prisma: Prisma
       if (input.taxonomyConfig !== undefined) data.taxonomyConfig = input.taxonomyConfig;
       if (input.imageDescriptionPolicy !== undefined)
         data.imageDescriptionPolicy = input.imageDescriptionPolicy;
+      if (input.config !== undefined) data.capabilities = input.config;
       await repo.update(id, tenantId, data);
       return this.getConnector(id, tenantId);
+    },
+
+    async listRepositoryOptions(id: string, tenantId: string, owner?: string) {
+      const connector = await this.getConnector(id, tenantId);
+      if (!['github', 'github_issues'].includes(connector.platformType.key)) {
+        throw Object.assign(new Error('Repository discovery is only supported for GitHub connectors'), {
+          statusCode: 400,
+        });
+      }
+
+      const config = getConnectorConfig(connector.capabilities);
+      if (config.auth_mode !== 'local_gh') {
+        throw Object.assign(
+          new Error('Repository discovery requires a connector configured for local gh'),
+          { statusCode: 400 },
+        );
+      }
+
+      return ghListAccessibleRepos(owner ?? config.repo_owner);
     },
 
     async deleteConnector(id: string, tenantId: string) {

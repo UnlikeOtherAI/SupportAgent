@@ -1,7 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { buildApp } from '../app.js';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { parseEnv } from '@support-agent/config';
 import { type FastifyInstance } from 'fastify';
+
+const ghListAccessibleRepos = vi.fn();
+
+vi.mock('@support-agent/github-cli', () => ({
+  ghListAccessibleRepos,
+}));
 
 describe('Connector routes', () => {
   let app: FastifyInstance;
@@ -14,9 +19,19 @@ describe('Connector routes', () => {
       JWT_SECRET: 'test-secret-that-is-at-least-32-characters-long',
       REDIS_URL: 'redis://localhost:6379',
     });
+    const { buildApp } = await import('../app.js');
     app = await buildApp();
     await app.ready();
     authToken = app.jwt.sign({ sub: 'test-user', tenantId, role: 'admin' });
+    ghListAccessibleRepos.mockResolvedValue([
+      {
+        defaultBranch: 'main',
+        isPrivate: true,
+        nameWithOwner: 'UnlikeOtherAI/SupportAgent',
+        owner: 'UnlikeOtherAI',
+        url: 'https://github.com/UnlikeOtherAI/SupportAgent',
+      },
+    ]);
   });
 
   afterAll(async () => {
@@ -105,6 +120,89 @@ describe('Connector routes', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().name).toBe('Updated Connector');
     expect(res.json().isEnabled).toBe(false);
+  });
+
+  it('PATCH /v1/connectors/:id persists connector config', async () => {
+    const platformTypeId = await getPlatformTypeId();
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/connectors',
+      headers: { authorization: `Bearer ${authToken}` },
+      payload: {
+        platformTypeId,
+        name: 'Local gh Connector',
+        direction: 'both',
+        configuredIntakeMode: 'polling',
+        pollingIntervalSeconds: 300,
+        config: {
+          auth_mode: 'local_gh',
+          repo_owner: 'UnlikeOtherAI',
+        },
+      },
+    });
+    const connectorId = createRes.json().id as string;
+
+    const updateRes = await app.inject({
+      method: 'PATCH',
+      url: `/v1/connectors/${connectorId}`,
+      headers: { authorization: `Bearer ${authToken}` },
+      payload: {
+        pollingIntervalSeconds: 600,
+        config: {
+          auth_mode: 'local_gh',
+          repo_owner: 'rafiki270',
+          repo_name: 'max-test',
+        },
+      },
+    });
+
+    expect(updateRes.statusCode).toBe(200);
+    expect(updateRes.json().pollingIntervalSeconds).toBe(600);
+    expect(updateRes.json().capabilities).toEqual({
+      auth_mode: 'local_gh',
+      repo_owner: 'rafiki270',
+      repo_name: 'max-test',
+    });
+  });
+
+  it('GET /v1/connectors/:id/repository-options lists repos for local gh connectors', async () => {
+    const platformType = await app.prisma.platformType.findFirst({
+      where: { key: 'github_issues' },
+    });
+    const connector = await app.prisma.connector.create({
+      data: {
+        tenantId,
+        platformTypeId: platformType!.id,
+        name: 'GitHub Issues local gh',
+        direction: 'both',
+        configuredIntakeMode: 'polling',
+        effectiveIntakeMode: 'polling',
+        capabilities: {
+          auth_mode: 'local_gh',
+          repo_owner: 'UnlikeOtherAI',
+        },
+      },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/connectors/${connector.id}/repository-options`,
+      headers: { authorization: `Bearer ${authToken}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(ghListAccessibleRepos).toHaveBeenCalledWith('UnlikeOtherAI');
+    expect(response.json()).toEqual({
+      repositories: [
+        {
+          defaultBranch: 'main',
+          isPrivate: true,
+          nameWithOwner: 'UnlikeOtherAI/SupportAgent',
+          owner: 'UnlikeOtherAI',
+          url: 'https://github.com/UnlikeOtherAI/SupportAgent',
+        },
+      ],
+    });
   });
 
   it('POST /v1/connectors/:id/capabilities/discover discovers capabilities', async () => {

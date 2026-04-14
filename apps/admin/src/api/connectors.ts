@@ -10,7 +10,10 @@ export interface ConnectorPlatformType {
 export interface Connector {
   id: string
   name: string
+  configuredIntakeMode?: 'webhook' | 'polling' | 'manual'
+  config?: Record<string, string>
   platformType: ConnectorPlatformType
+  pollingIntervalSeconds?: number | null
   roles: ('inbound' | 'outbound')[]
   intakeMode: 'webhook' | 'polling'
   status: 'healthy' | 'degraded' | 'unconfigured'
@@ -64,14 +67,26 @@ export interface ConnectorCreateInput {
   name: string
   direction?: 'inbound' | 'outbound' | 'both'
   configuredIntakeMode?: 'webhook' | 'polling' | 'manual'
+  pollingIntervalSeconds?: number
   config?: Record<string, string>
   secrets?: Record<string, string>
 }
 
 export interface ConnectorUpdateInput {
+  config?: Record<string, string>
+  configuredIntakeMode?: 'webhook' | 'polling' | 'manual'
   name?: string
+  pollingIntervalSeconds?: number
   roles?: ('inbound' | 'outbound')[]
   intakeMode?: 'webhook' | 'polling'
+}
+
+export interface GitHubRepositoryOption {
+  defaultBranch: string
+  isPrivate: boolean
+  nameWithOwner: string
+  owner: string
+  url: string
 }
 
 interface RawConnectorPlatformType {
@@ -87,12 +102,14 @@ interface RawConnectorCapability {
 }
 
 interface RawConnector {
+  capabilities?: Record<string, string> | null
   id: string
   name: string
   direction: 'inbound' | 'outbound' | 'both'
   configuredIntakeMode: 'webhook' | 'polling' | 'manual'
   effectiveIntakeMode: 'webhook' | 'polling' | 'manual'
   isEnabled: boolean
+  pollingIntervalSeconds?: number | null
   createdAt: string
   platformType: RawConnectorPlatformType
   connectorCapabilities?: RawConnectorCapability[]
@@ -113,7 +130,10 @@ function mapConnector(raw: RawConnector): Connector {
   return {
     id: raw.id,
     name: raw.name,
+    configuredIntakeMode: raw.configuredIntakeMode,
+    config: raw.capabilities ?? {},
     platformType: raw.platformType,
+    pollingIntervalSeconds: raw.pollingIntervalSeconds ?? null,
     roles: mapRoles(raw.direction),
     intakeMode: raw.effectiveIntakeMode === 'manual' ? 'polling' : raw.effectiveIntakeMode,
     status: raw.isEnabled ? 'healthy' : 'unconfigured',
@@ -170,7 +190,14 @@ export const connectorsApi = {
   update: (id: string, data: ConnectorUpdateInput) =>
     api
       .patch<RawConnector>(`/v1/connectors/${id}`, {
+        ...(data.config !== undefined ? { config: data.config } : {}),
+        ...(data.configuredIntakeMode !== undefined
+          ? { configuredIntakeMode: data.configuredIntakeMode }
+          : {}),
         ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.pollingIntervalSeconds !== undefined
+          ? { pollingIntervalSeconds: data.pollingIntervalSeconds }
+          : {}),
         ...(data.roles !== undefined ? { direction: rolesToDirection(data.roles) } : {}),
         ...(data.intakeMode !== undefined ? { configuredIntakeMode: data.intakeMode } : {}),
       })
@@ -210,4 +237,14 @@ export const connectorsApi = {
     })),
   getTriggerPolicies: (id: string) => api.get<{ policies: TriggerPolicy[] }>(`/v1/connectors/${id}/trigger-policies`),
   updateTriggerPolicies: (id: string, policies: TriggerPolicy[]) => api.put(`/v1/connectors/${id}/trigger-policies`, { policies }),
+  listRepositoryOptions: (id: string, owner?: string) => {
+    const search = new URLSearchParams()
+    if (owner?.trim()) {
+      search.set('owner', owner.trim())
+    }
+    const query = search.toString()
+    return api.get<{ repositories: GitHubRepositoryOption[] }>(
+      `/v1/connectors/${id}/repository-options${query ? `?${query}` : ''}`,
+    )
+  },
 }

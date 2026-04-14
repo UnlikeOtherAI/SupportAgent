@@ -85,6 +85,12 @@ The whole connector setup must be configurable over MCP as well as through the a
 
 Every connector should also expose trigger settings in the admin panel and MCP so operators can define what starts triage, build, and merge work.
 
+GitHub and GitHub Issues connectors must also support a local-machine `gh` authentication mode in the admin UI for operator-run environments. That mode should:
+
+- reuse the logged-in GitHub CLI session on the machine that runs the worker and cron loop,
+- default to polling every 5 minutes while allowing the operator to change the interval,
+- load the repository selector from the authenticated `gh` account and org access rather than asking the operator to type repository URLs manually.
+
 Those triggers may include:
 
 - status changes
@@ -108,6 +114,13 @@ The system must also detect real platform capabilities for the connected account
 The same rule applies to dependency handling. If a platform exposes issue dependencies and the connected account can read them reliably, Support Agent should be able to hold blocked work until prerequisites are complete. If the platform does not expose this clearly, the system should not guess.
 
 The same preference applies to comment and mention handling. If a connector platform can deliver comments, replies, or bot mentions through webhooks, Support Agent should prefer webhooks over polling.
+
+For local-`gh` GitHub issue polling, the polling path must only queue triage for open issues that do not already have both:
+
+- the Support Agent discovery comment marker,
+- the `triaged` issue label.
+
+When triage completes for that path, Support Agent must post the discovery comment first, then ensure the required GitHub labels exist, then apply the `triaged` and complexity labels so the next poll cycle skips the issue deterministically.
 
 The implementation direction should follow the already-proven pattern from `../KiloSupport`: source-specific intake at the edge, a normalized workflow run in the core system, and source-specific outbound delivery after the investigation is complete.
 

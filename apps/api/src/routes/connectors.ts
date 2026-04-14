@@ -27,6 +27,7 @@ const UpdateConnectorBody = z.object({
   isEnabled: z.boolean().optional(),
   apiBaseUrl: z.string().url().optional(),
   pollingIntervalSeconds: z.number().int().min(10).optional(),
+  config: z.record(z.string(), z.string()).optional(),
   taxonomyConfig: z.record(z.unknown()).optional(),
   imageDescriptionPolicy: z.string().optional(),
 });
@@ -69,6 +70,19 @@ export async function connectorRoutes(app: FastifyInstance) {
     const body = UpdateConnectorBody.parse(request.body);
     return service.updateConnector(request.params.connectorId, request.user.tenantId, body);
   });
+
+  app.get<{ Params: { connectorId: string }; Querystring: { owner?: string } }>(
+    '/:connectorId/repository-options',
+    async (request) => {
+      return {
+        repositories: await service.listRepositoryOptions(
+          request.params.connectorId,
+          request.user.tenantId,
+          request.query.owner,
+        ),
+      };
+    },
+  );
 
   app.put<{ Params: { connectorId: string } }>('/:connectorId/secrets', async (request) => {
     const body = UpdateConnectorSecretsBody.parse(request.body);

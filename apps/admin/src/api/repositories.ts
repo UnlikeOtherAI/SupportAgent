@@ -57,12 +57,15 @@ function mapRepositoryMapping(m: RawRepositoryMapping): RepositoryMapping {
 }
 
 export const repositoriesApi = {
-  list: (params?: { page?: number; limit?: number }) => {
+  list: (params?: { connectorId?: string; page?: number; limit?: number }) => {
     const page = params?.page ?? 1
     const limit = params?.limit ?? 20
     const search = new URLSearchParams()
     search.set('page', String(page))
     search.set('limit', String(limit))
+    if (params?.connectorId) {
+      search.set('connectorId', params.connectorId)
+    }
     const qs = search.toString()
     return api
       .get<RawRepositoryMapping[]>(`/v1/repository-mappings${qs ? `?${qs}` : ''}`)

@@ -129,6 +129,9 @@ importers:
       '@support-agent/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@support-agent/github-cli':
+        specifier: workspace:*
+        version: link:../../packages/github-cli
       '@support-agent/queue':
         specifier: workspace:*
         version: link:../../packages/queue
@@ -206,6 +209,9 @@ importers:
       '@support-agent/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@support-agent/github-cli':
+        specifier: workspace:*
+        version: link:../../packages/github-cli
       bullmq:
         specifier: ^5.34.8
         version: 5.71.1
@@ -263,6 +269,18 @@ importers:
       vitest:
         specifier: ^3.0.4
         version: 3.2.4(@types/node@24.12.0)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)
+
+  packages/github-cli:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.19.15
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.4
+        version: 3.2.4(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)
 
   packages/queue:
     dependencies:

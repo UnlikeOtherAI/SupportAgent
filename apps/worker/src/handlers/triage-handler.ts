@@ -3,12 +3,15 @@ import { promisify } from 'node:util';
 import { type WorkerJob } from '@support-agent/contracts';
 import { type WorkerApiClient } from '../lib/api-client.js';
 import {
+  ghAddIssueComment,
   ghCheckAuth,
   ghCloneRepo,
+  ghAddIssueLabels,
   ghGetIssue,
   cleanupWorkDir,
   parseGitHubRef,
 } from '../lib/gh-cli.js';
+import { buildTriageDiscoveryComment } from '../lib/triage-discovery-comment.js';
 
 const execAsync = promisify(exec);
 
@@ -230,10 +233,43 @@ Return JSON with: root_cause, suspect_files (array), recommended_fix, confidence
     await api.postLog(jobId, 'stderr', `[triage] Failed to submit findings: ${err}`);
   }
 
-  // ── 8. Label the issue ──────────────────────────────────────────────
+  // ── 8. Post the discovery comment, then label the issue ─────────────
+  try {
+    await ghAddIssueComment(
+      owner,
+      repo,
+      issueNum,
+      buildTriageDiscoveryComment({
+        confidence: confidenceVal,
+        recommendedFix: findings.recommended_fix ?? 'Review analysis and implement fix',
+        rootCause: findings.root_cause ?? triageResult.slice(0, 500),
+        suspectFiles: findings.suspect_files ?? [],
+      }),
+    );
+    await api.postLog(jobId, 'stdout', `[triage] Posted discovery comment on issue #${issueNum}`);
+  } catch (err) {
+    await api.postLog(jobId, 'stderr', `[triage] Could not post discovery comment: ${err}`);
+    await api.submitReport(jobId, {
+      workflowRunId,
+      workflowType: 'triage',
+      status: 'failed',
+      summary: `Triage for #${issue.number} failed while posting the discovery comment`,
+      stageResults: [
+        { stage: 'auth', status: 'passed' },
+        { stage: 'issue_fetch', status: 'passed' },
+        { stage: 'repository_setup', status: 'passed' },
+        { stage: 'investigation', status: 'passed' },
+        { stage: 'findings', status: 'failed' },
+      ],
+    });
+    if (workDir) {
+      await cleanupWorkDir(workDir);
+    }
+    return;
+  }
+
   const labels = ['triaged', findings.complexity ?? 'complexity-medium'];
   try {
-    const { ghAddIssueLabels } = await import('../lib/gh-cli.js');
     await ghAddIssueLabels(owner, repo, issueNum, labels);
   } catch (err) {
     await api.postLog(jobId, 'stderr', `[triage] Could not label issue: ${err}`);

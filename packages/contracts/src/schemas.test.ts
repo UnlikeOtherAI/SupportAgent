@@ -15,6 +15,8 @@ import {
   FinalReportSchema,
   WorkerJobSchema,
   ApiErrorSchema,
+  GitHubAuthModeSchema,
+  GitHubConnectorConfigSchema,
 } from './index.js';
 
 function uuid(): string {
@@ -89,6 +91,43 @@ describe('OutputVisibility', () => {
 
   it('rejects invalid values', () => {
     expect(() => OutputVisibility.parse('hidden')).toThrow();
+  });
+});
+
+describe('GitHubAuthModeSchema', () => {
+  it('accepts supported auth modes', () => {
+    expect(GitHubAuthModeSchema.parse('oauth')).toBe('oauth');
+    expect(GitHubAuthModeSchema.parse('token')).toBe('token');
+    expect(GitHubAuthModeSchema.parse('local_gh')).toBe('local_gh');
+  });
+
+  it('rejects unsupported auth modes', () => {
+    expect(() => GitHubAuthModeSchema.parse('local')).toThrow();
+  });
+});
+
+describe('GitHubConnectorConfigSchema', () => {
+  it('accepts an empty config', () => {
+    expect(GitHubConnectorConfigSchema.parse({})).toEqual({});
+  });
+
+  it('accepts local gh defaults', () => {
+    expect(
+      GitHubConnectorConfigSchema.parse({
+        auth_mode: 'local_gh',
+        repo_owner: 'UnlikeOtherAI',
+        repo_name: 'SupportAgent',
+      }),
+    ).toEqual({
+      auth_mode: 'local_gh',
+      repo_owner: 'UnlikeOtherAI',
+      repo_name: 'SupportAgent',
+    });
+  });
+
+  it('rejects empty owner and repo values', () => {
+    expect(() => GitHubConnectorConfigSchema.parse({ repo_owner: '' })).toThrow();
+    expect(() => GitHubConnectorConfigSchema.parse({ repo_name: '' })).toThrow();
   });
 });
 

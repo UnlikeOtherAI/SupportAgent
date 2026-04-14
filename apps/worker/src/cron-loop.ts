@@ -10,6 +10,7 @@
  * All operations go through the API HTTP endpoints — no direct Prisma access.
  */
 import { parseEnv } from '@support-agent/config';
+import { pollTriageTargets } from './lib/polling-triage.js';
 
 const POLL_INTERVAL_MS = 15_000; // 15 seconds
 const CHAIN_INTERVAL_MS = 30_000;
@@ -66,6 +67,7 @@ async function main() {
 
   // Get initial token
   let token = await getDevToken();
+  const lastPolledAtByTarget = new Map<string, number>();
 
   // Re-auth periodically (tokens expire after 24h, but get fresh one)
   async function ensureToken() {
@@ -104,6 +106,26 @@ async function main() {
       console.warn('[cron] dispatch-next error:', err);
     }
     return false;
+  }
+
+  async function pollNext() {
+    await ensureToken();
+    try {
+      const result = await pollTriageTargets({
+        apiBaseUrl: env.API_BASE_URL,
+        lastPolledAtByTarget,
+        log: (message) => { console.log(message); },
+        token,
+      });
+
+      if (result.targetsChecked > 0 || result.created > 0 || result.duplicate > 0) {
+        console.log(
+          `[polling] checked=${result.targetsChecked} created=${result.created} duplicate=${result.duplicate} skipped=${result.skipped}`,
+        );
+      }
+    } catch (err) {
+      console.warn('[polling] triage scan error:', err);
+    }
   }
 
   async function statusReport() {
@@ -149,6 +171,9 @@ async function main() {
 
       // Dispatch next queued run
       const dispatched = await dispatchNext();
+
+      // Scan any due polling targets for untriaged issues
+      await pollNext();
 
       // Chain any completed triage/build runs
       await chainNext();

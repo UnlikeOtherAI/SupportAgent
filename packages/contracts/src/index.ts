@@ -7,3 +7,4 @@ export * from './worker-job.js';
 export * from './api-error.js';
 export * from './gateway-protocol.js';
 export * from './platform-registry.js';
+export * from './github-connector-config.js';

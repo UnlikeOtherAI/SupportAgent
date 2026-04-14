@@ -65,6 +65,13 @@ Examples:
 - Jira: inbound and outbound
 - Trello: inbound and outbound
 
+GitHub and GitHub Issues also need a local-runtime polling variant for operator-managed environments:
+
+- admin install flow offers OAuth, PAT, and local `gh` auth modes where applicable
+- local `gh` mode stores typed connector config with `auth_mode=local_gh`
+- repository selection is populated by calling the local `gh` CLI through a shared connector helper package
+- polling targets are derived from enabled repository mappings plus connector polling interval settings
+
 Communication channel examples:
 
 - Slack: communication and notification channel
@@ -159,6 +166,8 @@ Rules:
 - Validate every external payload at the edge, especially webhook inputs.
 - Keep workers API-only with no direct database access.
 - Keep worker dispatch separate from worker execution.
+- Expose repository-option lookup for local-`gh` connectors from the API rather than calling `gh` directly from the browser.
+- Keep polling intake API routes separate from webhook intake routes, but normalize both into the same `InboundWorkItem` and `workflow_runs` records.
 
 ## Web Application
 
@@ -188,6 +197,8 @@ The admin app must provide:
 - repository review run visibility
 - per-connector trigger configuration for triage, build, and merge starts
 - workflow scenario management
+- connector-specific install flows that can switch between OAuth, PAT, and local `gh` setup without falling back to generic secret fields
+- a polling setup panel for local-`gh` GitHub connectors with owner filter, repository dropdown, and interval controls
 
 Implementation rules:
 
@@ -212,6 +223,8 @@ Rules:
 - Workers fetch context, stream progress, upload artifacts, and submit final reports through API endpoints only.
 - The runtime CLI should be the canonical customer-facing implementation of worker or gateway registration.
 - The runtime CLI should be the canonical prompt-fetch, manifest-fetch, and connection layer for workers and gateways.
+- The worker-side GitHub helper layer must be shared with the API for local-`gh` repo discovery, issue fetches, issue comments, and label management.
+- GitHub triage delivery must post the discovery comment before labeling, and it must ensure `triaged` and complexity labels exist before applying them so local polling does not requeue already-processed issues.
 
 Reference: [worker-architecture.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/worker-architecture.md)
 Reference: [worker-deployment.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/worker-deployment.md)

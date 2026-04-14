@@ -15,6 +15,7 @@
     "@prisma/client": "^6.2.1",
     "@support-agent/config": "workspace:*",
     "@support-agent/contracts": "workspace:*",
+    "@support-agent/github-cli": "workspace:*",
     "@support-agent/queue": "workspace:*",
     "fastify": "^5.2.1",
     "fastify-plugin": "^5.1.0",
