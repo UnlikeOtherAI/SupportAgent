@@ -6,7 +6,7 @@ import { type FastifyInstance } from 'fastify';
 describe('Repository mapping routes', () => {
   let app: FastifyInstance;
   let authToken: string;
-  const tenantId = '00000000-0000-0000-0000-000000000002';
+  const tenantId = '00000000-0000-0000-0000-000000000102';
   let connectorId: string;
   let mappingId: string;
 
@@ -37,8 +37,12 @@ describe('Repository mapping routes', () => {
   });
 
   afterAll(async () => {
-    await app.prisma.repositoryMapping.deleteMany({ where: { tenantId } });
-    await app.prisma.connector.deleteMany({ where: { tenantId } });
+    if (mappingId) {
+      await app.prisma.repositoryMapping.deleteMany({ where: { id: mappingId } });
+    }
+    if (connectorId) {
+      await app.prisma.connector.deleteMany({ where: { id: connectorId } });
+    }
     await app.close();
   });
 

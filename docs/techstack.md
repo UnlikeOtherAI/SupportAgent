@@ -155,6 +155,7 @@ Rules:
 - Keep controllers thin.
 - Put orchestration and triage logic in service modules.
 - Keep Prisma inside API code and migration code only.
+- Sync registry-backed platform types into Prisma during API startup so connector install surfaces do not rely on a separate seed task in production.
 - Validate every external payload at the edge, especially webhook inputs.
 - Keep workers API-only with no direct database access.
 - Keep worker dispatch separate from worker execution.

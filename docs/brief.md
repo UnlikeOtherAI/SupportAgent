@@ -10,6 +10,7 @@ At the product boundary, Support Agent is the orchestrator. Customer-owned runti
 
 The runtime CLI should be the canonical prompt-execution and connection layer for both workers and gateways.
 For admin implementation, each page should be scaffolded with `wf` CLI and verified with a Playwright clickthrough before the next page is started.
+The API must keep the connector platform catalog available from the shared registry at startup so the admin Apps page does not depend on a separate manual seed run.
 
 Reference scenario: [use-cases.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/use-cases.md)
 Reference configurable scenario model: [workflow-scenarios.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/workflow-scenarios.md)

@@ -22,6 +22,7 @@ import { workflowChainRoutes } from './routes/workflow-chain.js';
 import { authRoutes } from './routes/auth.js';
 import { connectorOAuthRoutes } from './routes/connector-oauth.js';
 import { settingsRoutes } from './routes/settings.js';
+import { syncPlatformTypes } from './lib/sync-platform-types.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
@@ -43,6 +44,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(cors, { origin: corsOrigin });
   await app.register(prismaPlugin);
+  await syncPlatformTypes(app.prisma);
   await app.register(authPlugin);
   await app.register(workerAuthPlugin);
   app.setErrorHandler(errorHandler);
