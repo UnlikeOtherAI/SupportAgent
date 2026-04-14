@@ -1,11 +1,13 @@
-import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link, useNavigate } from 'react-router-dom'
 import { platformTypesApi, type PlatformTypeDetail } from '@/api/platform-types'
 import { connectorsApi } from '@/api/connectors'
 import { PageShell } from '@/components/ui/PageShell'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { PlatformIcon } from '@/components/icons/PlatformIcons'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 const CATEGORIES = [
   { key: 'error-monitoring', label: 'Error Monitoring' },
@@ -14,132 +16,233 @@ const CATEGORIES = [
   { key: 'project-management', label: 'Project Management' },
 ] as const
 
-function InstalledCard({
+// ─── Left panel: available platforms ───────────────────────────────────────────
+
+function AvailableCard({ platform }: { platform: PlatformTypeDetail }) {
+  return (
+    <Card className="flex flex-col p-4">
+      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] bg-gray-50">
+        <PlatformIcon slug={platform.iconSlug} className="h-5 w-5 text-gray-700" />
+      </div>
+      <h3 className="text-sm font-semibold text-gray-900">{platform.displayName}</h3>
+      <p className="mt-1 flex-1 text-xs leading-relaxed text-gray-500 line-clamp-2">{platform.description}</p>
+      <div className="mt-3">
+        <Link to={`/apps/${platform.key}/enable`}>
+          <Button variant="primary" className="w-full justify-center">Install</Button>
+        </Link>
+      </div>
+    </Card>
+  )
+}
+
+// ─── Right panel: installed connectors ────────────────────────────────────────
+
+function DeleteButton({ connectorId }: { connectorId: string }) {
+  const [confirm, setConfirm] = useState(false)
+  const queryClient = useQueryClient()
+
+  const deleteMutation = useMutation({
+    mutationFn: () => connectorsApi.delete(connectorId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['connectors'] })
+    },
+  })
+
+  if (deleteMutation.isPending) {
+    return <span className="text-xs text-gray-400">Deleting...</span>
+  }
+
+  if (confirm) {
+    return (
+      <div className="flex items-center gap-1">
+        <Button
+          variant="danger"
+          className="px-2 py-1 text-xs"
+          onClick={() => { deleteMutation.mutate(); }}
+        >
+          Confirm
+        </Button>
+        <Button
+          variant="ghost"
+          className="px-2 py-1 text-xs"
+          onClick={() => setConfirm(false)}
+        >
+          Cancel
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      className="px-2 py-1 text-xs text-gray-400 hover:text-red-500"
+      onClick={() => setConfirm(true)}
+    >
+      Delete
+    </Button>
+  )
+}
+
+function ConnectorCard({
   connector,
-  platform,
+  platformKey,
 }: {
-  connector: { id: string; name: string; status: string; platformType: string }
-  platform: PlatformTypeDetail
+  connector: { id: string; name: string; status: string }
+  platformKey: string
 }) {
   const statusColor =
     connector.status === 'healthy' ? 'bg-accent-500' :
     connector.status === 'degraded' ? 'bg-signal-amber-500' : 'bg-gray-300'
+  const statusLabel =
+    connector.status === 'healthy' ? 'Connected' :
+    connector.status === 'degraded' ? 'Degraded' : 'Unconfigured'
 
   return (
-    <Card className="flex flex-col p-5">
-      <div className="mb-3 flex items-start justify-between">
-        <div className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-sm)] bg-gray-50">
-          <PlatformIcon slug={platform.iconSlug} className="h-6 w-6 text-gray-700" />
-        </div>
-        <span className="flex items-center gap-1.5 rounded-full bg-accent-50 px-2.5 py-0.5 text-xs font-medium text-accent-600">
-          <span className={`h-1.5 w-1.5 rounded-full ${statusColor}`} />
-          Connected
-        </span>
+    <div className="flex items-center justify-between rounded-md border border-gray-100 bg-gray-50/50 px-3 py-2">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${statusColor}`} />
+        <span className="truncate text-sm text-gray-700">{connector.name || 'Untitled'}</span>
+        <span className="shrink-0 text-xs text-gray-400">({statusLabel})</span>
       </div>
-      <p className="text-sm font-semibold text-gray-900">{connector.name}</p>
-      <p className="mt-0.5 text-xs text-gray-500">{platform.displayName}</p>
-      <div className="mt-4">
-        <Link to={`/apps/${platform.key}/configure/${connector.id}`}>
-          <Button variant="secondary" className="w-full justify-center">Configure</Button>
+      <div className="flex items-center gap-1 shrink-0 ml-2">
+        <Link to={`/apps/${platformKey}/configure/${connector.id}`}>
+          <Button variant="ghost" className="px-2 py-1 text-xs">Configure</Button>
         </Link>
+        <DeleteButton connectorId={connector.id} />
       </div>
-    </Card>
+    </div>
   )
 }
 
-function AvailableCard({
+function InstalledPlatformGroup({
+  platformKey,
+  connectors,
   platform,
-  hasExisting,
 }: {
+  platformKey: string
+  connectors: { id: string; name: string; status: string }[]
   platform: PlatformTypeDetail
-  hasExisting: boolean
 }) {
   return (
-    <Card className="flex flex-col p-5">
-      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-[var(--radius-sm)] bg-gray-50">
-        <PlatformIcon slug={platform.iconSlug} className="h-6 w-6 text-gray-700" />
+    <div className="mb-5">
+      <div className="mb-2 flex items-center gap-2">
+        <div className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] bg-gray-100">
+          <PlatformIcon slug={platform.iconSlug} className="h-4 w-4 text-gray-700" />
+        </div>
+        <h3 className="text-sm font-semibold text-gray-900">{platform.displayName}</h3>
+        <span className="text-xs text-gray-400">({connectors.length})</span>
       </div>
-      <h3 className="text-sm font-semibold text-gray-900">{platform.displayName}</h3>
-      <p className="mt-1 flex-1 text-xs leading-relaxed text-gray-500">{platform.description}</p>
-      <div className="mt-4">
-        <Link to={`/apps/${platform.key}/enable`}>
-          <Button variant={hasExisting ? 'secondary' : 'primary'} className="w-full justify-center">
-            {hasExisting ? 'Add another' : 'Install'}
-          </Button>
+      <div className="space-y-1.5">
+        {connectors.map((c) => (
+          <ConnectorCard key={c.id} connector={c} platformKey={platformKey} />
+        ))}
+      </div>
+      <div className="mt-2">
+        <Link to={`/apps/${platformKey}/enable`}>
+          <Button variant="ghost" className="text-xs text-gray-400 hover:text-gray-700">+ Add another</Button>
         </Link>
       </div>
-    </Card>
+    </div>
   )
 }
 
+// ─── Main page ────────────────────────────────────────────────────────────────
+
 export default function AppsPage() {
-  const { data: platforms, isLoading } = useQuery({
+  const navigate = useNavigate()
+  const { data: platforms, isLoading: platformsLoading } = useQuery({
     queryKey: ['platform-types'],
     queryFn: () => platformTypesApi.list(),
   })
-  const { data: connectorsData } = useQuery({
+  const { data: connectorsData, isLoading: connectorsLoading } = useQuery({
     queryKey: ['connectors'],
     queryFn: () => connectorsApi.list({ limit: 100 }),
   })
 
   const connectors = connectorsData?.data ?? []
+
+  // Group connectors by platform key
   const installedByPlatform = new Map<string, typeof connectors>()
   for (const c of connectors) {
-    installedByPlatform.set(c.platformType.key, [
-      ...(installedByPlatform.get(c.platformType.key) ?? []),
-      c,
-    ])
+    const existing = installedByPlatform.get(c.platformType.key) ?? []
+    existing.push(c)
+    installedByPlatform.set(c.platformType.key, existing)
   }
 
-  const installedCards = connectors
-    .map((c) => ({ connector: c, platform: (platforms ?? []).find((p) => p.key === c.platformType.key) }))
-    .filter((x): x is { connector: typeof connectors[0]; platform: PlatformTypeDetail } => !!x.platform)
-
+  // Available = platforms with zero connectors installed
   const availablePlatforms = (platforms ?? []).filter((p) => !installedByPlatform.has(p.key))
+
+  // Installed platforms = platforms that have at least one connector
+  const installedPlatforms = (platforms ?? []).filter((p) => installedByPlatform.has(p.key))
+
+  const isLoading = platformsLoading || connectorsLoading
 
   return (
     <PageShell title="Apps">
-      {/* Installed */}
-      {installedCards.length > 0 && (
-        <div className="mb-10">
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-500">Installed</h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {installedCards.map(({ connector, platform }) => (
-              <InstalledCard key={connector.id} connector={connector} platform={platform} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Available */}
       {isLoading ? (
         <p className="text-sm text-gray-400">Loading...</p>
-      ) : availablePlatforms.length === 0 && installedCards.length > 0 ? (
-        <p className="text-sm text-gray-500">All supported platforms are connected.</p>
       ) : (
-        <>
-          {CATEGORIES.map((cat) => {
-            const catPlatforms = availablePlatforms.filter((p) => p.category === cat.key)
-            const addAnother = (platforms ?? [])
-              .filter((p) => p.category === cat.key && installedByPlatform.has(p.key))
-            if (catPlatforms.length === 0 && addAnother.length === 0) return null
-            return (
-              <div key={cat.key} className="mb-8">
-                <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-500">
-                  {cat.label}
-                </h2>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {catPlatforms.map((platform) => (
-                    <AvailableCard key={platform.key} platform={platform} hasExisting={false} />
-                  ))}
-                  {addAnother.map((platform) => (
-                    <AvailableCard key={`add-${platform.key}`} platform={platform} hasExisting />
-                  ))}
-                </div>
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-10">
+          {/* Left panel: available to install */}
+          <div>
+            <h2 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-500">
+              Available
+            </h2>
+            {availablePlatforms.length === 0 && installedPlatforms.length > 0 ? (
+              <p className="text-sm text-gray-400">All supported platforms are connected.</p>
+            ) : (
+              <div className="space-y-6">
+                {CATEGORIES.map((cat) => {
+                  const catPlatforms = availablePlatforms.filter((p) => p.category === cat.key)
+                  if (catPlatforms.length === 0) return null
+                  return (
+                    <div key={cat.key}>
+                      <h3 className="mb-2 text-xs font-medium text-gray-400">{cat.label}</h3>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {catPlatforms.map((platform) => (
+                          <AvailableCard key={platform.key} platform={platform} />
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-            )
-          })}
-        </>
+            )}
+          </div>
+
+          {/* Right panel: installed connectors */}
+          <div>
+            <h2 className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-500">
+              Connected
+            </h2>
+            {connectors.length === 0 ? (
+              <EmptyState
+                title="No connectors installed"
+                description="Install a platform from the left panel to get started."
+              />
+            ) : (
+              <Card className="p-4">
+                {/* Group installed connectors by platform type, preserving platform category order */}
+                {(() => {
+                  const orderedPlatformKeys = installedPlatforms.map((p) => p.key)
+                  return orderedPlatformKeys.map((key) => {
+                    const platform = platforms!.find((p) => p.key === key)!
+                    const platformConnectors = installedByPlatform.get(key)!
+                    return (
+                      <InstalledPlatformGroup
+                        key={key}
+                        platformKey={key}
+                        connectors={platformConnectors}
+                        platform={platform}
+                      />
+                    )
+                  })
+                })()}
+              </Card>
+            )}
+          </div>
+        </div>
       )}
     </PageShell>
   )
