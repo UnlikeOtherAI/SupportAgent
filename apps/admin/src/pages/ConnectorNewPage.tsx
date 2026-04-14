@@ -18,7 +18,18 @@ export default function ConnectorNewPage() {
     queryFn: () => connectorsApi.getPlatformTypes(),
   })
   const mutation = useMutation({
-    mutationFn: () => connectorsApi.create({ name, platformType, roles, intakeMode }),
+    mutationFn: () =>
+      connectorsApi.create({
+        name,
+        platformTypeKey: platformType,
+        direction:
+          roles.includes('inbound') && roles.includes('outbound')
+            ? 'both'
+            : roles.includes('outbound')
+              ? 'outbound'
+              : 'inbound',
+        configuredIntakeMode: intakeMode,
+      }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['connectors'] })
       void navigate('/connectors')

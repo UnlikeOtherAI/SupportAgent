@@ -1,5 +1,5 @@
 import { api } from '@/lib/api-client'
-import type { PaginatedResponse } from './runs'
+import { normalizePaginatedResponse, type PaginatedResponse } from './paginated-response'
 
 export interface ReviewProfile {
   id: string
@@ -15,10 +15,14 @@ export interface ReviewProfile {
 
 export const reviewProfilesApi = {
   list: (params?: { page?: number }) => {
+    const page = params?.page ?? 1
+    const limit = 20
     const search = new URLSearchParams()
-    if (params?.page) search.set('page', String(params.page))
+    search.set('page', String(page))
     const qs = search.toString()
-    return api.get<PaginatedResponse<ReviewProfile>>(`/v1/review-profiles${qs ? `?${qs}` : ''}`)
+    return api
+      .get<PaginatedResponse<ReviewProfile>>(`/v1/review-profiles${qs ? `?${qs}` : ''}`)
+      .then((response) => normalizePaginatedResponse(response, limit, page))
   },
   get: (id: string) => api.get<ReviewProfile>(`/v1/review-profiles/${id}`),
   create: (data: Partial<ReviewProfile>) => api.post<ReviewProfile>('/v1/review-profiles', data),

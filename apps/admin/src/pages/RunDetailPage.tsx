@@ -66,15 +66,19 @@ export default function RunDetailPage() {
   const queryClient = useQueryClient()
   const { data, isLoading } = useQuery({
     queryKey: ['run', rawId],
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards this
-    queryFn: () => runsApi.get(rawId!),
+    queryFn: async () => {
+      if (!rawId) throw new Error('No run ID')
+      return runsApi.get(rawId)
+    },
     enabled: !!rawId,
   })
 
   // Always call useMutation at the top level — never inside conditionals
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- rawId is always defined per useParams contract
   const cancelMutation = useMutation({
-    mutationFn: () => runsApi.cancel(rawId!),
+    mutationFn: async () => {
+      if (!rawId) throw new Error('No run ID')
+      return runsApi.cancel(rawId)
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['runs'] })
       void queryClient.invalidateQueries({ queryKey: ['run', rawId] })
@@ -97,6 +101,12 @@ export default function RunDetailPage() {
     )
   }
 
+  const repositoryValue =
+    data.workItem?.repositoryRef ??
+    (data.repositoryMapping
+      ? data.repositoryMapping.repositoryUrl.replace(/^https?:\/\/github\.com\//, '')
+      : '—')
+
   return (
     <PageShell
       title={truncateRunId(data.id)}
@@ -118,7 +128,7 @@ export default function RunDetailPage() {
           <DetailField label="Status" value={<Badge variant={statusVariant[data.status]}>{data.status}</Badge>} />
           <DetailField label="Type" value={<TypePill type={data.workflowType} />} />
           <DetailField label="Connector" value={data.workItem?.title ?? '—'} />
-          <DetailField label="Repository" value={<span className="font-mono text-xs text-gray-500">{data.workItem?.repositoryRef ?? data.repositoryMapping?.repositoryUrl?.replace(/^https?:\/\/github\.com\//, '') ?? '—'}</span>} />
+          <DetailField label="Repository" value={<span className="font-mono text-xs text-gray-500">{repositoryValue}</span>} />
           <DetailField label="Started" value={<span className="font-mono text-xs text-gray-500">{data.startedAt}</span>} />
           <DetailField label="Duration" value={<span className="font-mono text-xs text-gray-500">{data.duration ?? '—'}</span>} />
           <DetailField label="Work Item ID" value={<span className="font-mono text-xs text-gray-500">{data.workItemId ?? '—'}</span>} />

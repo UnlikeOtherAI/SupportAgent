@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { connectorsApi, type TriggerPolicy } from '@/api/connectors'
@@ -31,12 +31,15 @@ export default function ConnectorTriggersPage() {
   const queryClient = useQueryClient()
   const { data, isLoading, isError } = useQuery({
     queryKey: ['connector-trigger-policies', rawId],
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards this
-    queryFn: () => connectorsApi.getTriggerPolicies(rawId!),
+    queryFn: async () => {
+      if (!rawId) throw new Error('No connector ID')
+      return connectorsApi.getTriggerPolicies(rawId)
+    },
     enabled: !!rawId,
   })
 
-  const [policies, setPolicies] = useState(normalizePolicies([]))
+  const [draftPolicies, setDraftPolicies] = useState<TriggerPolicy[] | null>(null)
+  const policies = draftPolicies ?? normalizePolicies(data?.policies ?? [])
 
   // Always call useMutation unconditionally — before any conditionals
   const mutation = useMutation({
@@ -53,14 +56,12 @@ export default function ConnectorTriggersPage() {
     },
   })
 
-  useEffect(() => {
-    if (data) setPolicies(normalizePolicies(data.policies))
-  }, [data])
-
   function updatePolicy(workflowType: TriggerPolicy['workflowType'], changes: Partial<TriggerPolicy>) {
-    setPolicies((current) => current.map((policy) => (
-      policy.workflowType === workflowType ? { ...policy, ...changes } : policy
-    )))
+    setDraftPolicies(
+      policies.map((policy) => (
+        policy.workflowType === workflowType ? { ...policy, ...changes } : policy
+      )),
+    )
   }
 
   if (isLoading) {
@@ -71,7 +72,7 @@ export default function ConnectorTriggersPage() {
     return <PageShell title="Trigger Policies"><p className="text-sm text-gray-400">Trigger policies not configured for this connector.</p></PageShell>
   }
 
-  const id = rawId!
+  const id = rawId ?? ''
 
   return (
     <PageShell

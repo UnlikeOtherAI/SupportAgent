@@ -1,5 +1,5 @@
 import { api } from '@/lib/api-client'
-import type { PaginatedResponse } from './runs'
+import { normalizePaginatedResponse, type PaginatedResponse } from './paginated-response'
 
 export interface CommunicationChannel {
   id: string
@@ -15,10 +15,14 @@ export interface CommunicationChannel {
 
 export const channelsApi = {
   list: (params?: { page?: number }) => {
+    const page = params?.page ?? 1
+    const limit = 20
     const search = new URLSearchParams()
-    if (params?.page) search.set('page', String(params.page))
+    search.set('page', String(page))
     const qs = search.toString()
-    return api.get<PaginatedResponse<CommunicationChannel>>(`/v1/communication-channels${qs ? `?${qs}` : ''}`)
+    return api
+      .get<PaginatedResponse<CommunicationChannel>>(`/v1/communication-channels${qs ? `?${qs}` : ''}`)
+      .then((response) => normalizePaginatedResponse(response, limit, page))
   },
   get: (id: string) => api.get<CommunicationChannel>(`/v1/communication-channels/${id}`),
   create: (data: Partial<CommunicationChannel>) => api.post<CommunicationChannel>('/v1/communication-channels', data),

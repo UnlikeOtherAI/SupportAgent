@@ -6,7 +6,8 @@
     "dev": "{ lsof -ti:4441 | xargs kill -9; } 2>/dev/null; tsx watch src/index.ts",
     "build": "tsc",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "seed:max-loop": "tsx prisma/seed-max-loop.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.2",
@@ -22,9 +23,6 @@
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
-  },
-  "scripts": {
-    "seed:max-loop": "tsx prisma/seed-max-loop.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

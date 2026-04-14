@@ -25,7 +25,7 @@ const columns: Column<Connector>[] = [
       </Link>
     ),
   },
-  { key: 'platform', header: 'Platform', render: (connector) => connector.platformType },
+  { key: 'platform', header: 'Platform', render: (connector) => connector.platformType.displayName },
   { key: 'roles', header: 'Roles', render: (connector) => connector.roles.join(', ') },
   {
     key: 'intakeMode',

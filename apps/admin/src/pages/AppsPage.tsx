@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { platformTypesApi, type PlatformTypeDetail } from '@/api/platform-types'
 import { connectorsApi } from '@/api/connectors'
 import { PageShell } from '@/components/ui/PageShell'
@@ -58,14 +58,18 @@ function DeleteButton({ connectorId }: { connectorId: string }) {
         <Button
           variant="danger"
           className="px-2 py-1 text-xs"
-          onClick={() => { deleteMutation.mutate(); }}
+          onClick={() => {
+            deleteMutation.mutate()
+          }}
         >
           Confirm
         </Button>
         <Button
           variant="ghost"
           className="px-2 py-1 text-xs"
-          onClick={() => setConfirm(false)}
+          onClick={() => {
+            setConfirm(false)
+          }}
         >
           Cancel
         </Button>
@@ -77,7 +81,9 @@ function DeleteButton({ connectorId }: { connectorId: string }) {
     <Button
       variant="ghost"
       className="px-2 py-1 text-xs text-gray-400 hover:text-red-500"
-      onClick={() => setConfirm(true)}
+      onClick={() => {
+        setConfirm(true)
+      }}
     >
       Delete
     </Button>
@@ -150,7 +156,6 @@ function InstalledPlatformGroup({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function AppsPage() {
-  const navigate = useNavigate()
   const { data: platforms, isLoading: platformsLoading } = useQuery({
     queryKey: ['platform-types'],
     queryFn: () => platformTypesApi.list(),
@@ -160,7 +165,7 @@ export default function AppsPage() {
     queryFn: () => connectorsApi.list({ limit: 100 }),
   })
 
-  const connectors = Array.isArray(connectorsData) ? connectorsData : (connectorsData?.data ?? [])
+  const connectors = connectorsData?.items ?? []
 
   // Group connectors by platform key
   const installedByPlatform = new Map<string, typeof connectors>()
@@ -227,8 +232,9 @@ export default function AppsPage() {
                 {(() => {
                   const orderedPlatformKeys = installedPlatforms.map((p) => p.key)
                   return orderedPlatformKeys.map((key) => {
-                    const platform = platforms!.find((p) => p.key === key)!
-                    const platformConnectors = installedByPlatform.get(key)!
+                    const platform = platforms?.find((candidate) => candidate.key === key)
+                    const platformConnectors = installedByPlatform.get(key)
+                    if (!platform || !platformConnectors) return null
                     return (
                       <InstalledPlatformGroup
                         key={key}

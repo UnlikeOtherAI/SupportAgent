@@ -63,7 +63,7 @@ export default function ConnectorDetailPage() {
     return <PageShell title="Connector"><p className="text-sm text-gray-400">Not found</p></PageShell>
   }
 
-  const id = rawId!
+  const id = rawId ?? data.id
   const capabilities: ConnectorCapability[] = discoverMutation.data?.capabilities ?? data.capabilities
 
   return (
@@ -87,7 +87,7 @@ export default function ConnectorDetailPage() {
     >
       <Link to="/connectors" className="mb-4 inline-block text-sm text-gray-500 hover:text-gray-700">&larr; Back to Connectors</Link>
       <Card className="divide-y divide-gray-100">
-        <div className="grid gap-4 px-5 py-4 sm:grid-cols-[180px_1fr]"><dt className="text-xs font-medium text-gray-500">Platform Type</dt><dd className="text-sm text-gray-800">{data.platformType}</dd></div>
+        <div className="grid gap-4 px-5 py-4 sm:grid-cols-[180px_1fr]"><dt className="text-xs font-medium text-gray-500">Platform Type</dt><dd className="text-sm text-gray-800">{data.platformType.displayName}</dd></div>
         <div className="grid gap-4 px-5 py-4 sm:grid-cols-[180px_1fr]"><dt className="text-xs font-medium text-gray-500">Intake Mode</dt><dd className="font-mono text-xs text-gray-500">{data.intakeMode}</dd></div>
         <div className="grid gap-4 px-5 py-4 sm:grid-cols-[180px_1fr]"><dt className="text-xs font-medium text-gray-500">Roles</dt><dd className="flex flex-wrap gap-2">{data.roles.map((role) => <span key={role} className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700">{role}</span>)}</dd></div>
         <div className="grid gap-4 px-5 py-4 sm:grid-cols-[180px_1fr]"><dt className="text-xs font-medium text-gray-500">Status</dt><dd><span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${getStatusClasses(data.status)}`}>{data.status}</span></dd></div>

@@ -1,5 +1,5 @@
 import { api } from '@/lib/api-client'
-import type { PaginatedResponse } from './runs'
+import { normalizePaginatedResponse, type PaginatedResponse } from './paginated-response'
 
 export interface TenantSettings {
   orgName: string
@@ -46,15 +46,22 @@ export const settingsApi = {
   updateIdentityProvider: (id: string, data: Partial<IdentityProviderConfig>) => api.put<IdentityProviderConfig>(`/v1/settings/identity-providers/${id}`, data),
   deleteIdentityProvider: (id: string) => api.delete<undefined>(`/v1/settings/identity-providers/${id}`),
 
-  listUsers: () => api.get<PaginatedResponse<User>>('/v1/users'),
+  listUsers: () =>
+    api
+      .get<PaginatedResponse<User>>('/v1/users')
+      .then((response) => normalizePaginatedResponse(response, 25, 1)),
   updateUserRole: (id: string, role: string) => api.put<User>(`/v1/users/${id}/role`, { role }),
   deactivateUser: (id: string) => api.delete<undefined>(`/v1/users/${id}`),
 
   listAuditEvents: (params?: { page?: number; limit?: number }) => {
+    const page = params?.page ?? 1
+    const limit = params?.limit ?? 25
     const search = new URLSearchParams()
-    if (params?.page) search.set('page', String(params.page))
-    if (params?.limit) search.set('limit', String(params.limit))
+    search.set('page', String(page))
+    search.set('limit', String(limit))
     const qs = search.toString()
-    return api.get<PaginatedResponse<AuditEvent>>(`/v1/audit-events${qs ? `?${qs}` : ''}`)
+    return api
+      .get<PaginatedResponse<AuditEvent>>(`/v1/audit-events${qs ? `?${qs}` : ''}`)
+      .then((response) => normalizePaginatedResponse(response, limit, page))
   },
 }

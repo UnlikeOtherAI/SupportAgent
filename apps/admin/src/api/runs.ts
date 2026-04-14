@@ -1,4 +1,5 @@
 import { api } from '@/lib/api-client'
+import { normalizePaginatedResponse, type PaginatedResponse } from './paginated-response'
 
 export interface WorkflowRun {
   id: string
@@ -9,6 +10,8 @@ export interface WorkflowRun {
   workItemId: string | null
   workItem?: { title: string; externalUrl: string; repositoryRef: string }
   repositoryMapping?: { repositoryUrl: string; connector?: { name: string } }
+  connectorName?: string
+  repositoryName?: string
 }
 
 export interface WorkflowRunDetail extends WorkflowRun {
@@ -30,20 +33,19 @@ export interface Finding {
   description: string
 }
 
-export interface PaginatedResponse<T> {
-  items: T[]
-  total: number
-}
-
 export const runsApi = {
   list: (params?: { page?: number; limit?: number; type?: string; status?: string }) => {
+    const page = params?.page ?? 1
+    const limit = params?.limit ?? 50
     const search = new URLSearchParams()
-    if (params?.page) search.set('page', String(params.page))
-    if (params?.limit) search.set('limit', String(params.limit))
-    if (params?.type && params.type !== 'all') search.set('type', params.type)
+    search.set('limit', String(limit))
+    search.set('offset', String((page - 1) * limit))
+    if (params?.type && params.type !== 'all') search.set('workflowType', params.type)
     if (params?.status && params.status !== 'all') search.set('status', params.status)
     const qs = search.toString()
-    return api.get<PaginatedResponse<WorkflowRun>>(`/v1/runs${qs ? `?${qs}` : ''}`)
+    return api
+      .get<PaginatedResponse<WorkflowRun>>(`/v1/runs${qs ? `?${qs}` : ''}`)
+      .then((response) => normalizePaginatedResponse(response, limit, page))
   },
   get: (id: string) => api.get<WorkflowRunDetail>(`/v1/runs/${id}`),
   getLogs: (id: string, after?: string) => {

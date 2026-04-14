@@ -1,5 +1,5 @@
 import { api } from '@/lib/api-client'
-import type { PaginatedResponse } from './runs'
+import { normalizePaginatedResponse, type PaginatedResponse } from './paginated-response'
 
 export interface ExecutionProvider {
   id: string
@@ -30,10 +30,14 @@ export interface RuntimeApiKey {
 
 export const providersApi = {
   list: (params?: { page?: number }) => {
+    const page = params?.page ?? 1
+    const limit = 20
     const search = new URLSearchParams()
-    if (params?.page) search.set('page', String(params.page))
+    search.set('page', String(page))
     const qs = search.toString()
-    return api.get<PaginatedResponse<ExecutionProvider>>(`/v1/execution-providers${qs ? `?${qs}` : ''}`)
+    return api
+      .get<PaginatedResponse<ExecutionProvider>>(`/v1/execution-providers${qs ? `?${qs}` : ''}`)
+      .then((response) => normalizePaginatedResponse(response, limit, page))
   },
   get: (id: string) => api.get<ExecutionProvider>(`/v1/execution-providers/${id}`),
   getHosts: (id: string) => api.get<{ hosts: ExecutionProviderHost[] }>(`/v1/execution-providers/${id}/hosts`),
@@ -42,10 +46,14 @@ export const providersApi = {
   delete: (id: string) => api.delete<undefined>(`/v1/execution-providers/${id}`),
 
   listApiKeys: (params?: { page?: number }) => {
+    const page = params?.page ?? 1
+    const limit = 20
     const search = new URLSearchParams()
-    if (params?.page) search.set('page', String(params.page))
+    search.set('page', String(page))
     const qs = search.toString()
-    return api.get<PaginatedResponse<RuntimeApiKey>>(`/v1/runtime-api-keys${qs ? `?${qs}` : ''}`)
+    return api
+      .get<PaginatedResponse<RuntimeApiKey>>(`/v1/runtime-api-keys${qs ? `?${qs}` : ''}`)
+      .then((response) => normalizePaginatedResponse(response, limit, page))
   },
   createApiKey: (data: { label: string; allowedMode: string; allowedProfiles: string[] }) =>
     api.post<{ key: RuntimeApiKey; secret: string }>('/v1/runtime-api-keys', data),

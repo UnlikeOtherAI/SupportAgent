@@ -14,24 +14,22 @@ function optionalValue(value: string) {
 export default function RepositoryNewPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [name, setName] = useState('')
   const [connectorId, setConnectorId] = useState('')
   const [repositoryUrl, setRepositoryUrl] = useState('')
+  const [defaultBranch, setDefaultBranch] = useState('main')
   const [executionProfileId, setExecutionProfileId] = useState('')
   const [orchestrationProfileId, setOrchestrationProfileId] = useState('')
   const [reviewProfileId, setReviewProfileId] = useState('')
-  const [autoPr, setAutoPr] = useState(false)
 
   const mutation = useMutation({
     mutationFn: () =>
       repositoriesApi.create({
-        name: name.trim(),
         connectorId: connectorId.trim(),
         repositoryUrl: repositoryUrl.trim(),
+        defaultBranch: defaultBranch.trim() || 'main',
         executionProfileId: optionalValue(executionProfileId),
         orchestrationProfileId: optionalValue(orchestrationProfileId),
         reviewProfileId: optionalValue(reviewProfileId),
-        autoPr,
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['repositories'] })
@@ -59,16 +57,6 @@ export default function RepositoryNewPage() {
         >
           <div className="space-y-4 px-5 py-5">
             <div>
-              <label htmlFor="repo-name" className="mb-1.5 block text-xs font-medium text-gray-500">Name</label>
-              <input
-                id="repo-name"
-                required
-                value={name}
-                onChange={(event) => { setName(event.target.value); }}
-                className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
-              />
-            </div>
-            <div>
               <label htmlFor="repo-connector-id" className="mb-1.5 block text-xs font-medium text-gray-500">Connector ID</label>
               <input
                 id="repo-connector-id"
@@ -85,6 +73,16 @@ export default function RepositoryNewPage() {
                 required
                 value={repositoryUrl}
                 onChange={(event) => { setRepositoryUrl(event.target.value); }}
+                className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
+              />
+            </div>
+            <div>
+              <label htmlFor="repo-default-branch" className="mb-1.5 block text-xs font-medium text-gray-500">Default Branch</label>
+              <input
+                id="repo-default-branch"
+                required
+                value={defaultBranch}
+                onChange={(event) => { setDefaultBranch(event.target.value); }}
                 className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
               />
             </div>
@@ -121,15 +119,6 @@ export default function RepositoryNewPage() {
                 className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
               />
             </div>
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={autoPr}
-                onChange={(event) => { setAutoPr(event.target.checked); }}
-                className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500"
-              />
-              Auto PR
-            </label>
             {mutation.isError ? <p className="mt-1 text-xs text-signal-red-500">{errorMessage}</p> : null}
           </div>
           <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-5 py-4">

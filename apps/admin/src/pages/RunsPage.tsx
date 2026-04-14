@@ -59,7 +59,9 @@ const columns: Column<WorkflowRun>[] = [
     key: 'repository',
     header: 'Repository',
     render: (run) => {
-      const ref = run.workItem?.repositoryRef ?? run.repositoryMapping?.repositoryUrl?.replace(/^https?:\/\/github\.com\//, '') ?? '—'
+      const ref = run.workItem?.repositoryRef ?? (run.repositoryMapping
+        ? run.repositoryMapping.repositoryUrl.replace(/^https?:\/\/github\.com\//, '')
+        : '—')
       return <span className="font-mono text-xs text-gray-500">{ref}</span>
     },
   },

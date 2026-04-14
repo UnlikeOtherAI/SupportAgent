@@ -1,5 +1,5 @@
 import { api } from '@/lib/api-client'
-import type { PaginatedResponse } from './runs'
+import { normalizePaginatedResponse, type PaginatedResponse } from './paginated-response'
 
 export interface RoutingRule {
   id: string
@@ -23,10 +23,14 @@ export interface OutboundDestination {
 
 export const routingApi = {
   listRules: (params?: { page?: number }) => {
+    const page = params?.page ?? 1
+    const limit = 20
     const search = new URLSearchParams()
-    if (params?.page) search.set('page', String(params.page))
+    search.set('page', String(page))
     const qs = search.toString()
-    return api.get<PaginatedResponse<RoutingRule>>(`/v1/routing-rules${qs ? `?${qs}` : ''}`)
+    return api
+      .get<PaginatedResponse<RoutingRule>>(`/v1/routing-rules${qs ? `?${qs}` : ''}`)
+      .then((response) => normalizePaginatedResponse(response, limit, page))
   },
   getRule: (id: string) => api.get<RoutingRule>(`/v1/routing-rules/${id}`),
   createRule: (data: Partial<RoutingRule>) => api.post<RoutingRule>('/v1/routing-rules', data),
@@ -34,10 +38,14 @@ export const routingApi = {
   deleteRule: (id: string) => api.delete<undefined>(`/v1/routing-rules/${id}`),
 
   listDestinations: (params?: { page?: number }) => {
+    const page = params?.page ?? 1
+    const limit = 20
     const search = new URLSearchParams()
-    if (params?.page) search.set('page', String(params.page))
+    search.set('page', String(page))
     const qs = search.toString()
-    return api.get<PaginatedResponse<OutboundDestination>>(`/v1/outbound-destinations${qs ? `?${qs}` : ''}`)
+    return api
+      .get<PaginatedResponse<OutboundDestination>>(`/v1/outbound-destinations${qs ? `?${qs}` : ''}`)
+      .then((response) => normalizePaginatedResponse(response, limit, page))
   },
   getDestination: (id: string) => api.get<OutboundDestination>(`/v1/outbound-destinations/${id}`),
   createDestination: (data: Partial<OutboundDestination>) => api.post<OutboundDestination>('/v1/outbound-destinations', data),

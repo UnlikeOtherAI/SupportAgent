@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { repositoriesApi } from '@/api/repositories'
@@ -15,34 +15,45 @@ export default function RepositoryEditPage() {
   const { id: rawId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [name, setName] = useState('')
-  const [connectorId, setConnectorId] = useState('')
-  const [repositoryUrl, setRepositoryUrl] = useState('')
-  const [executionProfileId, setExecutionProfileId] = useState('')
-  const [orchestrationProfileId, setOrchestrationProfileId] = useState('')
-  const [reviewProfileId, setReviewProfileId] = useState('')
-  const [autoPr, setAutoPr] = useState(false)
+  const [draft, setDraft] = useState<{
+    connectorId: string
+    repositoryUrl: string
+    defaultBranch: string
+    executionProfileId: string
+    orchestrationProfileId: string
+    reviewProfileId: string
+  } | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['repository', rawId],
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards this
-    queryFn: () => repositoriesApi.get(rawId!),
+    queryFn: async () => {
+      if (!rawId) throw new Error('No repository ID')
+      return repositoriesApi.get(rawId)
+    },
     enabled: !!rawId,
   })
 
   // Always call useMutation unconditionally — before any conditionals
-  const id = rawId!
+  const id = rawId ?? data?.id ?? ''
+  const form = draft ?? (data ? {
+    connectorId: data.connectorId,
+    repositoryUrl: data.repositoryUrl,
+    defaultBranch: data.defaultBranch,
+    executionProfileId: data.executionProfileId ?? '',
+    orchestrationProfileId: data.orchestrationProfileId ?? '',
+    reviewProfileId: data.reviewProfileId ?? '',
+  } : null)
   const mutation = useMutation({
     mutationFn: () => {
       if (!rawId) throw new Error('No repository ID')
+      if (!form) throw new Error('Repository not loaded')
       return repositoriesApi.update(rawId, {
-        name: name.trim(),
-        connectorId: connectorId.trim(),
-        repositoryUrl: repositoryUrl.trim(),
-        executionProfileId: nullableValue(executionProfileId),
-        orchestrationProfileId: nullableValue(orchestrationProfileId),
-        reviewProfileId: nullableValue(reviewProfileId),
-        autoPr,
+        connectorId: form.connectorId.trim(),
+        repositoryUrl: form.repositoryUrl.trim(),
+        defaultBranch: form.defaultBranch.trim() || 'main',
+        executionProfileId: nullableValue(form.executionProfileId),
+        orchestrationProfileId: nullableValue(form.orchestrationProfileId),
+        reviewProfileId: nullableValue(form.reviewProfileId),
       })
     },
     onSuccess: () => {
@@ -51,17 +62,6 @@ export default function RepositoryEditPage() {
       void navigate(`/repositories/${rawId}`)
     },
   })
-
-  useEffect(() => {
-    if (!data) return
-    setName(data.name)
-    setConnectorId(data.connectorId)
-    setRepositoryUrl(data.repositoryUrl)
-    setExecutionProfileId(data.executionProfileId ?? '')
-    setOrchestrationProfileId(data.orchestrationProfileId ?? '')
-    setReviewProfileId(data.reviewProfileId ?? '')
-    setAutoPr(data.autoPr)
-  }, [data])
 
   if (isLoading) {
     return (
@@ -99,22 +99,12 @@ export default function RepositoryEditPage() {
         >
           <div className="space-y-4 px-5 py-5">
             <div>
-              <label htmlFor="repo-name" className="mb-1.5 block text-xs font-medium text-gray-500">Name</label>
-              <input
-                id="repo-name"
-                required
-                value={name}
-                onChange={(event) => { setName(event.target.value); }}
-                className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
-              />
-            </div>
-            <div>
               <label htmlFor="repo-connector-id" className="mb-1.5 block text-xs font-medium text-gray-500">Connector ID</label>
               <input
                 id="repo-connector-id"
                 required
-                value={connectorId}
-                onChange={(event) => { setConnectorId(event.target.value); }}
+                value={form?.connectorId ?? ''}
+                onChange={(event) => { if (form) setDraft({ ...form, connectorId: event.target.value }); }}
                 className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
               />
             </div>
@@ -123,8 +113,18 @@ export default function RepositoryEditPage() {
               <input
                 id="repo-url"
                 required
-                value={repositoryUrl}
-                onChange={(event) => { setRepositoryUrl(event.target.value); }}
+                value={form?.repositoryUrl ?? ''}
+                onChange={(event) => { if (form) setDraft({ ...form, repositoryUrl: event.target.value }); }}
+                className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
+              />
+            </div>
+            <div>
+              <label htmlFor="repo-default-branch" className="mb-1.5 block text-xs font-medium text-gray-500">Default Branch</label>
+              <input
+                id="repo-default-branch"
+                required
+                value={form?.defaultBranch ?? 'main'}
+                onChange={(event) => { if (form) setDraft({ ...form, defaultBranch: event.target.value }); }}
                 className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
               />
             </div>
@@ -135,8 +135,8 @@ export default function RepositoryEditPage() {
                 </label>
                 <input
                   id="repo-execution-profile-id"
-                  value={executionProfileId}
-                  onChange={(event) => { setExecutionProfileId(event.target.value); }}
+                  value={form?.executionProfileId ?? ''}
+                  onChange={(event) => { if (form) setDraft({ ...form, executionProfileId: event.target.value }); }}
                   className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
                 />
               </div>
@@ -146,8 +146,8 @@ export default function RepositoryEditPage() {
                 </label>
                 <input
                   id="repo-orchestration-profile-id"
-                  value={orchestrationProfileId}
-                  onChange={(event) => { setOrchestrationProfileId(event.target.value); }}
+                  value={form?.orchestrationProfileId ?? ''}
+                  onChange={(event) => { if (form) setDraft({ ...form, orchestrationProfileId: event.target.value }); }}
                   className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
                 />
               </div>
@@ -156,20 +156,11 @@ export default function RepositoryEditPage() {
               <label htmlFor="repo-review-profile-id" className="mb-1.5 block text-xs font-medium text-gray-500">Review Profile ID</label>
               <input
                 id="repo-review-profile-id"
-                value={reviewProfileId}
-                onChange={(event) => { setReviewProfileId(event.target.value); }}
+                value={form?.reviewProfileId ?? ''}
+                onChange={(event) => { if (form) setDraft({ ...form, reviewProfileId: event.target.value }); }}
                 className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
               />
             </div>
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={autoPr}
-                onChange={(event) => { setAutoPr(event.target.checked); }}
-                className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500"
-              />
-              Auto PR
-            </label>
             {mutation.isError ? <p className="mt-1 text-xs text-signal-red-500">{errorMessage}</p> : null}
           </div>
           <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-5 py-4">

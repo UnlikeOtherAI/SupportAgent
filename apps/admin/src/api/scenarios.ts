@@ -1,5 +1,5 @@
 import { api } from '@/lib/api-client'
-import type { PaginatedResponse } from './runs'
+import { normalizePaginatedResponse, type PaginatedResponse } from './paginated-response'
 
 export interface WorkflowScenario {
   id: string
@@ -18,10 +18,14 @@ export interface WorkflowScenario {
 
 export const scenariosApi = {
   list: (params?: { page?: number }) => {
+    const page = params?.page ?? 1
+    const limit = 20
     const search = new URLSearchParams()
-    if (params?.page) search.set('page', String(params.page))
+    search.set('page', String(page))
     const qs = search.toString()
-    return api.get<PaginatedResponse<WorkflowScenario>>(`/v1/workflow-scenarios${qs ? `?${qs}` : ''}`)
+    return api
+      .get<PaginatedResponse<WorkflowScenario>>(`/v1/workflow-scenarios${qs ? `?${qs}` : ''}`)
+      .then((response) => normalizePaginatedResponse(response, limit, page))
   },
   get: (id: string) => api.get<WorkflowScenario>(`/v1/workflow-scenarios/${id}`),
   create: (data: Partial<WorkflowScenario>) => api.post<WorkflowScenario>('/v1/workflow-scenarios', data),

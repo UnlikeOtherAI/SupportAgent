@@ -25,6 +25,18 @@ export default function RepositoryDetailPage() {
     enabled: !!rawId,
   })
 
+  // Always call useMutation unconditionally — before any conditionals
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      if (!rawId) throw new Error('No repository ID')
+      return repositoriesApi.delete(rawId)
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['repositories'] })
+      void navigate('/repositories')
+    },
+  })
+
   if (isLoading) {
     return (
       <PageShell title="Repository Mapping">
@@ -32,9 +44,6 @@ export default function RepositoryDetailPage() {
       </PageShell>
     )
   }
-
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards queryFn; id is always defined when mutation callbacks fire
-  const id = rawId!
 
   if (!data) {
     return (
@@ -44,18 +53,11 @@ export default function RepositoryDetailPage() {
     )
   }
 
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- enabled: !!rawId guards data; id is defined before the if (!data) guard
-  const deleteMutation = useMutation({
-    mutationFn: () => repositoriesApi.delete(id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['repositories'] })
-      void navigate('/repositories')
-    },
-  })
+  const title = data.repositoryUrl.replace(/^https?:\/\/github\.com\//, '')
 
   return (
     <PageShell
-      title={data.name}
+      title={title}
       action={
         <>
           <Link to={`/repositories/${data.id}/edit`}>
@@ -85,6 +87,7 @@ export default function RepositoryDetailPage() {
         />
         <DetailRow label="Auto PR" value={data.autoPr ? 'Yes' : 'No'} />
         <DetailRow label="Status" value={data.status} />
+        <DetailRow label="Default Branch" value={data.defaultBranch} />
         <div className="px-5 py-4">
           <h2 className="text-xs font-medium text-gray-500">Profile IDs</h2>
           <dl className="mt-3 space-y-3">
