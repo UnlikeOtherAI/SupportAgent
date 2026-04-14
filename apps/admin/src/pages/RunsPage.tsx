@@ -50,11 +50,18 @@ const columns: Column<WorkflowRun>[] = [
   },
   { key: 'type', header: 'Type', render: (run) => <TypePill type={run.workflowType} /> },
   { key: 'status', header: 'Status', render: (run) => <Badge variant={statusVariant[run.status]}>{run.status}</Badge> },
-  { key: 'connector', header: 'Connector', render: (run) => run.connectorName },
+  {
+    key: 'connector',
+    header: 'Connector',
+    render: (run) => run.workItem?.title ?? '—',
+  },
   {
     key: 'repository',
     header: 'Repository',
-    render: (run) => <span className="font-mono text-xs text-gray-500">{run.repositoryName}</span>,
+    render: (run) => {
+      const ref = run.workItem?.repositoryRef ?? run.repositoryMapping?.repositoryUrl?.replace(/^https?:\/\/github\.com\//, '') ?? '—'
+      return <span className="font-mono text-xs text-gray-500">{ref}</span>
+    },
   },
   {
     key: 'started',

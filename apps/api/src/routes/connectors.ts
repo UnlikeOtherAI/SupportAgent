@@ -103,4 +103,23 @@ export async function connectorRoutes(app: FastifyInstance) {
       return repo.listCapabilities(request.params.connectorId);
     },
   );
+
+  // Trigger policies — returns empty for now; full implementation requires a
+  // Connector→TriggerPolicy junction relation in the schema + service/repository
+  app.get<{ Params: { connectorId: string } }>(
+    '/:connectorId/trigger-policies',
+    async (request) => {
+      await service.getConnector(request.params.connectorId, request.user.tenantId);
+      return { policies: [] };
+    },
+  );
+
+  app.put<{ Params: { connectorId: string } }>(
+    '/:connectorId/trigger-policies',
+    async (request) => {
+      await service.getConnector(request.params.connectorId, request.user.tenantId);
+      // Full implementation: validate and persist policies via junction table
+      return { policies: [] };
+    },
+  );
 }

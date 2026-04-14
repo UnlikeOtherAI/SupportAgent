@@ -24,11 +24,10 @@ const severityClasses: Record<Finding['severity'], string> = {
   low: 'bg-gray-100 text-gray-500',
 }
 
-const levelClasses: Record<LogEvent['level'], string> = {
-  info: 'text-signal-blue-500',
-  warn: 'text-signal-amber-500',
-  error: 'text-signal-red-500',
-  debug: 'text-gray-500',
+const levelClasses: Record<LogEvent['streamType'], string> = {
+  stdout: 'text-gray-300',
+  stderr: 'text-signal-red-500',
+  progress: 'text-signal-blue-500',
 }
 
 const findingColumns: Column<Finding>[] = [
@@ -118,8 +117,8 @@ export default function RunDetailPage() {
         <dl className="grid grid-cols-2 gap-x-8 gap-y-4 px-5 py-5">
           <DetailField label="Status" value={<Badge variant={statusVariant[data.status]}>{data.status}</Badge>} />
           <DetailField label="Type" value={<TypePill type={data.workflowType} />} />
-          <DetailField label="Connector" value={data.connectorName} />
-          <DetailField label="Repository" value={<span className="font-mono text-xs text-gray-500">{data.repositoryName}</span>} />
+          <DetailField label="Connector" value={data.workItem?.title ?? '—'} />
+          <DetailField label="Repository" value={<span className="font-mono text-xs text-gray-500">{data.workItem?.repositoryRef ?? data.repositoryMapping?.repositoryUrl?.replace(/^https?:\/\/github\.com\//, '') ?? '—'}</span>} />
           <DetailField label="Started" value={<span className="font-mono text-xs text-gray-500">{data.startedAt}</span>} />
           <DetailField label="Duration" value={<span className="font-mono text-xs text-gray-500">{data.duration ?? '—'}</span>} />
           <DetailField label="Work Item ID" value={<span className="font-mono text-xs text-gray-500">{data.workItemId ?? '—'}</span>} />
@@ -144,7 +143,7 @@ export default function RunDetailPage() {
                 {data.logEvents.map((log) => (
                   <div key={log.id} className="flex items-start gap-3">
                     <span className="shrink-0 font-mono text-[11px] text-gray-500">{log.timestamp}</span>
-                    <span className={`shrink-0 text-[11px] font-semibold uppercase ${levelClasses[log.level]}`}>{log.level}</span>
+                    <span className={`shrink-0 text-[11px] font-semibold uppercase ${levelClasses[log.streamType]}`}>{log.streamType}</span>
                     <span className="text-[13px] text-gray-300">{log.message}</span>
                   </div>
                 ))}

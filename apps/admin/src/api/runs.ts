@@ -4,11 +4,11 @@ export interface WorkflowRun {
   id: string
   workflowType: 'triage' | 'build' | 'merge'
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
-  connectorName: string
-  repositoryName: string
   startedAt: string
   duration: string | null
   workItemId: string | null
+  workItem?: { title: string; externalUrl: string; repositoryRef: string }
+  repositoryMapping?: { repositoryUrl: string; connector?: { name: string } }
 }
 
 export interface WorkflowRunDetail extends WorkflowRun {
@@ -19,7 +19,7 @@ export interface WorkflowRunDetail extends WorkflowRun {
 export interface LogEvent {
   id: string
   timestamp: string
-  level: 'info' | 'warn' | 'error' | 'debug'
+  streamType: 'stdout' | 'stderr' | 'progress'
   message: string
 }
 

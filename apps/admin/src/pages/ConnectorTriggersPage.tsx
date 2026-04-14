@@ -29,12 +29,28 @@ export default function ConnectorTriggersPage() {
   const { id: rawId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [policies, setPolicies] = useState(normalizePolicies([]))
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['connector-trigger-policies', rawId],
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards this
     queryFn: () => connectorsApi.getTriggerPolicies(rawId!),
     enabled: !!rawId,
+  })
+
+  const [policies, setPolicies] = useState(normalizePolicies([]))
+
+  // Always call useMutation unconditionally — before any conditionals
+  const mutation = useMutation({
+    mutationFn: async () => {
+      // Guard: id is only available when the connector was successfully loaded
+      if (!rawId) throw new Error('No connector ID')
+      return connectorsApi.updateTriggerPolicies(rawId, policies)
+    },
+    onSuccess: () => {
+      if (!rawId) return
+      void queryClient.invalidateQueries({ queryKey: ['connector-trigger-policies', rawId] })
+      void queryClient.invalidateQueries({ queryKey: ['connector', rawId] })
+      void navigate(`/connectors/${rawId}`)
+    },
   })
 
   useEffect(() => {
@@ -51,22 +67,11 @@ export default function ConnectorTriggersPage() {
     return <PageShell title="Trigger Policies"><p className="text-sm text-gray-400">Loading...</p></PageShell>
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards queryFn; id is always defined when mutation callbacks fire
-  const id = rawId!
-
-  if (!data) {
-    return <PageShell title="Trigger Policies"><p className="text-sm text-gray-400">Not found</p></PageShell>
+  if (isError || !data) {
+    return <PageShell title="Trigger Policies"><p className="text-sm text-gray-400">Trigger policies not configured for this connector.</p></PageShell>
   }
 
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- enabled: !!rawId guards data; id is defined before the if (!data) guard
-  const mutation = useMutation({
-    mutationFn: () => connectorsApi.updateTriggerPolicies(id, policies),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['connector-trigger-policies', id] })
-      void queryClient.invalidateQueries({ queryKey: ['connector', id] })
-      void navigate(`/connectors/${id}`)
-    },
-  })
+  const id = rawId!
 
   return (
     <PageShell
