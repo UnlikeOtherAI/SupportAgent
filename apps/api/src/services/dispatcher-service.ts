@@ -50,7 +50,10 @@ export function createDispatcherService(
 
           const run = await tx.workflowRun.findUnique({
             where: { id: claimedRun.id },
-            include: { repositoryMapping: true },
+            include: {
+              repositoryMapping: true,
+              workItem: { include: { repositoryMapping: true } },
+            },
           });
           if (!run) {
             throw Object.assign(new Error('Claimed run not found'), { statusCode: 404 });
@@ -84,16 +87,38 @@ export function createDispatcherService(
           const rawSecret = randomBytes(32).toString('hex');
           const hashedSecret = createHash('sha256').update(rawSecret).digest('hex');
 
+          const repoUrl = run.repositoryMapping?.repositoryUrl ?? '';
+          const issueRef = run.workItem.externalUrl
+            ?? `${repoUrl.replace('.git', '')}/issues/${run.workItem.externalItemId}`;
+
           const job: WorkerDispatchJob = {
             jobId: '', // Will be set after dispatch record is created
             workflowRunId: run.id,
             workflowType: run.workflowType,
             apiBaseUrl,
             workerSharedSecret: rawSecret,
-            targetRepo: run.repositoryMapping?.repositoryUrl ?? '',
+            sourceConnectorKey: 'github',
+            targetRepo: repoUrl,
             targetBranch: run.repositoryMapping?.defaultBranch ?? 'main',
             executionProfile: 'analysis-only',
             timeoutSeconds: 3600,
+            providerHints: {
+              workItemId: run.workItemId,
+              // Pass issue/PR context based on workflow type
+              ...(run.workflowType === 'triage' && {
+                issueRef,
+                issueNumber: parseInt(run.workItem.externalItemId),
+              }),
+              ...(run.workflowType === 'build' && {
+                workItemId: run.workItemId,
+                parentTriageRunId: run.parentWorkflowRunId,
+                issueRef,
+              }),
+              ...(run.workflowType === 'merge' && {
+                parentBuildRunId: run.parentWorkflowRunId,
+                prRef: run.providerExecutionRef ?? '',
+              }),
+            },
           };
 
           const dispatch = await tx.workerDispatch.create({

@@ -18,6 +18,7 @@ import {
   deliveryAttemptRunRoutes,
 } from './routes/outbound-destinations.js';
 import { dispatcherRoutes } from './routes/dispatcher.js';
+import { workflowChainRoutes } from './routes/workflow-chain.js';
 import { authRoutes } from './routes/auth.js';
 import { connectorOAuthRoutes } from './routes/connector-oauth.js';
 import { settingsRoutes } from './routes/settings.js';
@@ -72,6 +73,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   );
   await app.register(settingsRoutes, { prefix: '/v1/settings' });
   await app.register(dispatcherRoutes, { prefix: '/v1/dispatcher' });
+  await app.register(workflowChainRoutes, { prefix: '/v1/workflow-chain' });
 
   // Webhook routes use a custom JSON parser (parseAs: string) for signature
   // verification. Registered in an encapsulated scope so it does not affect

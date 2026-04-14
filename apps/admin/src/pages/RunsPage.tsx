@@ -78,8 +78,8 @@ export default function RunsPage() {
     placeholderData: keepPreviousData,
   })
 
-  const runs = data?.data ?? []
-  const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / (data?.limit ?? 20)))
+  const runs = data?.items ?? []
+  const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / 20))
 
   return (
     <PageShell

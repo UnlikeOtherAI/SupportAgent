@@ -23,6 +23,9 @@
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
+  "scripts": {
+    "seed:max-loop": "tsx prisma/seed-max-loop.ts"
+  },
   "devDependencies": {
     "@types/node": "^22.10.5",
     "prisma": "^6.2.1",

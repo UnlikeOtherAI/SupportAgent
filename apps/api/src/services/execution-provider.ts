@@ -13,10 +13,13 @@ export interface WorkerDispatchJob {
   workflowType: string;
   apiBaseUrl: string;
   workerSharedSecret: string;
+  sourceConnectorKey: string;
   targetRepo: string;
   targetBranch: string;
   executionProfile: string;
   timeoutSeconds: number;
+  /** Extra context for the worker: issue numbers, PR refs, parent run IDs, etc. */
+  providerHints?: Record<string, unknown>;
 }
 
 export interface ProviderDispatchResult {

@@ -1,6 +1,8 @@
 import { type FinalReport, type WorkerJob } from '@support-agent/contracts';
 
 export interface WorkerApiClient {
+  baseUrl: string;
+  secret: string;
   fetchJobContext(jobId: string): Promise<WorkerJob>;
   postProgress(jobId: string, stage: string, message: string): Promise<void>;
   postLog(jobId: string, streamType: string, message: string): Promise<void>;
@@ -8,20 +10,22 @@ export interface WorkerApiClient {
   submitReport(jobId: string, report: FinalReport): Promise<void>;
 }
 
-export function createWorkerApiClient(apiBaseUrl: string, workerSharedSecret: string): WorkerApiClient {
+export function createWorkerApiClient(baseUrl: string, workerSharedSecret: string): WorkerApiClient {
   const headers = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${workerSharedSecret}`,
   };
 
   return {
+    baseUrl,
+    secret: workerSharedSecret,
     async fetchJobContext(jobId) {
-      const res = await fetch(`${apiBaseUrl}/worker/jobs/${jobId}/context`, { headers });
+      const res = await fetch(`${baseUrl}/worker/jobs/${jobId}/context`, { headers });
       if (!res.ok) throw new Error(`Failed to fetch job context: ${res.status}`);
       return res.json() as Promise<WorkerJob>;
     },
     async postProgress(jobId, stage, message) {
-      const res = await fetch(`${apiBaseUrl}/worker/jobs/${jobId}/progress`, {
+      const res = await fetch(`${baseUrl}/worker/jobs/${jobId}/progress`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ stage, message, timestamp: new Date().toISOString() }),
@@ -29,7 +33,7 @@ export function createWorkerApiClient(apiBaseUrl: string, workerSharedSecret: st
       if (!res.ok) throw new Error(`Failed to post progress: ${res.status}`);
     },
     async postLog(jobId, streamType, message) {
-      const res = await fetch(`${apiBaseUrl}/worker/jobs/${jobId}/logs`, {
+      const res = await fetch(`${baseUrl}/worker/jobs/${jobId}/logs`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ streamType, message, timestamp: new Date().toISOString() }),
@@ -37,7 +41,7 @@ export function createWorkerApiClient(apiBaseUrl: string, workerSharedSecret: st
       if (!res.ok) throw new Error(`Failed to post log: ${res.status}`);
     },
     async uploadArtifact(jobId, name, data) {
-      const res = await fetch(`${apiBaseUrl}/worker/jobs/${jobId}/artifacts`, {
+      const res = await fetch(`${baseUrl}/worker/jobs/${jobId}/artifacts`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/octet-stream', 'X-Artifact-Name': name },
         body: data as unknown as BodyInit,
@@ -47,7 +51,7 @@ export function createWorkerApiClient(apiBaseUrl: string, workerSharedSecret: st
       return result.artifactRef;
     },
     async submitReport(jobId, report) {
-      const res = await fetch(`${apiBaseUrl}/worker/jobs/${jobId}/report`, {
+      const res = await fetch(`${baseUrl}/worker/jobs/${jobId}/report`, {
         method: 'POST',
         headers,
         body: JSON.stringify(report),

@@ -31,10 +31,8 @@ export interface Finding {
 }
 
 export interface PaginatedResponse<T> {
-  data: T[]
+  items: T[]
   total: number
-  page: number
-  limit: number
 }
 
 export const runsApi = {
@@ -45,13 +43,13 @@ export const runsApi = {
     if (params?.type && params.type !== 'all') search.set('type', params.type)
     if (params?.status && params.status !== 'all') search.set('status', params.status)
     const qs = search.toString()
-    return api.get<PaginatedResponse<WorkflowRun>>(`/v1/workflow-runs${qs ? `?${qs}` : ''}`)
+    return api.get<PaginatedResponse<WorkflowRun>>(`/v1/runs${qs ? `?${qs}` : ''}`)
   },
-  get: (id: string) => api.get<WorkflowRunDetail>(`/v1/workflow-runs/${id}`),
+  get: (id: string) => api.get<WorkflowRunDetail>(`/v1/runs/${id}`),
   getLogs: (id: string, after?: string) => {
     const qs = after ? `?after=${after}` : ''
-    return api.get<{ logs: LogEvent[] }>(`/v1/workflow-runs/${id}/logs${qs}`)
+    return api.get<{ logs: LogEvent[] }>(`/v1/runs/${id}/logs${qs}`)
   },
-  getFindings: (id: string) => api.get<{ findings: Finding[] }>(`/v1/workflow-runs/${id}/findings`),
-  cancel: (id: string) => api.post<undefined>(`/v1/workflow-runs/${id}/cancel`),
+  getFindings: (id: string) => api.get<{ findings: Finding[] }>(`/v1/runs/${id}/findings`),
+  cancel: (id: string) => api.post<undefined>(`/v1/runs/${id}/cancel`),
 }

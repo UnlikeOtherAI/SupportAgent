@@ -6,7 +6,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "cron-loop": "tsx src/cron-loop.ts"
   },
   "dependencies": {
     "@support-agent/config": "workspace:*",
