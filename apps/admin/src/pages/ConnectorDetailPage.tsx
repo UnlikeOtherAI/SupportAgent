@@ -33,32 +33,37 @@ export default function ConnectorDetailPage() {
     enabled: !!rawId,
   })
 
-  if (isLoading) {
-    return <PageShell title="Connector"><p className="text-sm text-gray-400">Loading...</p></PageShell>
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards queryFn; id is always defined when mutation callbacks fire
-  const id = rawId!
-
-  if (!data) {
-    return <PageShell title="Connector"><p className="text-sm text-gray-400">Not found</p></PageShell>
-  }
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- enabled: !!rawId guards data; id is defined before the if (!data) guard
+  // Always call useMutation unconditionally — before any conditionals
   const discoverMutation = useMutation({
-    mutationFn: () => connectorsApi.discoverCapabilities(id),
+    mutationFn: async () => {
+      if (!rawId) throw new Error('No connector ID')
+      return connectorsApi.discoverCapabilities(rawId)
+    },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['connector', id] })
+      if (!rawId) return
+      void queryClient.invalidateQueries({ queryKey: ['connector', rawId] })
     },
   })
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- enabled: !!rawId guards data; id is defined before the if (!data) guard
   const deleteMutation = useMutation({
-    mutationFn: () => connectorsApi.delete(id),
+    mutationFn: async () => {
+      if (!rawId) throw new Error('No connector ID')
+      return connectorsApi.delete(rawId)
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['connectors'] })
       void navigate('/connectors')
     },
   })
+
+  if (isLoading) {
+    return <PageShell title="Connector"><p className="text-sm text-gray-400">Loading...</p></PageShell>
+  }
+
+  if (!data) {
+    return <PageShell title="Connector"><p className="text-sm text-gray-400">Not found</p></PageShell>
+  }
+
+  const id = rawId!
   const capabilities: ConnectorCapability[] = discoverMutation.data?.capabilities ?? data.capabilities
 
   return (

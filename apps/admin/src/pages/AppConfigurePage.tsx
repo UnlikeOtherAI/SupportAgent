@@ -110,21 +110,7 @@ export default function AppConfigurePage() {
     enabled: !!connectorId,
   })
 
-  const initialConfig = useMemo(() => {
-    if (!connector || !platform) return {}
-    const caps = (connector as unknown as { capabilities: Record<string, string> | null }).capabilities
-    if (!caps || typeof caps !== 'object') return {}
-    const result: Record<string, string> = {}
-    for (const field of platform.configFields) {
-      if (!field.secretType && caps[field.key]) {
-        result[field.key] = caps[field.key]
-      }
-    }
-    return result
-  }, [connector, platform])
-
-  const configValues = { ...initialConfig, ...configOverrides }
-
+  // Always call useMutation unconditionally — before any conditionals
   const updateMutation = useMutation({
     mutationFn: async () => {
       if (!platform || !connectorId) return
@@ -171,6 +157,21 @@ export default function AppConfigurePage() {
       void navigate('/apps')
     },
   })
+
+  const initialConfig = useMemo(() => {
+    if (!connector || !platform) return {}
+    const caps = (connector as unknown as { capabilities: Record<string, string> | null }).capabilities
+    if (!caps || typeof caps !== 'object') return {}
+    const result: Record<string, string> = {}
+    for (const field of platform.configFields) {
+      if (!field.secretType && caps[field.key]) {
+        result[field.key] = caps[field.key]
+      }
+    }
+    return result
+  }, [connector, platform])
+
+  const configValues = { ...initialConfig, ...configOverrides }
 
   function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()

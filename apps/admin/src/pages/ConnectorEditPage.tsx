@@ -25,6 +25,20 @@ export default function ConnectorEditPage() {
     queryFn: () => connectorsApi.getPlatformTypes(),
   })
 
+  // Always call useMutation unconditionally — before any conditionals
+  const id = rawId!
+  const mutation = useMutation({
+    mutationFn: () => {
+      if (!rawId) throw new Error('No connector ID')
+      return connectorsApi.update(rawId, { name, platformType, roles, intakeMode })
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['connectors'] })
+      void queryClient.invalidateQueries({ queryKey: ['connector', rawId] })
+      void navigate(`/connectors/${rawId}`)
+    },
+  })
+
   useEffect(() => {
     if (!data) return
     setName(data.name)
@@ -41,22 +55,9 @@ export default function ConnectorEditPage() {
     return <PageShell title="Edit Connector"><p className="text-sm text-gray-400">Loading...</p></PageShell>
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards queryFn; id is always defined when mutation callbacks fire
-  const id = rawId!
-
   if (!data) {
     return <PageShell title="Edit Connector"><p className="text-sm text-gray-400">Not found</p></PageShell>
   }
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- enabled: !!rawId guards data; id is defined before the if (!data) guard
-  const mutation = useMutation({
-    mutationFn: () => connectorsApi.update(id, { name, platformType, roles, intakeMode }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['connectors'] })
-      void queryClient.invalidateQueries({ queryKey: ['connector', id] })
-      void navigate(`/connectors/${id}`)
-    },
-  })
 
   return (
     <PageShell title="Edit Connector">

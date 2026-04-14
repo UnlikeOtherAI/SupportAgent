@@ -30,6 +30,28 @@ export default function RepositoryEditPage() {
     enabled: !!rawId,
   })
 
+  // Always call useMutation unconditionally — before any conditionals
+  const id = rawId!
+  const mutation = useMutation({
+    mutationFn: () => {
+      if (!rawId) throw new Error('No repository ID')
+      return repositoriesApi.update(rawId, {
+        name: name.trim(),
+        connectorId: connectorId.trim(),
+        repositoryUrl: repositoryUrl.trim(),
+        executionProfileId: nullableValue(executionProfileId),
+        orchestrationProfileId: nullableValue(orchestrationProfileId),
+        reviewProfileId: nullableValue(reviewProfileId),
+        autoPr,
+      })
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['repositories'] })
+      void queryClient.invalidateQueries({ queryKey: ['repository', rawId] })
+      void navigate(`/repositories/${rawId}`)
+    },
+  })
+
   useEffect(() => {
     if (!data) return
     setName(data.name)
@@ -49,9 +71,6 @@ export default function RepositoryEditPage() {
     )
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards queryFn; id is always defined when mutation callbacks fire
-  const id = rawId!
-
   if (!data) {
     return (
       <PageShell title="Edit Repository Mapping">
@@ -59,25 +78,6 @@ export default function RepositoryEditPage() {
       </PageShell>
     )
   }
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- enabled: !!rawId guards data; id is defined before the if (!data) guard
-  const mutation = useMutation({
-    mutationFn: () =>
-      repositoriesApi.update(id, {
-        name: name.trim(),
-        connectorId: connectorId.trim(),
-        repositoryUrl: repositoryUrl.trim(),
-        executionProfileId: nullableValue(executionProfileId),
-        orchestrationProfileId: nullableValue(orchestrationProfileId),
-        reviewProfileId: nullableValue(reviewProfileId),
-        autoPr,
-      }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['repositories'] })
-      void queryClient.invalidateQueries({ queryKey: ['repository', id] })
-      void navigate(`/repositories/${id}`)
-    },
-  })
 
   const errorMessage =
     mutation.error instanceof Error ? mutation.error.message : 'Failed to save mapping'

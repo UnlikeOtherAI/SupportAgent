@@ -32,6 +32,28 @@ export default function ReviewProfileEditPage() {
   const [promptSetRef, setPromptSetRef] = useState('')
   const [active, setActive] = useState(false)
 
+  // Always call useMutation unconditionally — before any conditionals
+  const id = rawId!
+  const mutation = useMutation({
+    mutationFn: () => {
+      if (!rawId) throw new Error('No profile ID')
+      return reviewProfilesApi.update(rawId, {
+        name,
+        maxRounds,
+        mandatoryHumanApproval,
+        continueAfterPassing,
+        allowedWorkflowTypes: parseWorkflowTypes(allowedWorkflowTypes),
+        promptSetRef: promptSetRef.trim() || null,
+        active,
+      })
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['review-profiles'] })
+      void queryClient.invalidateQueries({ queryKey: ['review-profile', rawId] })
+      void navigate(`/review-profiles/${rawId}`)
+    },
+  })
+
   useEffect(() => {
     if (!data) return
     setName(data.name)
@@ -47,30 +69,9 @@ export default function ReviewProfileEditPage() {
     return <PageShell title="Edit Review Profile"><p className="text-sm text-gray-400">Loading...</p></PageShell>
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- enabled: !!rawId guards queryFn; id is always defined when mutation callbacks fire
-  const id = rawId!
-
   if (!data) {
     return <PageShell title="Edit Review Profile"><p className="text-sm text-gray-400">Not found</p></PageShell>
   }
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- enabled: !!rawId guards data; id is defined before the if (!data) guard
-  const mutation = useMutation({
-    mutationFn: () => reviewProfilesApi.update(id, {
-      name,
-      maxRounds,
-      mandatoryHumanApproval,
-      continueAfterPassing,
-      allowedWorkflowTypes: parseWorkflowTypes(allowedWorkflowTypes),
-      promptSetRef: promptSetRef.trim() || null,
-      active,
-    }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['review-profiles'] })
-      void queryClient.invalidateQueries({ queryKey: ['review-profile', id] })
-      void navigate(`/review-profiles/${id}`)
-    },
-  })
 
   return (
     <PageShell title={`Edit ${data.name}`}>
