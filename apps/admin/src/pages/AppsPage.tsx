@@ -179,7 +179,7 @@ export default function AppsPage() {
   const isLoading = platformsLoading || connectorsLoading
 
   return (
-    <PageShell title="Apps">
+    <PageShell title="Apps" fullWidth>
       {isLoading ? (
         <p className="text-sm text-gray-400">Loading...</p>
       ) : (
