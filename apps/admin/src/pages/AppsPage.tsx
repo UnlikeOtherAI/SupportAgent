@@ -85,14 +85,14 @@ export default function AppsPage() {
   const connectors = connectorsData?.data ?? []
   const installedByPlatform = new Map<string, typeof connectors>()
   for (const c of connectors) {
-    installedByPlatform.set(c.platformType, [
-      ...(installedByPlatform.get(c.platformType) ?? []),
+    installedByPlatform.set(c.platformType.key, [
+      ...(installedByPlatform.get(c.platformType.key) ?? []),
       c,
     ])
   }
 
   const installedCards = connectors
-    .map((c) => ({ connector: c, platform: (platforms ?? []).find((p) => p.key === c.platformType) }))
+    .map((c) => ({ connector: c, platform: (platforms ?? []).find((p) => p.key === c.platformType.key) }))
     .filter((x): x is { connector: typeof connectors[0]; platform: PlatformTypeDetail } => !!x.platform)
 
   const availablePlatforms = (platforms ?? []).filter((p) => !installedByPlatform.has(p.key))

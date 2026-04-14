@@ -1,10 +1,16 @@
 import { api } from '@/lib/api-client'
 import type { PaginatedResponse } from './runs'
 
+export interface ConnectorPlatformType {
+  id: string
+  key: string
+  displayName: string
+}
+
 export interface Connector {
   id: string
   name: string
-  platformType: string
+  platformType: ConnectorPlatformType
   roles: ('inbound' | 'outbound')[]
   intakeMode: 'webhook' | 'polling'
   status: 'healthy' | 'degraded' | 'unconfigured'
