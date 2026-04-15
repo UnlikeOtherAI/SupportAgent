@@ -62,11 +62,11 @@ Internal terms such as `AutomationEvent`, `ScenarioExecution`, `workItemKind`, `
 
 ## Core Invariants
 
-All triggers are incoming. A trigger is not the work itself. A start trigger decides whether an incoming event should create a new scenario execution. A continuation event resumes, cancels, or observes an existing execution target and must not create a new `ScenarioExecution` unless a separate follow-up trigger policy explicitly starts one after the continuation is recorded.
+All triggers are incoming. A trigger is not the work itself. The default path is self-contained: an incoming event starts a scenario, the scenario does work, and the scenario emits one or more outputs. A continuation is not a normal workflow phase; it is only used when an incoming event explicitly answers a pending gate that the system already created, such as an approval request or follow-up question.
 
 An `eventKey` is the logical event type. `intakeMode` is how it arrived: webhook, polling, chat, schedule, manual, MCP, or system. Do not mix those fields.
 
-Every accepted incoming signal must normalize into an internal `AutomationEvent` before continuation resolution or start-trigger matching. `InboundWorkItem` remains the durable normalized record for issues, tickets, cards, crashes, and review targets. Not every automation event creates a work item.
+Every accepted incoming signal must normalize into an internal `AutomationEvent` before start-trigger matching. If and only if the event carries an explicit `continuationRef` or signed correlation token for a pending gate, the API resolves that pending gate instead of treating the event as a new start trigger. `InboundWorkItem` remains the durable normalized record for issues, tickets, cards, crashes, and review targets. Not every automation event creates a work item.
 
 Repository context is required only for actions whose definitions declare `requiresRepositoryContext=true`.
 
@@ -320,15 +320,17 @@ verified external signal
 
 `InboundWorkItem.dedupeKey` is the durable work-item identity key, not the event receipt key. It should be stable for the same external issue, ticket, card, crash, or review target across webhook, polling, comment, and chat events. `AutomationEvent.dedupeKey` remains the event-delivery idempotency key.
 
-## Continuation Resolution
+## Optional Continuation Resolution
 
-Some incoming events are responses to work the system already started. Examples include approval decisions, answers to follow-up questions, replies to customer-visible draft responses, and chat commands that ask about an existing run.
+Most work should remain self-contained: trigger -> scenario -> outputs. Creating a Linear ticket, commenting on GitHub, labeling an issue as triaged, notifying Slack, or opening a PR are outputs of the current scenario, not continuations.
 
-These events still normalize into `AutomationEvent`, but routing checks `continuationRef` before start-trigger matching:
+Chaining should usually happen through new events. For example, when triage completes, the scenario may emit an output or system event that a separate build trigger can match. That creates a new scenario execution with links back to the previous work rather than resuming the old scenario.
+
+Continuation is reserved for pending gates where the previous scenario is explicitly waiting for a response. These events still normalize into `AutomationEvent`, but the API only checks continuation routing when `continuationRef` is present or can be derived from a trusted signed correlation token created by a previous output:
 
 - `approvalRequestId` resumes the matching `approval.request` action execution.
 - `actionExecutionId` resumes or cancels the matching scenario action when the action is waiting for external input.
-- `workflowRunId` observes or requests an allowed operation on the existing workflow run.
+- `workflowRunId` may be used only for an explicit pending wait or cancel operation; ordinary "show me run status" requests can be modeled as new control-plane scenarios with the run id as input.
 - `scenarioExecutionId` appends context or requests an allowed operation on the existing scenario execution.
 - `deliveryAttemptId` records delivery feedback or retry decisions for an existing output.
 

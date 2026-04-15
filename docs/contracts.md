@@ -25,7 +25,7 @@ Without these, different engineers will invent different payloads and state mode
 
 ## Canonical Automation Event
 
-Every accepted external, scheduled, chat, dashboard, MCP, or system signal should normalize into an `AutomationEvent` before continuation resolution or start-trigger matching.
+Every accepted external, scheduled, chat, dashboard, MCP, or system signal should normalize into an `AutomationEvent` before start-trigger matching. Continuation resolution is optional and applies only when the event carries an explicit `continuationRef` or trusted signed correlation token for a pending gate.
 
 Required fields:
 
@@ -71,7 +71,7 @@ Conditional fields:
 - `communicationChannelId` when `sourceKind=communication_channel`
 - `scheduleId` when `sourceKind=schedule`
 - `requestId` when `sourceKind=dashboard` or `sourceKind=mcp`
-- `continuationRef` when the event is a response to an existing approval, follow-up request, workflow run, delivery attempt, or scenario action
+- `continuationRef` only when the event is a response to an existing pending approval, follow-up request, workflow run wait/cancel operation, delivery attempt, or scenario action
 
 Rules:
 
@@ -83,9 +83,10 @@ Rules:
 - `sourcePayloadRef` should point to immutable payload storage after verification.
 - `botGenerated` is set by connector or channel adapters from trusted outbound markers; it must not be trusted from user-provided payload fields.
 - Not every automation event creates an `InboundWorkItem`.
-- A valid `continuationRef` routes the event to an existing pending execution target. It does not create a new `ScenarioExecution` unless an explicit follow-up trigger policy starts a new scenario after the continuation is recorded.
+- A valid `continuationRef` routes the event to an existing pending execution target. It does not create a new `ScenarioExecution`.
 - `continuationRef` must identify exactly one target kind unless multiple ids describe the same already-linked approval/action/scenario chain. Ambiguous or conflicting continuation refs are rejected and audited.
 - Continuations for terminal targets are rejected and audited. They must not fall through into start-trigger matching.
+- Normal workflow chaining should use outputs or system/external events that start new scenario executions with links back to prior work, not continuation refs.
 
 ## Canonical Platform Event Definition
 
@@ -227,7 +228,7 @@ Parentage rules:
 
 ## Canonical Scenario Execution
 
-`ScenarioExecution` is the parent automation context created after a start trigger matches. Continuation events such as approval decisions, follow-up replies, and observe-existing-run commands reference an existing `scenarioExecutionId`, `actionExecutionId`, `approvalRequestId`, or `workflowRunId`; they do not create a second parent execution for the same pending gate.
+`ScenarioExecution` is the parent automation context created after a start trigger matches. Continuation events such as approval decisions and follow-up replies reference an existing `scenarioExecutionId`, `actionExecutionId`, `approvalRequestId`, or `workflowRunId` only when that target is pending an explicit response; they do not create a second parent execution for the same pending gate. Ordinary follow-on work should start a new scenario execution and link to the previous scenario, work item, output, or workflow run.
 
 Required fields:
 

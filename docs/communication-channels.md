@@ -40,7 +40,7 @@ Some issue connectors may also expose threaded comments and bot mentions. That b
 
 Where connector platforms support webhook delivery for comments or mentions, Support Agent should prefer webhook-based intake over polling.
 
-Every accepted channel command, mention, reply, approval response, or scheduled notification interaction should normalize into an internal `AutomationEvent` before continuation resolution or start-trigger matching. The channel is the source, the message or command is the event subject, and the action policy decides whether the request may start new work, continue existing work, or observe existing work.
+Every accepted channel command, mention, reply, approval response, or scheduled notification interaction should normalize into an internal `AutomationEvent` before start-trigger matching. The channel is the source, the message or command is the event subject, and the action policy decides whether the request may start new self-contained work. Continuation resolution is used only when the message explicitly answers a pending approval or follow-up request through a trusted correlation token.
 
 ## Supported Conversation Patterns
 
