@@ -23,11 +23,12 @@ Reference automation composition model: [automation-composition.md](/System/Volu
 6. `Repository Mappings`
 7. `Communication Channel Configuration`
 8. `Routing Targets`
-9. `Trigger Policies`
-10. `Workflow Scenarios`
-11. `Scenario Executions`
-12. `Runtime Fleet`
-13. `Settings and API Keys`
+9. `Workflows`
+10. `Workflow Designer`
+11. `Trigger Policies`
+12. `Scenario Executions`
+13. `Runtime Fleet`
+14. `Settings and API Keys`
 
 ## Primary Navigation
 
@@ -56,6 +57,9 @@ Reference automation composition model: [automation-composition.md](/System/Volu
 - `/configuration/channels/:communicationChannelId/conversations/:conversationId`
 - `/configuration/routing-targets`
 - `/configuration/routing-targets/:routingTargetId`
+- `/workflows`
+- `/workflows/new/designer`
+- `/workflows/:workflowId/designer`
 - `/automation/triggers`
 - `/automation/scenarios`
 - `/automation/scenarios/:scenarioId`
@@ -116,6 +120,17 @@ Reference automation composition model: [automation-composition.md](/System/Volu
 
 - manages canonical routing targets, outbound capability health, and routing visibility
 - exposes per-destination details such as delivery type, auth health, routing usage, and recent delivery attempts
+
+`/workflows`
+
+- lists saved workflow graphs that combine triggers, middle actions, and outputs
+- uses the same underlying workflow scenario records as the automation model
+
+`/workflows/*/designer`
+
+- opens a drag-and-drop workflow designer modeled after Nessie's workflow canvas
+- lets operators compose trigger nodes, middle action nodes, and output nodes into a saved workflow
+- persists the canvas graph into workflow scenario steps so the list shows the saved workflow after returning from the designer
 
 `/automation/*`
 

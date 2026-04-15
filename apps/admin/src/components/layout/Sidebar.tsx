@@ -34,12 +34,8 @@ const NAV: NavSection[] = [
       { label: 'Apps', to: '/apps', icon: <AppsIcon /> },
       { label: 'Repositories', to: '/repositories', icon: <RepositoriesIcon /> },
       { label: 'Routing', to: '/routing', icon: <RoutingIcon /> },
-      { label: 'Scenarios', to: '/scenarios', icon: <ScenariosIcon /> },
-    ],
-  },
-  {
-    label: 'Channels',
-    items: [
+      { label: 'Workflows', to: '/workflows', icon: <ScenariosIcon /> },
+      { label: 'Designer', to: '/workflows/new/designer', icon: <BoltIcon /> },
       { label: 'Channels', to: '/channels', icon: <ChannelsIcon /> },
     ],
   },

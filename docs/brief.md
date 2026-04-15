@@ -13,6 +13,7 @@ For admin implementation, each page should be scaffolded with `wf` CLI and verif
 The API must keep the connector platform catalog available from the shared registry at startup so the admin Apps page does not depend on a separate manual seed run.
 The first Apps page is a registry-backed install surface over connector and communication-channel records; it does not require a separate `apps` table.
 Communication-channel setup belongs under the admin Configuration area with connectors, repositories, and routing targets. Runtime conversation history should be shown as run, channel, delivery, or audit context rather than as a separate top-level Communication section.
+Workflow setup should expose a visual designer under Configuration so operators can create saved workflows by connecting incoming triggers, middle actions, and outputs on a canvas. The saved workflow should be listed after leaving the designer and should map to the same workflow scenario model used by automation.
 
 Reference scenario: [use-cases.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/use-cases.md)
 Reference configurable scenario model: [workflow-scenarios.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/workflow-scenarios.md)
@@ -345,6 +346,7 @@ The admin panel should manage the operational side of the system, including:
 
 - connector configuration,
 - communication channel configuration under the same Configuration area as connectors and routing,
+- visual workflow designer for trigger-action-output workflows,
 - source-to-repository mapping,
 - inbound and outbound connector role selection,
 - trigger policy configuration for triage, build, and merge work,

@@ -14,6 +14,30 @@ export interface WorkflowScenario {
   allowedConnectors: string[]
   notificationPolicy: string | null
   distributionTarget: string | null
+  designerGraph: WorkflowDesignerGraph
+}
+
+export type WorkflowDesignerNodeType = 'trigger' | 'action' | 'output'
+
+export interface WorkflowDesignerNode {
+  id: string
+  type: WorkflowDesignerNodeType
+  label: string
+  sourceKey: string
+  x: number
+  y: number
+  config: Record<string, unknown>
+}
+
+export interface WorkflowDesignerConnection {
+  id?: string
+  fromNodeId: string
+  toNodeId: string
+}
+
+export interface WorkflowDesignerGraph {
+  nodes: WorkflowDesignerNode[]
+  connections: WorkflowDesignerConnection[]
 }
 
 export const scenariosApi = {

@@ -61,6 +61,9 @@ export const router = createBrowserRouter([
         { path: 'routing/destinations/:id/edit',   element: load(() => import('@/pages/DestinationEditPage')) },
 
         /* Scenarios */
+        { path: 'workflows',                 element: load(() => import('@/pages/WorkflowsPage')) },
+        { path: 'workflows/new/designer',    element: load(() => import('@/pages/WorkflowDesignerPage')) },
+        { path: 'workflows/:id/designer',    element: load(() => import('@/pages/WorkflowDesignerPage')) },
         { path: 'scenarios',          element: load(() => import('@/pages/ScenariosPage')) },
         { path: 'scenarios/new',      element: load(() => import('@/pages/ScenarioNewPage')) },
         { path: 'scenarios/:id',      element: load(() => import('@/pages/ScenarioDetailPage')) },
