@@ -30,6 +30,7 @@ Reference local execution intelligence: [local-orchestrator.md](/System/Volumes/
 Reference dependency model: [work-item-dependencies.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/work-item-dependencies.md)
 Reference feature delivery model: [feature-delivery.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/feature-delivery.md)
 Reference workflow scenario model: [workflow-scenarios.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/workflow-scenarios.md)
+Reference automation composition model: [automation-composition.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/automation-composition.md)
 Reference chat control model: [communication-channels.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/communication-channels.md)
 Reference runtime delivery model: [runtime-cli.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/runtime-cli.md)
 Reference machine-facing setup docs: [llm/index.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/llm/index.md)
@@ -48,11 +49,12 @@ Reference machine-facing setup docs: [llm/index.md](/System/Volumes/Data/.intern
 - Outbound layer: delivery adapters for commenting back, creating issues, and linking findings into external systems when separated from inbound connector logic.
 - Build layer: code-change and PR-generation workflows triggered after triage or by feature-delivery scenarios.
 - Merge layer: branch-sync, revalidation, conflict-resolution, and merge-execution workflows triggered after build.
-- Feature-delivery layer: epic-driven, dependency-aware implementation workflows that may span multiple tickets and several runtime executions.
+- Feature-delivery layer: epic-driven, dependency-aware scenario templates or batch orchestration that may span multiple tickets and several runtime executions, while still creating `build` workflow runs rather than a fourth top-level workflow type.
 - Review layer: inbound PR or merge-request review scenarios triggered from repository connectors and compiled into the normalized runtime contract.
 - Review-control layer: centrally managed review profiles, prompt sets, and multi-round critique loops fetched by runtimes at execution time and applied inside `triage`, `build`, or `merge`.
 - Orchestration-control layer: centrally managed orchestration profiles and prompt manifests consumed by the local orchestrator inside customer runtimes.
-- Workflow-scenario layer: named automation scenarios that combine trigger, dependency, execution, review, notification, and distribution policies into one of the top-level workflow types.
+- Automation composition layer: verified incoming events, trigger matching, scenario execution, action outputs, approvals, and routing across connectors, channels, schedules, dashboard actions, MCP actions, and system events.
+- Workflow-scenario layer: the workflow-run subset of automation scenarios that creates or coordinates `triage`, `build`, and `merge` workflow runs.
 - MCP management layer: exposes the same connector and routing configuration model used by the admin UI.
 - Persistence layer: stores connectors, repositories, issues, workflow runs, findings, logs, and delivery targets.
 
@@ -69,8 +71,10 @@ GitHub and GitHub Issues also need a local-runtime polling variant for operator-
 
 - admin install flow offers OAuth, PAT, and local `gh` auth modes where applicable
 - local `gh` mode stores typed connector config with `auth_mode=local_gh`
-- repository selection is populated by calling the local `gh` CLI through a shared connector helper package
+- repository selection is populated through the registered local runtime or gateway, which calls the local `gh` CLI through a shared connector helper package and returns repository options to the API
 - polling targets are derived from enabled repository mappings plus connector polling interval settings
+- the registered local runtime or gateway owns the polling timer and submits observed events; the API stores polling config and performs central trigger matching
+- polling receipts are submitted back to the API as `AutomationEvent` payloads with local-runtime audit identity, not as direct database writes
 
 Communication channel examples:
 
@@ -167,7 +171,7 @@ Rules:
 - Keep workers API-only with no direct database access.
 - Keep worker dispatch separate from worker execution.
 - Expose repository-option lookup for local-`gh` connectors from the API rather than calling `gh` directly from the browser.
-- Keep polling intake API routes separate from webhook intake routes, but normalize both into the same `InboundWorkItem` and `workflow_runs` records.
+- Keep polling intake API routes separate from webhook intake routes, but normalize both into `automation_events` before continuation resolution or start-trigger matching. A matched start scenario may then create or update `InboundWorkItem` and `workflow_runs` records when needed.
 
 ## Web Application
 
@@ -223,7 +227,7 @@ Rules:
 - Workers fetch context, stream progress, upload artifacts, and submit final reports through API endpoints only.
 - The runtime CLI should be the canonical customer-facing implementation of worker or gateway registration.
 - The runtime CLI should be the canonical prompt-fetch, manifest-fetch, and connection layer for workers and gateways.
-- The worker-side GitHub helper layer must be shared with the API for local-`gh` repo discovery, issue fetches, issue comments, and label management.
+- The worker-side GitHub helper layer must be shared with the API-facing local-runtime RPC for local-`gh` repo discovery, issue fetches, issue comments, and label management.
 - GitHub triage delivery must post the discovery comment before labeling, and it must ensure `triaged` and complexity labels exist before applying them so local polling does not requeue already-processed issues.
 
 Reference: [worker-architecture.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/worker-architecture.md)
@@ -240,12 +244,14 @@ The dispatcher should:
 - dispatch a normalized worker job
 - track provider job identifiers
 - poll or receive provider status
-- handle cancellation, timeout, and retry policies
+- handle workflow dispatch cancellation, timeout, and retry policies
 - respect blocked-state scheduling decisions from the control plane
 
 The dispatcher should not contain source-specific connector logic.
 
-The platform should also support review-oriented repository scenarios using the same gateway and execution-provider model. Those scenarios should still compile into the normalized `triage`, `build`, or `merge` contract rather than creating a fourth top-level runtime type.
+Scenario action retry scheduling belongs to the API-owned scenario scheduler over `scenario_action_executions.retry_scheduled`. The dispatcher retries dispatch attempts for existing `workflow_runs`; it does not decide whether a scenario action should be attempted again.
+
+The platform should also support review-oriented repository scenarios using the same gateway and execution-provider model. Inbound PR or merge-request review starts as a normalized `triage` workflow run with `workItemKind=review_target` and an attached review profile. If validation requires code changes or merge readiness checks, the scenario can create child `build` or `merge` runs from that triage result; it must not create a fourth top-level runtime type.
 
 For reverse-connected runtimes, the gateway should also:
 
@@ -288,13 +294,13 @@ Hosted SaaS should not store raw tenant Claude or Codex keys by default. If tena
 Use a queue abstraction from the start.
 
 - local development: Redis + BullMQ
-- production long-running triage jobs: Google Cloud Pub/Sub pull subscriptions consumed by worker instances
+- production long-running triage jobs: Google Cloud Pub/Sub dispatch queues consumed by the dispatcher before provider assignment
 - optional short HTTP background tasks later: Cloud Tasks
 
 Why:
 
 - BullMQ is fine locally because Redis already exists on the dev machine.
-- Pub/Sub supports pull consumers and is documented by Google Cloud as suitable for parallel task distribution.
+- Pub/Sub supports parallel dispatch consumers and is documented by Google Cloud as suitable for task distribution.
 - Cloud Tasks is better for explicit HTTP invocation, but it has target processing-duration limits and is a worse fit for heavy clone, build, emulator, or reproduction runs.
 
 This recommendation is based on the current plan to run heavier workers on prebuilt Google Cloud instances rather than keeping all execution inside short-lived HTTP services.
@@ -317,10 +323,6 @@ Core tables should cover:
 - dependency_snapshots
 - dependency_policies
 - dependency_overrides
-- feature_delivery_runs
-- feature_delivery_work_items
-- feature_delivery_batches
-- feature_delivery_assets
 - connector_comment_threads
 - connector_comment_messages
 - connector_mentions
@@ -339,10 +341,23 @@ Core tables should cover:
 - routing_targets
 - trigger_policies
 - trigger_conditions
-- trigger_actions
-- workflow_scenarios
-- workflow_scenario_bindings
-- workflow_scenario_steps
+- automation_events
+- automation_event_quarantine_records
+- platform_event_definitions
+- action_definitions
+- output_type_definitions
+- automation_scenarios
+- automation_scenario_versions
+- scenario_executions
+- scenario_action_executions
+- action_outputs
+- action_delivery_attempts
+- approval_requests
+- dry_run_sessions
+- dry_run_results
+- loop_prevention_refs
+- rate_limit_policies
+- rate_limit_events
 - execution_profiles
 - runtime_profiles
 - execution_providers
@@ -370,18 +385,28 @@ Core tables should cover:
 - repository_event_subscriptions
 - inbound_work_items
 - findings
-- outbound_destinations
-- outbound_delivery_attempts
 - audit_events
 
 The schema should prefer generic connector and delivery records over source-specific core enums. Source-specific metadata should live in normalized payload snapshots or connector-specific fields. A connector record should be able to declare whether it supports inbound intake, outbound delivery, or both.
 
-Canonical record and field names should follow [contracts.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/contracts.md). `workflow_runs` is the canonical table for executable work. Do not introduce separate primary tables for triage, build, or merge runs.
+Canonical record and field names should follow [contracts.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/contracts.md). `automation_events` is the canonical incoming signal record. `scenario_executions` is the canonical parent automation context. `workflow_runs` is the canonical table for executable repository/runtime work. Do not introduce separate primary tables for triage, build, or merge runs.
 
 Naming split:
 
 - `routing_rules` and `routing_targets` are configuration records
-- `outbound_destinations` and `outbound_delivery_attempts` are execution-time delivery records
+- reusable outbound destinations are represented by `routing_targets`
+- `action_outputs` and `action_delivery_attempts` are execution-time output and delivery records for arbitrary scenario actions
+- existing `outbound_delivery_attempts` should be treated as legacy workflow-output delivery until migrated or aliased into `action_delivery_attempts`
+- existing `workflow_scenarios`, `workflow_scenario_bindings`, `workflow_scenario_steps`, and `outbound_destinations` should be treated as legacy tables, aliases, or read-only projections during migration. New writes should target `automation_scenarios`, `automation_scenario_versions`, `trigger_policies`, `routing_rules`, and `routing_targets`.
+
+Legacy migration rule:
+
+- active writes to legacy scenario or outbound destination tables must be blocked or translated at the API boundary
+- `workflow_scenarios` project to `automation_scenarios` and workflow-backed `automation_scenario_versions`
+- `workflow_scenario_bindings` project to scoped `trigger_policies`
+- `workflow_scenario_steps` project to action graph nodes
+- `outbound_destinations` project to `routing_targets`
+- no runtime matcher, dispatcher, or delivery adapter should read legacy tables as source of truth after the projection exists
 
 Connector configuration should also track:
 
@@ -400,6 +425,19 @@ Connector configuration should also track:
 - build trigger labels or tags where supported
 - auto-PR settings where supported
 
+Automation composition configuration should also track:
+
+- app catalog install records as registry-backed UI state that creates connector instances or communication channels
+- platform event definitions and filterable fields
+- action definitions and risk levels
+- output type definitions and visibility policy
+- trigger lifecycle state
+- automation scenario graph versions
+- dry-run validation results
+- approval requirements for customer-visible, high-risk, or destructive actions
+- loop-prevention refs for bot-authored connector and channel events
+- rate-limit policies and rate-limit events
+
 Review configuration should also track:
 
 - default review profile
@@ -417,7 +455,7 @@ Execution orchestration should also track:
 - prompt manifest version
 - fallback routing behavior
 
-Feature-delivery configuration should also track:
+Feature-delivery scenario configuration should also track:
 
 - epic readiness markers such as `AI ready`
 - whether dependency normalization is allowed
@@ -431,9 +469,13 @@ Workflow-scenario configuration should also track:
 - scenario key and display name
 - enabled status
 - allowed connectors and mappings
-- trigger-policy bindings
+- trigger-policy scopes and selected automation scenario versions
 - default execution, orchestration, and review profiles
 - notification and distribution policies
+
+New implementation should treat `automation_scenarios` and `automation_scenario_versions` as canonical. Existing `workflow_scenarios`, `workflow_scenario_bindings`, and `workflow_scenario_steps` are the workflow-backed legacy/projection layer until they are migrated or exposed as filtered views over automation scenarios and trigger policies. They must not decide new trigger-to-scenario precedence. Pure control-plane scenarios may have no `workflowType` until they create a workflow-run action.
+
+Trigger policies select automation scenario versions. Do not introduce direct trigger-owned action tables in new implementation; action graphs live on `automation_scenario_versions`.
 
 Communication channel configuration should also track:
 
@@ -501,8 +543,9 @@ Do not put Prisma models, database code, or worker-only execution code into shar
 - Input validation: Zod everywhere at API boundaries
 - Error shape: one standard API error envelope
 - Auditability: every operator action and delivery attempt should be recorded
+- Dispatch authentication: workers and gateways authenticate long-lived registration with `runtimeApiKey`; each accepted dispatch attempt receives a short-lived `workerSharedSecret` bound to tenant, workflow run, and dispatch attempt as defined in [contracts.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/contracts.md)
 
-Use the canonical contracts in [contracts.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/contracts.md) for normalized work items, workflow runs, findings, final reports, and manifest references.
+Use the canonical contracts in [contracts.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/contracts.md) for automation events, platform event definitions, scenario executions, action outputs, normalized work items, workflow runs, findings, final reports, and manifest references.
 
 Rules:
 
@@ -519,7 +562,7 @@ Support Agent should expose its configuration model through MCP.
 Rules:
 
 - MCP must operate on the same database-backed config model as the admin UI.
-- MCP must support creating connection instances, enabling inbound and outbound capabilities, mapping repositories, and defining routing rules.
+- MCP must support creating connector instances, enabling inbound and outbound capabilities, mapping repositories, defining triggers, validating scenario graphs, dry-running trigger matches, and defining output routing rules.
 - MCP must support multiple inbound and outbound paths at the same time.
 - Secrets should be write-only from MCP after creation and only exposed back as masked metadata.
 - MCP must support capability discovery so the app can determine whether webhook intake is actually available on the connected account.
@@ -533,14 +576,18 @@ Reference: [mcp-configuration.md](/System/Volumes/Data/.internal/projects/Projec
 ## Data Flow
 
 ```text
-External source -> API intake/webhook -> issue normalization -> repo mapping lookup
--> workflow run queued -> worker pulls job and investigates
--> worker/host sends progress and incremental log chunks to backend
--> findings stored in Postgres / large artifacts stored in GCS
+External source -> API intake/webhook or polling -> AutomationEvent
+-> trigger matching -> ScenarioExecution
+-> optional InboundWorkItem and repo mapping lookup
+-> optional workflow run queued -> dispatcher assigns execution provider
+-> provider worker/host investigates and sends progress and incremental log chunks to backend
+-> action outputs stored in Postgres / large artifacts stored in GCS
 -> optional build job triggered manually or automatically
 -> API exposes results to admin
 -> API sends comments, issue creation requests, or callbacks to the configured outbound connector
 ```
+
+Reverse-connected workers should use WebSocket for control messages, heartbeats, and wake-up notifications. Incremental log chunks and final reports should be persisted through HTTP API endpoints so reconnects do not lose log history.
 
 ## Architectural Rules
 

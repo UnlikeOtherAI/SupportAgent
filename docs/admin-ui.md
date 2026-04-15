@@ -11,27 +11,31 @@ Terminology: [terminology.md](/System/Volumes/Data/.internal/projects/Projects/S
 - do not move to the next page until the current path works
 
 Reference implementation skill: [csr-react-admin-panel.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/skills/csr-react-admin-panel.md)
+Reference automation composition model: [automation-composition.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/automation-composition.md)
 
 ## Priority Order
 
 1. `Workflow Runs`
 2. `Run Detail`
-3. `Connectors`
-4. `Repository Mappings`
-5. `Trigger Policies`
-6. `Workflow Scenarios`
-7. `Communication Channels`
-8. `Outbound Destinations`
-9. `Runtime Fleet`
-10. `Settings and API Keys`
+3. `Apps`
+4. `Connectors`
+5. `Repository Mappings`
+6. `Trigger Policies`
+7. `Workflow Scenarios`
+8. `Scenario Executions`
+9. `Communication Channels`
+10. `Routing Targets`
+11. `Runtime Fleet`
+12. `Settings and API Keys`
 
 ## Primary Navigation
 
 - `Overview`
 - `Workflow Runs`
+- `Apps`
 - `Connectors`
 - `Repositories`
-- `Outbound Destinations`
+- `Routing Targets`
 - `Automation`
 - `Communication`
 - `Runtimes`
@@ -43,17 +47,22 @@ Reference implementation skill: [csr-react-admin-panel.md](/System/Volumes/Data/
 - `/`
 - `/runs`
 - `/runs/:workflowRunId`
+- `/apps`
+- `/apps/:platformType`
 - `/connectors`
 - `/connectors/:connectorId`
 - `/repositories`
 - `/repositories/:repositoryMappingId`
-- `/outbound-destinations`
-- `/outbound-destinations/:outboundDestinationId`
+- `/routing-targets`
+- `/routing-targets/:routingTargetId`
 - `/automation/triggers`
 - `/automation/scenarios`
 - `/automation/scenarios/:scenarioId`
+- `/automation/executions`
+- `/automation/executions/:scenarioExecutionId`
 - `/automation/review-profiles`
 - `/automation/execution-profiles`
+- `/automation/orchestration-profiles`
 - `/communication`
 - `/communication/conversations/:conversationId`
 - `/runtimes`
@@ -67,13 +76,19 @@ Reference implementation skill: [csr-react-admin-panel.md](/System/Volumes/Data/
 `/runs`
 
 - canonical list of all `triage`, `build`, and `merge` runs
-- filters by tenant, repository, connector, workflow type, status, scenario, runtime, and trigger source
+- filters by tenant, repository, connector, workflow run type, status, scenario, runtime, and trigger source
 
 `/runs/:workflowRunId`
 
 - the most important operator page
 - shows summary, timeline, logs, findings, artifacts, review loops, and outbound activity
 - exposes actions such as retry, cancel, request build, and request merge
+
+`/apps`
+
+- shows the app catalog from the platform registry
+- lets operators install or configure apps that create connector instances, communication channels, or both
+- is an install surface, not a separate runtime entity unless install state later needs its own table
 
 `/connectors`
 
@@ -87,14 +102,15 @@ Reference implementation skill: [csr-react-admin-panel.md](/System/Volumes/Data/
 
 - shows source-to-repository mappings, execution defaults, dependency policy, and notification bindings
 
-`/outbound-destinations/*`
+`/routing-targets/*`
 
-- manages delivery targets, outbound capability health, and routing visibility
+- manages canonical routing targets, outbound capability health, and routing visibility
 - exposes per-destination details such as delivery type, auth health, routing usage, and recent delivery attempts
 
 `/automation/*`
 
-- manages trigger policies, workflow scenarios, review profiles, and execution profiles
+- manages trigger policies, scenario templates, scenario executions, review profiles, and execution profiles
+- shows pure control-plane scenario executions even when no `workflow_run` exists
 
 `/communication/*`
 
@@ -118,7 +134,7 @@ Use TanStack Query for:
 - findings
 - artifacts
 - connectors
-- outbound destinations
+- routing targets
 - capabilities
 - taxonomy
 - repository mappings
@@ -150,8 +166,33 @@ Do not mirror fetched entities into Zustand.
 Admin forms should not ask operators to type identifiers when the API already has a source of truth for the choices.
 
 - Use native selects for small fixed enums.
-- Use searchable comboboxes for selectable lists with more than five likely values, such as connectors, repositories, review profiles, workflow scenarios, outbound destinations, platform types, and execution provider types.
+- Use searchable comboboxes for selectable lists with more than five likely values, such as connectors, repositories, review profiles, workflow scenarios, routing targets, platform types, and execution provider types.
 - Use multi-select controls for known action sets instead of comma-separated strings.
 - Keep fields as text only when they are genuine free-form values or when the backing taxonomy/API is not defined yet.
 
-Current taxonomy gaps that still need explicit product decisions before becoming dropdowns include runtime profile scope, orchestration profile scope, notification subscriptions, connector trigger labels/events/intents, prompt set references, and channel workspace/scope identifiers.
+Trigger builder controls should use the automation composition registry:
+
+- installed app/source selector from connector and communication-channel records
+- source selector labels the concrete installed connector, communication channel, schedule, dashboard action, MCP action, or system event source
+- event selector from platform event definitions
+- condition fields from platform filter definitions and connector taxonomy cache
+- scenario template selector from automation scenario versions
+- action family selector from action definitions
+- workflow action type conflict-class selector with `triage`, `build`, `merge`, `control_plane`, and `multi_workflow`
+- output destination selector from routing targets, channels, repository providers, MCP response, or parent-product integrations
+
+The trigger builder should expose starter mode by default and advanced action-graph editing only after a scenario template is selected.
+
+Starter mode should be a guided wizard. Advanced mode should be a structured graph form with a sticky source/event/scenario header, not a free-form JSON editor. The UI can expose read-only JSON diagnostics after the form model is stable.
+
+Validation states should be `idle`, `validating`, `passed`, `failed`, and `stale`. Dry-run samples should come from recent captured events, platform-provided samples, or typed synthetic samples built from the event schema.
+
+Known selector sources:
+
+- runtime profile scope comes from registered runtime profiles and execution providers
+- orchestration profile scope comes from orchestration profiles
+- notification subscriptions come from communication channels and routing targets
+- prompt set references come from prompt manifests and review profile versions
+- channel workspace and scope identifiers come from communication channel pairings and connector taxonomy cache
+
+Trigger lifecycle UI should show draft, validated, enabled, degraded, error, and disabled states. Validation should include capability badges, permission warnings, required approval warnings, loop-risk warnings, and a dry-run preview before enablement.

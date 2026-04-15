@@ -1,6 +1,6 @@
 # Workflow Scenarios
 
-Terminology: [terminology.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/terminology.md). A workflow scenario is a named control-plane automation pattern. It is not a new runtime role.
+Terminology: [terminology.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/terminology.md). A workflow scenario is a named control-plane automation pattern. It is not a new runtime role. Broader automation composition is defined in [automation-composition.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/automation-composition.md).
 
 ## Purpose
 
@@ -11,6 +11,8 @@ The platform should not hard-code only one triage flow, one incident flow, or on
 Instead, it should let operators define several reusable scenarios and map connectors and triggers into them.
 
 In practice, that should mean Support Agent gives the runtime instructions, not that customers write arbitrary automation code.
+
+This document covers the workflow-run subset of the broader `AutomationScenario` model. A broader automation scenario may run only control-plane actions and create no `workflow_runs`. A workflow scenario is the subset that creates or coordinates `triage`, `build`, or `merge` workflow runs. In the UI, operators should normally create scenario templates once; templates that include workflow-run actions are workflow-backed scenarios.
 
 ## Examples
 
@@ -25,11 +27,11 @@ Examples of workflow scenarios include:
 
 ## Core Rule
 
-A workflow scenario should define what the platform does after a trigger fires.
+A workflow scenario should define what the platform does after a trigger fires when repository/runtime work is involved.
 
 At minimum, a scenario should describe:
 
-- top-level workflow type
+- workflow action or top-level workflow type when it creates a `workflow_run`
 - trigger source
 - eligibility conditions
 - dependency policy
@@ -42,7 +44,7 @@ At minimum, a scenario should describe:
 - notification behavior
 - distribution behavior
 
-The scenario should compile down to instructions or manifests consumed by the local orchestrator.
+The workflow-backed portion of the scenario should compile down to instructions or manifests consumed by the local orchestrator.
 
 The runtime should not require customer-authored scripts to interpret a scenario. Support Agent should send enough typed instructions for the runtime to execute the scenario as `triage`, `build`, or `merge`.
 
@@ -85,17 +87,24 @@ The control plane must resolve scenario matches deterministically.
 
 Rules:
 
-- deduplication happens before scenario execution using the canonical `dedupeKey`
+- delivery deduplication happens before scenario execution using the canonical `dedupeKey`
+- scenario-start idempotency uses `logicalEventKey`
 - one inbound event may match several scenarios during evaluation
-- for a given workflow type, only one scenario may win unless explicit fan-out is enabled
+- with trigger fan-out disabled, only one scenario may win after precedence and condition evaluation
+- `allow_multiple_workflow_action_types` permits one winner per workflow action type or conflict class
+- `allow_multiple_scenarios` permits more than one winner in the same conflict class
 
 Recommended precedence:
 
-1. repository-mapping scoped scenario binding
-2. connector-scope scenario binding
-3. tenant default scenario binding
+1. repository-mapping scoped trigger policy
+2. connector/source scoped trigger policy
+3. tenant default trigger policy
 
-If two enabled scenarios remain tied at the same precedence level for the same workflow type, the configuration is invalid and the platform must reject it.
+If two enabled trigger policies remain tied at the same precedence level, the configuration is invalid unless explicit trigger fan-out is enabled. Multi-run scenarios should use the `multi_workflow` conflict class unless the product intentionally wants them to conflict as `triage`, `build`, or `merge`.
+
+This precedence describes trigger-policy-to-scenario resolution. `trigger_policies` select `automation_scenario_versions`; legacy scenario binding tables are migration/projection records only. Branch fan-out and delivery fan-out inside a matched scenario are configured separately in the action graph.
+
+Legacy `workflow_scenarios`, `workflow_scenario_bindings`, and `workflow_scenario_steps` may exist only as migration inputs or read-only projections. The API should translate their writes into `automation_scenarios`, `automation_scenario_versions`, and `trigger_policies`, or reject the write once the canonical model is enabled.
 
 ## Admin And MCP
 
@@ -109,8 +118,10 @@ Operators should be able to:
 - create a scenario
 - clone a scenario
 - enable or disable a scenario
-- assign connectors or repository mappings to a scenario
-- choose which trigger policies feed that scenario
+- create scoped trigger policies that target a scenario version
+- preview which trigger policies currently target that scenario
+
+The admin UI should show workflow scenarios as scenario templates first. Operators should only see the underlying workflow-run terms when an action creates a background job.
 
 ## Initial Recommendation
 
@@ -125,3 +136,7 @@ Start with a small set of first-party scenarios:
 Then allow tenants to customize and add more.
 
 The customization model should still be instruction-driven, not code-driven.
+
+`feature-delivery` should be treated as a scenario template or batch orchestration that creates one or more `build` workflow runs. It should not introduce a fourth top-level workflow type.
+
+`inbound-pr-review` should create a `triage` workflow run with `workItemKind=review_target` and an attached review profile. It should not introduce a separate review workflow type.

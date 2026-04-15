@@ -1,6 +1,6 @@
 # Communication Channels
 
-Terminology: [terminology.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/terminology.md). Chat channels can request work, observe work, and receive updates, but `workers` and `gateways` keep their existing execution meanings.
+Terminology: [terminology.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/terminology.md). Chat channels can request work, observe work, and receive updates, but `workers` and `gateways` keep their existing execution meanings. Channel events participate in the shared automation model described in [automation-composition.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/automation-composition.md).
 
 ## Purpose
 
@@ -39,6 +39,8 @@ Some platforms may fit more than one category, but the responsibilities should s
 Some issue connectors may also expose threaded comments and bot mentions. That behavior should be treated as connector capability, not confused with standalone Slack, Teams, or WhatsApp communication channels.
 
 Where connector platforms support webhook delivery for comments or mentions, Support Agent should prefer webhook-based intake over polling.
+
+Every accepted channel command, mention, reply, approval response, or scheduled notification interaction should normalize into an internal `AutomationEvent` before continuation resolution or start-trigger matching. The channel is the source, the message or command is the event subject, and the action policy decides whether the request may start new work, continue existing work, or observe existing work.
 
 ## Supported Conversation Patterns
 
@@ -86,6 +88,10 @@ The product should allow customers or operators to register a WhatsApp conversat
 - one or more repositories or routing scopes
 
 The initial goal is not rich ticket-system behavior inside WhatsApp. The first goal is controlled conversational intake and notification.
+
+WhatsApp pairing must verify the business number or conversation before it can trigger actions. The first supported mechanism should be an admin-initiated pairing code sent through the WhatsApp conversation and confirmed in the admin UI. Re-verification is required when the phone number, business account, tenant binding, or allowed-action scope changes.
+
+High-risk or destructive commands from WhatsApp should create an `approval.request` before execution. Channel confirmation is not a separate approval mechanism; it is an `approval.request` delivered to an eligible channel and resumed through the same `approval_requests`, `approval_request` output, `approval_decision` output, and `continuationRef` contracts. Confirmation through the same WhatsApp conversation is allowed only when tenant policy marks that conversation as eligible for the requested risk level; otherwise the decision must come from an admin UI session or another trusted channel.
 
 ## Group Conversations
 
@@ -150,6 +156,12 @@ Examples:
 
 The AI should operate through the same backend action model as the dashboard and MCP. Chat is another control surface, not a bypass.
 
+Customer-visible replies, destructive actions, secret changes, repository-access changes, and external callback registrations should require approval unless tenant policy explicitly allows automation for that action and channel scope.
+
+Conversation text is untrusted model context. Channel adapters must preserve the separation between Support Agent instructions, policy, and user-provided messages; model outputs must be validated and sanitized before customer-visible delivery.
+
+Channel loop prevention should not trust message text. Adapters set `botGenerated` only when an inbound message matches a Support Agent outbound marker recorded from `action_delivery_attempts`, such as provider message id, delivery attempt id, or signed correlation token. Messages without a trusted marker are treated as user-provided even if their text looks bot-authored.
+
 ## Data Model Implications
 
 Recommended entities:
@@ -172,6 +184,8 @@ Each channel should store:
 - allowed connectors or scopes
 - notification mode
 - last sync or webhook state
+- loop-prevention markers for messages sent by Support Agent
+- supported event keys and effective intake modes
 
 ## Delivery and Notification Model
 

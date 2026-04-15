@@ -11,9 +11,11 @@ At the product boundary, Support Agent is the orchestrator. Customer-owned runti
 The runtime CLI should be the canonical prompt-execution and connection layer for both workers and gateways.
 For admin implementation, each page should be scaffolded with `wf` CLI and verified with a Playwright clickthrough before the next page is started.
 The API must keep the connector platform catalog available from the shared registry at startup so the admin Apps page does not depend on a separate manual seed run.
+The first Apps page is a registry-backed install surface over connector and communication-channel records; it does not require a separate `apps` table.
 
 Reference scenario: [use-cases.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/use-cases.md)
 Reference configurable scenario model: [workflow-scenarios.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/workflow-scenarios.md)
+Reference automation composition model: [automation-composition.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/automation-composition.md)
 Reference core contracts: [contracts.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/contracts.md)
 Reference review process: [review-process.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/review-process.md)
 Reference operator onboarding: [onboarding.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/onboarding.md)
@@ -90,6 +92,8 @@ GitHub and GitHub Issues connectors must also support a local-machine `gh` authe
 - reuse the logged-in GitHub CLI session on the machine that runs the worker and cron loop,
 - default to polling every 5 minutes while allowing the operator to change the interval,
 - load the repository selector from the authenticated `gh` account and org access rather than asking the operator to type repository URLs manually.
+
+The local runtime or gateway owns that polling loop. The API stores the interval and repository scope, receives observed issue events as connector polling `AutomationEvent` payloads, and performs trigger matching centrally.
 
 Those triggers may include:
 
@@ -297,7 +301,7 @@ These events should create a repository-review scenario that can:
 - validate implementation against a linked issue or specification
 - return review findings through the configured outbound or communication channels
 
-That scenario should still compile into the normalized `triage` or `build` contract plus internal review loops rather than introducing a fourth top-level workflow type.
+That scenario should start as a normalized `triage` workflow run with `workItemKind=review_target` and an attached review profile. If the scenario needs build or merge validation, it should create separate `build` or `merge` child runs from the triage result rather than introducing a fourth top-level workflow type.
 
 ## Execution Environment
 
@@ -310,7 +314,7 @@ The environment is expected to include:
 - runtime and build tooling needed for supported targets,
 - logging that can be surfaced through the system and forwarded elsewhere.
 
-Worker execution should be universal. The product should have a gateway that takes queued jobs and dispatches them to configured execution providers as long as they conform to the unified worker contract.
+Worker execution should be universal. The control-plane dispatcher takes queued jobs and assigns them to configured execution providers. A customer-managed gateway may then route assigned work to one or more workers inside the customer's environment, as long as the gateway and workers conform to the unified runtime contract.
 
 For enterprise customers, the default model should be customer-executed workers in the customer's environment so repository access does not need to be granted directly to the hosted Support Agent control plane.
 
