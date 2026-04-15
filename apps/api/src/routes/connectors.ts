@@ -84,6 +84,18 @@ export async function connectorRoutes(app: FastifyInstance) {
     },
   );
 
+  app.get<{ Params: { connectorId: string } }>(
+    '/:connectorId/repository-owners',
+    async (request) => {
+      return {
+        owners: await service.listRepositoryOwners(
+          request.params.connectorId,
+          request.user.tenantId,
+        ),
+      };
+    },
+  );
+
   app.put<{ Params: { connectorId: string } }>('/:connectorId/secrets', async (request) => {
     const body = UpdateConnectorSecretsBody.parse(request.body);
     for (const [secretType, value] of Object.entries(body)) {

@@ -1,10 +1,12 @@
-import type { SyntheticEvent } from 'react'
+import { useState, type SyntheticEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { platformTypesApi } from '@/api/platform-types'
 import { routingApi, type OutboundDestination } from '@/api/routing'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { PageShell } from '@/components/ui/PageShell'
+import { SearchableSelect } from '@/components/ui/SearchableSelect'
 
 function getTextValue(formData: FormData, key: string) {
   const value = formData.get(key)
@@ -15,6 +17,7 @@ export default function DestinationEditPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [platformType, setPlatformType] = useState<string | null>(null)
   const { data, isLoading } = useQuery({
     queryKey: ['outbound-destination', id],
     queryFn: async () => {
@@ -22,6 +25,10 @@ export default function DestinationEditPage() {
       return routingApi.getDestination(id)
     },
     enabled: !!id,
+  })
+  const { data: platformTypes } = useQuery({
+    queryKey: ['platform-types', 'destination-form-options'],
+    queryFn: () => platformTypesApi.list(),
   })
 
   const mutation = useMutation({
@@ -54,6 +61,11 @@ export default function DestinationEditPage() {
   if (!data) {
     return <PageShell title="Edit Destination"><p className="text-sm text-gray-400">Not found</p></PageShell>
   }
+  const platformOptions = (platformTypes ?? []).map((platform) => ({
+    value: platform.key,
+    label: platform.displayName,
+    description: platform.category.replace('-', ' '),
+  }))
 
   return (
     <PageShell title="Edit Destination">
@@ -65,10 +77,16 @@ export default function DestinationEditPage() {
               <label htmlFor="edit-destination-name" className="mb-1.5 block text-xs font-medium text-gray-500">Name</label>
               <input id="edit-destination-name" name="name" required defaultValue={data.name} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" />
             </div>
-            <div>
-              <label htmlFor="edit-destination-platform-type" className="mb-1.5 block text-xs font-medium text-gray-500">Platform Type</label>
-              <input id="edit-destination-platform-type" name="platformType" required defaultValue={data.platformType} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" />
-            </div>
+            <SearchableSelect
+              id="edit-destination-platform-type"
+              label="Platform Type"
+              name="platformType"
+              value={platformType ?? data.platformType}
+              onChange={setPlatformType}
+              options={platformOptions}
+              required
+              placeholder="Search platforms..."
+            />
             <div>
               <label htmlFor="edit-destination-delivery-type" className="mb-1.5 block text-xs font-medium text-gray-500">Delivery Type</label>
               <select id="edit-destination-delivery-type" name="deliveryType" defaultValue={data.deliveryType} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500">

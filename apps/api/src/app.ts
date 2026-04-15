@@ -24,6 +24,8 @@ import { connectorOAuthRoutes } from './routes/connector-oauth.js';
 import { settingsRoutes } from './routes/settings.js';
 import { syncPlatformTypes } from './lib/sync-platform-types.js';
 import { pollingRoutes } from './routes/polling.js';
+import { reviewProfileRoutes } from './routes/review-profiles.js';
+import { workflowScenarioRoutes } from './routes/workflow-scenarios.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
@@ -61,6 +63,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(findingDetailRoutes, { prefix: '/v1/findings' });
   await app.register(outboundDestinationRoutes, { prefix: '/v1/outbound-destinations' });
   await app.register(repositoryMappingRoutes, { prefix: '/v1/repository-mappings' });
+  await app.register(reviewProfileRoutes, { prefix: '/v1/review-profiles' });
+  await app.register(workflowScenarioRoutes, { prefix: '/v1/workflow-scenarios' });
   await app.register(
     async function workerScope(instance) {
       instance.addContentTypeParser(

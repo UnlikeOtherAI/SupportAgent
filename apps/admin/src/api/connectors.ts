@@ -89,6 +89,11 @@ export interface GitHubRepositoryOption {
   url: string
 }
 
+export interface GitHubRepositoryOwnerOption {
+  login: string
+  type: 'organization' | 'user'
+}
+
 interface RawConnectorPlatformType {
   id: string
   key: string
@@ -247,4 +252,6 @@ export const connectorsApi = {
       `/v1/connectors/${id}/repository-options${query ? `?${query}` : ''}`,
     )
   },
+  listRepositoryOwners: (id: string) =>
+    api.get<{ owners: GitHubRepositoryOwnerOption[] }>(`/v1/connectors/${id}/repository-owners`),
 }

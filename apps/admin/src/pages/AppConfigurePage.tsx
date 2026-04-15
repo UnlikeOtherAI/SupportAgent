@@ -8,6 +8,7 @@ import { PageShell } from '@/components/ui/PageShell'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { PlatformIcon } from '@/components/icons/PlatformIcons'
+import { SearchableSelect } from '@/components/ui/SearchableSelect'
 
 const DEFAULT_POLLING_INTERVAL_MINUTES = 5
 const LOCAL_GH_PLATFORM_KEYS = new Set(['github', 'github_issues'])
@@ -145,6 +146,16 @@ export default function AppConfigurePage() {
     enabled: !!connectorId && isLocalGhConnector,
   })
 
+  const {
+    data: repositoryOwners,
+    error: repositoryOwnersError,
+    isLoading: loadingRepositoryOwners,
+  } = useQuery({
+    queryKey: ['connector-repository-owners', connectorId],
+    queryFn: () => connectorsApi.listRepositoryOwners(connectorId ?? ''),
+    enabled: !!connectorId && isLocalGhConnector,
+  })
+
   const currentMapping = repositoryMappingData?.items[0] ?? null
   const currentConfig: Partial<Record<string, string>> = connector?.config ?? {}
   const configValues: Partial<Record<string, string>> = { ...currentConfig, ...configOverrides }
@@ -174,6 +185,24 @@ export default function AppConfigurePage() {
     () => repositoryOptions?.repositories.find((repository) => repository.url === selectedRepositoryUrl) ?? null,
     [repositoryOptions, selectedRepositoryUrl],
   )
+  const discoveredOwnerOptions = (repositoryOwners?.owners ?? []).map((owner) => ({
+    value: owner.login,
+    label: owner.login,
+    description: owner.type,
+  }))
+  const repositoryOwnerOptions = repositoryOwnerValue && !discoveredOwnerOptions.some((option) => option.value === repositoryOwnerValue)
+    ? [{ value: repositoryOwnerValue, label: repositoryOwnerValue, description: 'current value' }, ...discoveredOwnerOptions]
+    : discoveredOwnerOptions
+  const repositorySelectOptions = (repositoryOptions?.repositories ?? []).map((repository) => ({
+    value: repository.url,
+    label: repository.nameWithOwner,
+    description: repository.defaultBranch,
+  }))
+
+  function handleRepositoryOwnerChange(value: string) {
+    setRepositoryOwnerOverride(value)
+    setSelectedRepositoryUrlOverride('')
+  }
 
   const visibleConfigFields = useMemo(() => {
     if (!platform) return []
@@ -343,17 +372,15 @@ export default function AppConfigurePage() {
             />
             <div className="space-y-5 px-5 py-5">
               <div>
-                <label htmlFor="polling-owner" className="mb-1 block text-xs font-medium text-gray-700">
-                  Repository Owner Filter
-                </label>
-                <div className="flex gap-3">
-                  <input
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                  <SearchableSelect
                     id="polling-owner"
-                    type="text"
-                    placeholder="UnlikeOtherAI"
+                    label="Repository Owner Filter"
                     value={repositoryOwnerValue}
-                    onChange={(event) => { setRepositoryOwnerOverride(event.target.value) }}
-                    className="w-full rounded-[var(--radius-sm)] border border-gray-200 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
+                    onChange={handleRepositoryOwnerChange}
+                    options={repositoryOwnerOptions}
+                    allowClear
+                    placeholder={loadingRepositoryOwners ? 'Loading owners...' : 'Search owners...'}
                   />
                   <Button type="button" variant="secondary" onClick={() => { void refetchRepositoryOptions() }}>
                     Refresh Repos
@@ -362,27 +389,21 @@ export default function AppConfigurePage() {
                 <p className="mt-1 text-xs text-gray-400">
                   Leave blank to load repositories from the authenticated account and org memberships.
                 </p>
+                {repositoryOwnersError instanceof Error && (
+                  <p className="mt-1 text-sm text-signal-red-500">{repositoryOwnersError.message}</p>
+                )}
               </div>
 
               <div>
-                <label htmlFor="polling-repository" className="mb-1 block text-xs font-medium text-gray-700">
-                  Repository To Monitor
-                </label>
-                <select
+                <SearchableSelect
                   id="polling-repository"
+                  label="Repository To Monitor"
                   value={selectedRepositoryUrl}
-                  onChange={(event) => { setSelectedRepositoryUrlOverride(event.target.value) }}
-                  className="w-full rounded-[var(--radius-sm)] border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500"
-                >
-                  <option value="">
-                    {loadingRepositoryOptions ? 'Loading repositories…' : 'Select a repository'}
-                  </option>
-                  {(repositoryOptions?.repositories ?? []).map((repository) => (
-                    <option key={repository.url} value={repository.url}>
-                      {repository.nameWithOwner}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedRepositoryUrlOverride}
+                  options={repositorySelectOptions}
+                  placeholder={loadingRepositoryOptions ? 'Loading repositories...' : 'Search repositories...'}
+                  required
+                />
                 {selectedRepository && (
                   <p className="mt-1 text-xs text-gray-400">
                     Default branch: <span className="font-mono">{selectedRepository.defaultBranch}</span>

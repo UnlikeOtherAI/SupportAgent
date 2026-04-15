@@ -1,7 +1,7 @@
 import { type ConnectorRepository } from '../repositories/connector-repository.js';
 import { type PrismaClient } from '@prisma/client';
 import { GitHubConnectorConfigSchema } from '@support-agent/contracts';
-import { ghListAccessibleRepos } from '@support-agent/github-cli';
+import { ghListAccessibleOwners, ghListAccessibleRepos } from '@support-agent/github-cli';
 
 function getConnectorConfig(
   capabilities: unknown,
@@ -22,6 +22,25 @@ export function createConnectorService(repo: ConnectorRepository, prisma: Prisma
       const connector = await repo.getById(id, tenantId);
       if (!connector) throw Object.assign(new Error('Connector not found'), { statusCode: 404 });
       return connector;
+    },
+
+    async getLocalGhConnector(id: string, tenantId: string) {
+      const connector = await this.getConnector(id, tenantId);
+      if (!['github', 'github_issues'].includes(connector.platformType.key)) {
+        throw Object.assign(new Error('Repository discovery is only supported for GitHub connectors'), {
+          statusCode: 400,
+        });
+      }
+
+      const config = getConnectorConfig(connector.capabilities);
+      if (config.auth_mode !== 'local_gh') {
+        throw Object.assign(
+          new Error('Repository discovery requires a connector configured for local gh'),
+          { statusCode: 400 },
+        );
+      }
+
+      return { config };
     },
 
     async createConnector(
@@ -118,22 +137,13 @@ export function createConnectorService(repo: ConnectorRepository, prisma: Prisma
     },
 
     async listRepositoryOptions(id: string, tenantId: string, owner?: string) {
-      const connector = await this.getConnector(id, tenantId);
-      if (!['github', 'github_issues'].includes(connector.platformType.key)) {
-        throw Object.assign(new Error('Repository discovery is only supported for GitHub connectors'), {
-          statusCode: 400,
-        });
-      }
-
-      const config = getConnectorConfig(connector.capabilities);
-      if (config.auth_mode !== 'local_gh') {
-        throw Object.assign(
-          new Error('Repository discovery requires a connector configured for local gh'),
-          { statusCode: 400 },
-        );
-      }
-
+      const { config } = await this.getLocalGhConnector(id, tenantId);
       return ghListAccessibleRepos(owner ?? config.repo_owner);
+    },
+
+    async listRepositoryOwners(id: string, tenantId: string) {
+      await this.getLocalGhConnector(id, tenantId);
+      return ghListAccessibleOwners();
     },
 
     async deleteConnector(id: string, tenantId: string) {

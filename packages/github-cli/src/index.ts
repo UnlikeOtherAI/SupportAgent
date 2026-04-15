@@ -37,6 +37,11 @@ export interface GitHubRepositoryOption {
   url: string;
 }
 
+export interface GitHubRepositoryOwnerOption {
+  login: string;
+  type: 'organization' | 'user';
+}
+
 export interface GitHubIssueComment {
   author: string;
   body: string;
@@ -129,6 +134,21 @@ async function ghListReposForOwner(owner: string): Promise<GitHubRepositoryOptio
   });
 }
 
+async function ghCanListReposForOwner(owner: string): Promise<boolean> {
+  try {
+    await run(
+      `gh repo list ${owner} --limit 1 --source --json nameWithOwner`,
+      undefined,
+      30_000,
+    );
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[github-cli] Skipping inaccessible owner ${owner}: ${message}`);
+    return false;
+  }
+}
+
 export async function ghCheckAuth(): Promise<boolean> {
   try {
     await run('gh auth status');
@@ -145,7 +165,17 @@ export async function ghListAccessibleRepos(owner?: string): Promise<GitHubRepos
 
   const repositoriesByName = new Map<string, GitHubRepositoryOption>();
   for (const currentOwner of owners) {
-    const repositories = await ghListReposForOwner(currentOwner);
+    let repositories: GitHubRepositoryOption[];
+    try {
+      repositories = await ghListReposForOwner(currentOwner);
+    } catch (error) {
+      if (owner) {
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[github-cli] Skipping inaccessible owner ${currentOwner}: ${message}`);
+      continue;
+    }
     for (const repository of repositories) {
       repositoriesByName.set(repository.nameWithOwner, repository);
     }
@@ -154,6 +184,29 @@ export async function ghListAccessibleRepos(owner?: string): Promise<GitHubRepos
   return [...repositoriesByName.values()].sort((left, right) =>
     left.nameWithOwner.localeCompare(right.nameWithOwner),
   );
+}
+
+export async function ghListAccessibleOwners(): Promise<GitHubRepositoryOwnerOption[]> {
+  const viewer = await ghGetViewerLogin();
+  const organizations = await ghGetOrganizations();
+  const owners: GitHubRepositoryOwnerOption[] = [
+    { login: viewer, type: 'user' },
+    ...organizations.map((login): GitHubRepositoryOwnerOption => ({
+      login,
+      type: 'organization',
+    })),
+  ];
+  const accessChecks = await Promise.all(
+    owners.map(async (owner) => ({
+      ...owner,
+      canListRepos: await ghCanListReposForOwner(owner.login),
+    })),
+  );
+
+  return accessChecks
+    .filter((owner) => owner.canListRepos)
+    .map((owner) => ({ login: owner.login, type: owner.type }))
+    .sort((left, right) => left.login.localeCompare(right.login));
 }
 
 export async function ghCloneRepo(

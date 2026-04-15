@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { PageShell } from '@/components/ui/PageShell'
 
+const allowedActionOptions = ['triage', 'summarize', 'request-pr']
+
 function parseCommaSeparatedList(value: string) {
   return value.split(',').map((item) => item.trim()).filter(Boolean)
 }
@@ -17,7 +19,7 @@ export default function ChannelNewPage() {
   const [platform, setPlatform] = useState<CommunicationChannel['platform']>('slack')
   const [linkedWorkspace, setLinkedWorkspace] = useState('')
   const [linkedScope, setLinkedScope] = useState('')
-  const [allowedActions, setAllowedActions] = useState('')
+  const [allowedActions, setAllowedActions] = useState<string[]>([])
   const [notificationSubscriptions, setNotificationSubscriptions] = useState('')
   const mutation = useMutation({
     mutationFn: () => channelsApi.create({
@@ -25,7 +27,7 @@ export default function ChannelNewPage() {
       platform,
       linkedWorkspace: linkedWorkspace.trim() || null,
       linkedScope: linkedScope.trim() || null,
-      allowedActions: parseCommaSeparatedList(allowedActions),
+      allowedActions,
       notificationSubscriptions: parseCommaSeparatedList(notificationSubscriptions),
     }),
     onSuccess: () => {
@@ -33,6 +35,13 @@ export default function ChannelNewPage() {
       void navigate('/channels')
     },
   })
+  function toggleAllowedAction(action: string) {
+    setAllowedActions((current) => (
+      current.includes(action)
+        ? current.filter((item) => item !== action)
+        : [...current, action]
+    ))
+  }
 
   return (
     <PageShell title="New Channel">
@@ -96,16 +105,21 @@ export default function ChannelNewPage() {
               />
             </div>
             <div>
-              <label htmlFor="channel-allowed-actions" className="mb-1.5 block text-xs font-medium text-gray-500">Allowed Actions</label>
-              <input
-                id="channel-allowed-actions"
-                value={allowedActions}
-                onChange={(event) => {
-                  setAllowedActions(event.target.value)
-                }}
-                placeholder="triage, summarize, request-pr"
-                className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
-              />
+              <div className="mb-1.5 block text-xs font-medium text-gray-500">Allowed Actions</div>
+              <div className="flex flex-col gap-2">
+                {allowedActionOptions.map((action) => (
+                  <label key={action} htmlFor={`channel-action-${action}`} className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      id={`channel-action-${action}`}
+                      type="checkbox"
+                      checked={allowedActions.includes(action)}
+                      onChange={() => { toggleAllowedAction(action) }}
+                      className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500"
+                    />
+                    {action}
+                  </label>
+                ))}
+              </div>
             </div>
             <div>
               <label htmlFor="channel-notification-subscriptions" className="mb-1.5 block text-xs font-medium text-gray-500">Notification Subscriptions</label>

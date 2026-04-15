@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { connectorsApi } from '@/api/connectors'
 import { repositoriesApi } from '@/api/repositories'
+import { reviewProfilesApi } from '@/api/review-profiles'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { PageShell } from '@/components/ui/PageShell'
+import { SearchableSelect } from '@/components/ui/SearchableSelect'
 
 function nullableValue(value: string) {
   const trimmed = value.trim()
@@ -31,6 +34,14 @@ export default function RepositoryEditPage() {
       return repositoriesApi.get(rawId)
     },
     enabled: !!rawId,
+  })
+  const { data: connectorsData } = useQuery({
+    queryKey: ['connectors', 'repository-form-options'],
+    queryFn: () => connectorsApi.list({ limit: 100 }),
+  })
+  const { data: reviewProfilesData } = useQuery({
+    queryKey: ['review-profiles', 'repository-form-options'],
+    queryFn: () => reviewProfilesApi.list(),
   })
 
   // Always call useMutation unconditionally — before any conditionals
@@ -62,6 +73,16 @@ export default function RepositoryEditPage() {
       void navigate(`/repositories/${rawId}`)
     },
   })
+  const connectorOptions = (connectorsData?.items ?? []).map((connector) => ({
+    value: connector.id,
+    label: connector.name,
+    description: connector.platformType.displayName,
+  }))
+  const reviewProfileOptions = (reviewProfilesData?.items ?? []).map((profile) => ({
+    value: profile.id,
+    label: profile.name,
+    description: `v${profile.version} - ${profile.allowedWorkflowTypes.join(', ')}`,
+  }))
 
   if (isLoading) {
     return (
@@ -98,16 +119,15 @@ export default function RepositoryEditPage() {
           }}
         >
           <div className="space-y-4 px-5 py-5">
-            <div>
-              <label htmlFor="repo-connector-id" className="mb-1.5 block text-xs font-medium text-gray-500">Connector ID</label>
-              <input
-                id="repo-connector-id"
-                required
-                value={form?.connectorId ?? ''}
-                onChange={(event) => { if (form) setDraft({ ...form, connectorId: event.target.value }); }}
-                className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
-              />
-            </div>
+            <SearchableSelect
+              id="repo-connector-id"
+              label="Connector"
+              value={form?.connectorId ?? ''}
+              onChange={(value) => { if (form) setDraft({ ...form, connectorId: value }); }}
+              options={connectorOptions}
+              required
+              placeholder="Search connectors..."
+            />
             <div>
               <label htmlFor="repo-url" className="mb-1.5 block text-xs font-medium text-gray-500">Repository URL</label>
               <input
@@ -152,15 +172,15 @@ export default function RepositoryEditPage() {
                 />
               </div>
             </div>
-            <div>
-              <label htmlFor="repo-review-profile-id" className="mb-1.5 block text-xs font-medium text-gray-500">Review Profile ID</label>
-              <input
-                id="repo-review-profile-id"
-                value={form?.reviewProfileId ?? ''}
-                onChange={(event) => { if (form) setDraft({ ...form, reviewProfileId: event.target.value }); }}
-                className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
-              />
-            </div>
+            <SearchableSelect
+              id="repo-review-profile-id"
+              label="Review Profile"
+              value={form?.reviewProfileId ?? ''}
+              onChange={(value) => { if (form) setDraft({ ...form, reviewProfileId: value }); }}
+              options={reviewProfileOptions}
+              allowClear
+              placeholder="Search review profiles..."
+            />
             {mutation.isError ? <p className="mt-1 text-xs text-signal-red-500">{errorMessage}</p> : null}
           </div>
           <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-5 py-4">

@@ -144,3 +144,14 @@ Use Zustand only for genuinely cross-page UI coordination such as:
 - global notification center
 
 Do not mirror fetched entities into Zustand.
+
+## Form Controls
+
+Admin forms should not ask operators to type identifiers when the API already has a source of truth for the choices.
+
+- Use native selects for small fixed enums.
+- Use searchable comboboxes for selectable lists with more than five likely values, such as connectors, repositories, review profiles, workflow scenarios, outbound destinations, platform types, and execution provider types.
+- Use multi-select controls for known action sets instead of comma-separated strings.
+- Keep fields as text only when they are genuine free-form values or when the backing taxonomy/API is not defined yet.
+
+Current taxonomy gaps that still need explicit product decisions before becoming dropdowns include runtime profile scope, orchestration profile scope, notification subscriptions, connector trigger labels/events/intents, prompt set references, and channel workspace/scope identifiers.

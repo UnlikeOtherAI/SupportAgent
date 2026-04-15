@@ -1,10 +1,14 @@
 import { useState, type SyntheticEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { connectorsApi } from '@/api/connectors'
+import { reviewProfilesApi } from '@/api/review-profiles'
 import { scenariosApi, type WorkflowScenario } from '@/api/scenarios'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { PageShell } from '@/components/ui/PageShell'
+import { SearchableMultiSelect } from '@/components/ui/SearchableMultiSelect'
+import { SearchableSelect } from '@/components/ui/SearchableSelect'
 
 interface ScenarioFormState {
   displayName: string
@@ -14,7 +18,7 @@ interface ScenarioFormState {
   executionProfileId: string
   orchestrationProfileId: string
   reviewProfileId: string
-  allowedConnectors: string
+  allowedConnectors: string[]
   notificationPolicy: string
   distributionTarget: string
 }
@@ -34,9 +38,17 @@ export default function ScenarioNewPage() {
     executionProfileId: '',
     orchestrationProfileId: '',
     reviewProfileId: '',
-    allowedConnectors: '',
+    allowedConnectors: [],
     notificationPolicy: '',
     distributionTarget: '',
+  })
+  const { data: connectorsData } = useQuery({
+    queryKey: ['connectors', 'scenario-form-options'],
+    queryFn: () => connectorsApi.list({ limit: 100 }),
+  })
+  const { data: reviewProfilesData } = useQuery({
+    queryKey: ['review-profiles', 'scenario-form-options'],
+    queryFn: () => reviewProfilesApi.list(),
   })
   const mutation = useMutation({
     mutationFn: (data: Partial<WorkflowScenario>) => scenariosApi.create(data),
@@ -60,14 +72,21 @@ export default function ScenarioNewPage() {
       executionProfileId: form.executionProfileId.trim() || null,
       orchestrationProfileId: form.orchestrationProfileId.trim() || null,
       reviewProfileId: form.reviewProfileId.trim() || null,
-      allowedConnectors: form.allowedConnectors
-        .split(',')
-        .map((connector) => connector.trim())
-        .filter(Boolean),
+      allowedConnectors: form.allowedConnectors,
       notificationPolicy: form.notificationPolicy.trim() || null,
       distributionTarget: form.distributionTarget.trim() || null,
     })
   }
+  const connectorOptions = (connectorsData?.items ?? []).map((connector) => ({
+    value: connector.id,
+    label: connector.name,
+    description: connector.platformType.displayName,
+  }))
+  const reviewProfileOptions = (reviewProfilesData?.items ?? []).map((profile) => ({
+    value: profile.id,
+    label: profile.name,
+    description: `v${profile.version} - ${profile.allowedWorkflowTypes.join(', ')}`,
+  }))
 
   return (
     <PageShell title="New Scenario">
@@ -116,14 +135,23 @@ export default function ScenarioNewPage() {
               <label htmlFor="scenario-orchestration-profile-id" className={labelClassName}>Orchestration Profile ID</label>
               <input id="scenario-orchestration-profile-id" value={form.orchestrationProfileId} onChange={(event) => { updateField('orchestrationProfileId', event.target.value) }} className={inputClassName} />
             </div>
-            <div>
-              <label htmlFor="scenario-review-profile-id" className={labelClassName}>Review Profile ID</label>
-              <input id="scenario-review-profile-id" value={form.reviewProfileId} onChange={(event) => { updateField('reviewProfileId', event.target.value) }} className={inputClassName} />
-            </div>
-            <div>
-              <label htmlFor="scenario-allowed-connectors" className={labelClassName}>Allowed Connectors</label>
-              <input id="scenario-allowed-connectors" value={form.allowedConnectors} onChange={(event) => { updateField('allowedConnectors', event.target.value) }} className={inputClassName} />
-            </div>
+            <SearchableSelect
+              id="scenario-review-profile-id"
+              label="Review Profile"
+              value={form.reviewProfileId}
+              onChange={(value) => { updateField('reviewProfileId', value) }}
+              options={reviewProfileOptions}
+              allowClear
+              placeholder="Search review profiles..."
+            />
+            <SearchableMultiSelect
+              id="scenario-allowed-connectors"
+              label="Allowed Connectors"
+              values={form.allowedConnectors}
+              onChange={(values) => { updateField('allowedConnectors', values) }}
+              options={connectorOptions}
+              helperText="Leave empty to allow any connector."
+            />
             <div>
               <label htmlFor="scenario-notification-policy" className={labelClassName}>Notification Policy</label>
               <input id="scenario-notification-policy" value={form.notificationPolicy} onChange={(event) => { updateField('notificationPolicy', event.target.value) }} className={inputClassName} />

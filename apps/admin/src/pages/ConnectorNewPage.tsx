@@ -5,6 +5,7 @@ import { connectorsApi } from '@/api/connectors'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { PageShell } from '@/components/ui/PageShell'
+import { SearchableSelect } from '@/components/ui/SearchableSelect'
 
 export default function ConnectorNewPage() {
   const navigate = useNavigate()
@@ -43,6 +44,10 @@ export default function ConnectorNewPage() {
   if (isLoading) {
     return <PageShell title="New Connector"><p className="text-sm text-gray-400">Loading...</p></PageShell>
   }
+  const platformOptions = (platformData?.platformTypes ?? []).map((type) => ({
+    value: type.key,
+    label: type.label,
+  }))
 
   return (
     <PageShell title="New Connector">
@@ -54,15 +59,15 @@ export default function ConnectorNewPage() {
               <label htmlFor="connector-name" className="mb-1.5 block text-xs font-medium text-gray-500">Name</label>
               <input id="connector-name" value={name} onChange={(event) => { setName(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" />
             </div>
-            <div>
-              <label htmlFor="connector-platform-type" className="mb-1.5 block text-xs font-medium text-gray-500">Platform Type</label>
-              <select id="connector-platform-type" value={platformType} onChange={(event) => { setPlatformType(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500">
-                <option value="">Select a platform</option>
-                {(platformData?.platformTypes ?? []).map((type) => (
-                  <option key={type.key} value={type.key}>{type.label}</option>
-                ))}
-              </select>
-            </div>
+            <SearchableSelect
+              id="connector-platform-type"
+              label="Platform Type"
+              value={platformType}
+              onChange={setPlatformType}
+              options={platformOptions}
+              required
+              placeholder="Search platforms..."
+            />
             <div>
               <div className="mb-1.5 block text-xs font-medium text-gray-500">Roles</div>
               <div className="flex flex-col gap-2">

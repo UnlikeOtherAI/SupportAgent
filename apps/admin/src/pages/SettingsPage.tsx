@@ -12,6 +12,9 @@ const navCards = [
   { to: '/settings/users', title: 'Users', description: 'Review access, roles, and user lifecycle actions.' },
   { to: '/settings/audit', title: 'Audit Log', description: 'Inspect tenant-level configuration and access events.' },
 ]
+const hostingModeOptions = ['cloud', 'customer-hosted', 'hybrid']
+const modelAccessModeOptions = ['platform', 'tenant-provider']
+const outputVisibilityPolicyOptions = ['internal', 'full', 'redacted', 'metadata_only']
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
@@ -43,6 +46,15 @@ export default function SettingsPage() {
   if (isLoading) {
     return <PageShell title="Tenant Settings"><p className="text-sm text-gray-400">Loading...</p></PageShell>
   }
+  const hostingOptions = hostingMode && !hostingModeOptions.includes(hostingMode)
+    ? [hostingMode, ...hostingModeOptions]
+    : hostingModeOptions
+  const modelOptions = modelAccessMode && !modelAccessModeOptions.includes(modelAccessMode)
+    ? [modelAccessMode, ...modelAccessModeOptions]
+    : modelAccessModeOptions
+  const outputOptions = outputVisibilityPolicy && !outputVisibilityPolicyOptions.includes(outputVisibilityPolicy)
+    ? [outputVisibilityPolicy, ...outputVisibilityPolicyOptions]
+    : outputVisibilityPolicyOptions
 
   return (
     <PageShell title="Tenant Settings">
@@ -51,9 +63,9 @@ export default function SettingsPage() {
           <div className="space-y-4 px-5 py-5">
             <div><label htmlFor="tenant-org-name" className="mb-1.5 block text-xs font-medium text-gray-500">Org Name</label><input id="tenant-org-name" value={orgName} onChange={(event) => { setOrgName(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
             <div><label htmlFor="tenant-product-mode" className="mb-1.5 block text-xs font-medium text-gray-500">Product Mode</label><select id="tenant-product-mode" value={productMode} onChange={(event) => { setProductMode(event.target.value as 'standalone-saas' | 'standalone-enterprise' | 'integrated'); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"><option value="standalone-saas">standalone-saas</option><option value="standalone-enterprise">standalone-enterprise</option><option value="integrated">integrated</option></select></div>
-            <div><label htmlFor="tenant-hosting-mode" className="mb-1.5 block text-xs font-medium text-gray-500">Hosting Mode</label><input id="tenant-hosting-mode" value={hostingMode} onChange={(event) => { setHostingMode(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
-            <div><label htmlFor="tenant-model-access-mode" className="mb-1.5 block text-xs font-medium text-gray-500">Model Access Mode</label><input id="tenant-model-access-mode" value={modelAccessMode} onChange={(event) => { setModelAccessMode(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
-            <div><label htmlFor="tenant-output-visibility-policy" className="mb-1.5 block text-xs font-medium text-gray-500">Output Visibility Policy</label><input id="tenant-output-visibility-policy" value={outputVisibilityPolicy} onChange={(event) => { setOutputVisibilityPolicy(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
+            <div><label htmlFor="tenant-hosting-mode" className="mb-1.5 block text-xs font-medium text-gray-500">Hosting Mode</label><select id="tenant-hosting-mode" value={hostingMode} onChange={(event) => { setHostingMode(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500">{hostingOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
+            <div><label htmlFor="tenant-model-access-mode" className="mb-1.5 block text-xs font-medium text-gray-500">Model Access Mode</label><select id="tenant-model-access-mode" value={modelAccessMode} onChange={(event) => { setModelAccessMode(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500">{modelOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
+            <div><label htmlFor="tenant-output-visibility-policy" className="mb-1.5 block text-xs font-medium text-gray-500">Output Visibility Policy</label><select id="tenant-output-visibility-policy" value={outputVisibilityPolicy} onChange={(event) => { setOutputVisibilityPolicy(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500">{outputOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
             <label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={onboardingRequired} onChange={(event) => { setOnboardingRequired(event.target.checked); }} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />Onboarding Required</label>
           </div>
           <div className="flex items-center justify-end border-t border-gray-100 px-5 py-4">

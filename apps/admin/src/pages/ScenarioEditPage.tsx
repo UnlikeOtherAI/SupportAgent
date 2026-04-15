@@ -1,10 +1,14 @@
 import { useState, type SyntheticEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { connectorsApi } from '@/api/connectors'
+import { reviewProfilesApi } from '@/api/review-profiles'
 import { scenariosApi, type WorkflowScenario } from '@/api/scenarios'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { PageShell } from '@/components/ui/PageShell'
+import { SearchableMultiSelect } from '@/components/ui/SearchableMultiSelect'
+import { SearchableSelect } from '@/components/ui/SearchableSelect'
 
 interface ScenarioDraftState {
   displayName?: string
@@ -14,7 +18,7 @@ interface ScenarioDraftState {
   executionProfileId?: string
   orchestrationProfileId?: string
   reviewProfileId?: string
-  allowedConnectors?: string
+  allowedConnectors?: string[]
   notificationPolicy?: string
   distributionTarget?: string
 }
@@ -35,6 +39,14 @@ export default function ScenarioEditPage() {
       return scenariosApi.get(id)
     },
     enabled: !!id,
+  })
+  const { data: connectorsData } = useQuery({
+    queryKey: ['connectors', 'scenario-form-options'],
+    queryFn: () => connectorsApi.list({ limit: 100 }),
+  })
+  const { data: reviewProfilesData } = useQuery({
+    queryKey: ['review-profiles', 'scenario-form-options'],
+    queryFn: () => reviewProfilesApi.list(),
   })
   const mutation = useMutation({
     mutationFn: async (payload: Partial<WorkflowScenario>) => {
@@ -76,7 +88,7 @@ export default function ScenarioEditPage() {
     executionProfileId: draft.executionProfileId ?? data.executionProfileId ?? '',
     orchestrationProfileId: draft.orchestrationProfileId ?? data.orchestrationProfileId ?? '',
     reviewProfileId: draft.reviewProfileId ?? data.reviewProfileId ?? '',
-    allowedConnectors: draft.allowedConnectors ?? data.allowedConnectors.join(', '),
+    allowedConnectors: draft.allowedConnectors ?? data.allowedConnectors,
     notificationPolicy: draft.notificationPolicy ?? data.notificationPolicy ?? '',
     distributionTarget: draft.distributionTarget ?? data.distributionTarget ?? '',
   }
@@ -91,14 +103,21 @@ export default function ScenarioEditPage() {
       executionProfileId: values.executionProfileId.trim() || null,
       orchestrationProfileId: values.orchestrationProfileId.trim() || null,
       reviewProfileId: values.reviewProfileId.trim() || null,
-      allowedConnectors: values.allowedConnectors
-        .split(',')
-        .map((connector) => connector.trim())
-        .filter(Boolean),
+      allowedConnectors: values.allowedConnectors,
       notificationPolicy: values.notificationPolicy.trim() || null,
       distributionTarget: values.distributionTarget.trim() || null,
     })
   }
+  const connectorOptions = (connectorsData?.items ?? []).map((connector) => ({
+    value: connector.id,
+    label: connector.name,
+    description: connector.platformType.displayName,
+  }))
+  const reviewProfileOptions = (reviewProfilesData?.items ?? []).map((profile) => ({
+    value: profile.id,
+    label: profile.name,
+    description: `v${profile.version} - ${profile.allowedWorkflowTypes.join(', ')}`,
+  }))
 
   return (
     <PageShell title={`Edit ${data.displayName}`}>
@@ -147,14 +166,23 @@ export default function ScenarioEditPage() {
               <label htmlFor="scenario-orchestration-profile-id" className={labelClassName}>Orchestration Profile ID</label>
               <input id="scenario-orchestration-profile-id" value={values.orchestrationProfileId} onChange={(event) => { updateField('orchestrationProfileId', event.target.value) }} className={inputClassName} />
             </div>
-            <div>
-              <label htmlFor="scenario-review-profile-id" className={labelClassName}>Review Profile ID</label>
-              <input id="scenario-review-profile-id" value={values.reviewProfileId} onChange={(event) => { updateField('reviewProfileId', event.target.value) }} className={inputClassName} />
-            </div>
-            <div>
-              <label htmlFor="scenario-allowed-connectors" className={labelClassName}>Allowed Connectors</label>
-              <input id="scenario-allowed-connectors" value={values.allowedConnectors} onChange={(event) => { updateField('allowedConnectors', event.target.value) }} className={inputClassName} />
-            </div>
+            <SearchableSelect
+              id="scenario-review-profile-id"
+              label="Review Profile"
+              value={values.reviewProfileId}
+              onChange={(value) => { updateField('reviewProfileId', value) }}
+              options={reviewProfileOptions}
+              allowClear
+              placeholder="Search review profiles..."
+            />
+            <SearchableMultiSelect
+              id="scenario-allowed-connectors"
+              label="Allowed Connectors"
+              values={values.allowedConnectors}
+              onChange={(nextValues) => { updateField('allowedConnectors', nextValues) }}
+              options={connectorOptions}
+              helperText="Leave empty to allow any connector."
+            />
             <div>
               <label htmlFor="scenario-notification-policy" className={labelClassName}>Notification Policy</label>
               <input id="scenario-notification-policy" value={values.notificationPolicy} onChange={(event) => { updateField('notificationPolicy', event.target.value) }} className={inputClassName} />

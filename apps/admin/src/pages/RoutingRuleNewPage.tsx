@@ -1,10 +1,13 @@
-import type { SyntheticEvent } from 'react'
+import { useState, type SyntheticEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { connectorsApi } from '@/api/connectors'
 import { routingApi } from '@/api/routing'
+import { scenariosApi } from '@/api/scenarios'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { PageShell } from '@/components/ui/PageShell'
+import { SearchableSelect } from '@/components/ui/SearchableSelect'
 
 function getTextValue(formData: FormData, key: string) {
   const value = formData.get(key)
@@ -14,6 +17,21 @@ function getTextValue(formData: FormData, key: string) {
 export default function RoutingRuleNewPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [connectorCondition, setConnectorCondition] = useState('')
+  const [scenarioCondition, setScenarioCondition] = useState('')
+  const [destinationId, setDestinationId] = useState('')
+  const { data: connectorsData } = useQuery({
+    queryKey: ['connectors', 'routing-rule-form-options'],
+    queryFn: () => connectorsApi.list({ limit: 100 }),
+  })
+  const { data: scenariosData } = useQuery({
+    queryKey: ['scenarios', 'routing-rule-form-options'],
+    queryFn: () => scenariosApi.list(),
+  })
+  const { data: destinationsData } = useQuery({
+    queryKey: ['outbound-destinations', 'routing-rule-form-options'],
+    queryFn: () => routingApi.listDestinations(),
+  })
   const mutation = useMutation({
     mutationFn: routingApi.createRule,
     onSuccess: () => {
@@ -38,6 +56,21 @@ export default function RoutingRuleNewPage() {
       enabled: formData.get('enabled') === 'on',
     })
   }
+  const connectorOptions = (connectorsData?.items ?? []).map((connector) => ({
+    value: connector.id,
+    label: connector.name,
+    description: connector.platformType.displayName,
+  }))
+  const scenarioOptions = (scenariosData?.items ?? []).map((scenario) => ({
+    value: scenario.id,
+    label: scenario.displayName,
+    description: `${scenario.workflowType} - ${scenario.key}`,
+  }))
+  const destinationOptions = (destinationsData?.items ?? []).map((destination) => ({
+    value: destination.id,
+    label: destination.name,
+    description: `${destination.platformType} - ${destination.deliveryType}`,
+  }))
 
   return (
     <PageShell title="New Routing Rule">
@@ -60,18 +93,36 @@ export default function RoutingRuleNewPage() {
                 </select>
               </div>
             </div>
-            <div>
-              <label htmlFor="routing-rule-connector-condition" className="mb-1.5 block text-xs font-medium text-gray-500">Connector Condition</label>
-              <input id="routing-rule-connector-condition" name="connectorCondition" className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" />
-            </div>
-            <div>
-              <label htmlFor="routing-rule-scenario-condition" className="mb-1.5 block text-xs font-medium text-gray-500">Scenario Condition</label>
-              <input id="routing-rule-scenario-condition" name="scenarioCondition" className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" />
-            </div>
-            <div>
-              <label htmlFor="routing-rule-destination-id" className="mb-1.5 block text-xs font-medium text-gray-500">Destination ID</label>
-              <input id="routing-rule-destination-id" name="destinationId" required className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" />
-            </div>
+            <SearchableSelect
+              id="routing-rule-connector-condition"
+              label="Connector Condition"
+              name="connectorCondition"
+              value={connectorCondition}
+              onChange={setConnectorCondition}
+              options={connectorOptions}
+              allowClear
+              placeholder="Any connector"
+            />
+            <SearchableSelect
+              id="routing-rule-scenario-condition"
+              label="Scenario Condition"
+              name="scenarioCondition"
+              value={scenarioCondition}
+              onChange={setScenarioCondition}
+              options={scenarioOptions}
+              allowClear
+              placeholder="Any scenario"
+            />
+            <SearchableSelect
+              id="routing-rule-destination-id"
+              label="Destination"
+              name="destinationId"
+              value={destinationId}
+              onChange={setDestinationId}
+              options={destinationOptions}
+              required
+              placeholder="Search destinations..."
+            />
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input name="enabled" type="checkbox" defaultChecked className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />
               Enabled

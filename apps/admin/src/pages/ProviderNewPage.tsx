@@ -5,12 +5,14 @@ import { providersApi } from '@/api/providers'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { PageShell } from '@/components/ui/PageShell'
+import { SearchableSelect } from '@/components/ui/SearchableSelect'
+import { executionProviderTypeOptions } from '@/lib/execution-provider-types'
 
 export default function ProviderNewPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
-  const [type, setType] = useState('')
+  const [type, setType] = useState('local-host')
   const mutation = useMutation({
     mutationFn: () => providersApi.create({ name, type }),
     onSuccess: () => {
@@ -36,17 +38,15 @@ export default function ProviderNewPage() {
                 className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
               />
             </div>
-            <div>
-              <label htmlFor="provider-type" className="mb-1.5 block text-xs font-medium text-gray-500">Type</label>
-              <input
-                id="provider-type"
-                value={type}
-                onChange={(event) => {
-                  setType(event.target.value)
-                }}
-                className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
-              />
-            </div>
+            <SearchableSelect
+              id="provider-type"
+              label="Type"
+              value={type}
+              onChange={setType}
+              options={executionProviderTypeOptions}
+              placeholder="Search provider types..."
+              required
+            />
           </div>
           <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-5 py-4">
             <Button type="button" variant="ghost" onClick={() => navigate('/providers')}>Cancel</Button>

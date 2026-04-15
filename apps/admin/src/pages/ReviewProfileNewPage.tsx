@@ -6,9 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { PageShell } from '@/components/ui/PageShell'
 
-function parseWorkflowTypes(value: string) {
-  return value.split(',').map((item) => item.trim()).filter(Boolean)
-}
+const workflowTypeOptions = ['triage', 'build', 'merge'] as const
 
 export default function ReviewProfileNewPage() {
   const navigate = useNavigate()
@@ -17,7 +15,7 @@ export default function ReviewProfileNewPage() {
   const [maxRounds, setMaxRounds] = useState(1)
   const [mandatoryHumanApproval, setMandatoryHumanApproval] = useState(false)
   const [continueAfterPassing, setContinueAfterPassing] = useState(false)
-  const [allowedWorkflowTypes, setAllowedWorkflowTypes] = useState('')
+  const [allowedWorkflowTypes, setAllowedWorkflowTypes] = useState<string[]>([])
   const [promptSetRef, setPromptSetRef] = useState('')
   const [active, setActive] = useState(true)
   const mutation = useMutation({
@@ -26,7 +24,7 @@ export default function ReviewProfileNewPage() {
       maxRounds,
       mandatoryHumanApproval,
       continueAfterPassing,
-      allowedWorkflowTypes: parseWorkflowTypes(allowedWorkflowTypes),
+      allowedWorkflowTypes,
       promptSetRef: promptSetRef.trim() || null,
       active,
     }),
@@ -35,6 +33,13 @@ export default function ReviewProfileNewPage() {
       void navigate('/review-profiles')
     },
   })
+  function toggleWorkflowType(workflowType: string) {
+    setAllowedWorkflowTypes((current) => (
+      current.includes(workflowType)
+        ? current.filter((item) => item !== workflowType)
+        : [...current, workflowType]
+    ))
+  }
 
   return (
     <PageShell title="New Review Profile">
@@ -46,7 +51,23 @@ export default function ReviewProfileNewPage() {
           <div className="space-y-4 px-5 py-5">
             <div><label htmlFor="review-profile-name" className="mb-1.5 block text-xs font-medium text-gray-500">Name</label><input id="review-profile-name" value={name} onChange={(event) => { setName(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
             <div><label htmlFor="review-profile-max-rounds" className="mb-1.5 block text-xs font-medium text-gray-500">Max Rounds</label><input id="review-profile-max-rounds" type="number" min="1" value={maxRounds} onChange={(event) => { setMaxRounds(Number(event.target.value) || 1); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
-            <div><label htmlFor="review-profile-workflow-types" className="mb-1.5 block text-xs font-medium text-gray-500">Allowed Workflow Types</label><input id="review-profile-workflow-types" value={allowedWorkflowTypes} onChange={(event) => { setAllowedWorkflowTypes(event.target.value); }} placeholder="triage, build, merge" className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
+            <div>
+              <div className="mb-1.5 block text-xs font-medium text-gray-500">Allowed Workflow Types</div>
+              <div className="flex flex-col gap-2">
+                {workflowTypeOptions.map((workflowType) => (
+                  <label key={workflowType} htmlFor={`review-profile-workflow-${workflowType}`} className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      id={`review-profile-workflow-${workflowType}`}
+                      type="checkbox"
+                      checked={allowedWorkflowTypes.includes(workflowType)}
+                      onChange={() => { toggleWorkflowType(workflowType) }}
+                      className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500"
+                    />
+                    {workflowType}
+                  </label>
+                ))}
+              </div>
+            </div>
             <div><label htmlFor="review-profile-prompt-set-ref" className="mb-1.5 block text-xs font-medium text-gray-500">Prompt Set Ref</label><input id="review-profile-prompt-set-ref" value={promptSetRef} onChange={(event) => { setPromptSetRef(event.target.value); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
             <label htmlFor="review-profile-mandatory-human-approval" className="flex items-center gap-2 text-sm text-gray-700"><input id="review-profile-mandatory-human-approval" type="checkbox" checked={mandatoryHumanApproval} onChange={(event) => { setMandatoryHumanApproval(event.target.checked); }} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />Mandatory Human Approval</label>
             <label htmlFor="review-profile-continue-after-passing" className="flex items-center gap-2 text-sm text-gray-700"><input id="review-profile-continue-after-passing" type="checkbox" checked={continueAfterPassing} onChange={(event) => { setContinueAfterPassing(event.target.checked); }} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />Continue After Passing</label>

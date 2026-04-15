@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { PageShell } from '@/components/ui/PageShell'
 
+const allowedActionOptions = ['triage', 'summarize', 'request-pr']
+
 function parseCommaSeparatedList(value: string) {
   return value.split(',').map((item) => item.trim()).filter(Boolean)
 }
@@ -15,7 +17,7 @@ interface ChannelFormState {
   platform: CommunicationChannel['platform']
   linkedWorkspace: string
   linkedScope: string
-  allowedActions: string
+  allowedActions: string[]
   notificationSubscriptions: string
 }
 
@@ -25,7 +27,7 @@ function createFormState(channel: CommunicationChannel): ChannelFormState {
     platform: channel.platform,
     linkedWorkspace: channel.linkedWorkspace ?? '',
     linkedScope: channel.linkedScope ?? '',
-    allowedActions: channel.allowedActions.join(', '),
+    allowedActions: channel.allowedActions,
     notificationSubscriptions: channel.notificationSubscriptions.join(', '),
   }
 }
@@ -54,7 +56,7 @@ export default function ChannelEditPage() {
         platform: form.platform,
         linkedWorkspace: form.linkedWorkspace.trim() || null,
         linkedScope: form.linkedScope.trim() || null,
-        allowedActions: parseCommaSeparatedList(form.allowedActions),
+        allowedActions: form.allowedActions,
         notificationSubscriptions: parseCommaSeparatedList(form.notificationSubscriptions),
       })
     },
@@ -82,6 +84,14 @@ export default function ChannelEditPage() {
   }
 
   const form = draft ?? createFormState(data)
+  function toggleAllowedAction(action: string) {
+    setDraft({
+      ...form,
+      allowedActions: form.allowedActions.includes(action)
+        ? form.allowedActions.filter((item) => item !== action)
+        : [...form.allowedActions, action],
+    })
+  }
 
   return (
     <PageShell title="Edit Channel">
@@ -145,15 +155,21 @@ export default function ChannelEditPage() {
               />
             </div>
             <div>
-              <label htmlFor="channel-allowed-actions" className="mb-1.5 block text-xs font-medium text-gray-500">Allowed Actions</label>
-              <input
-                id="channel-allowed-actions"
-                value={form.allowedActions}
-                onChange={(event) => {
-                  setDraft({ ...form, allowedActions: event.target.value })
-                }}
-                className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500"
-              />
+              <div className="mb-1.5 block text-xs font-medium text-gray-500">Allowed Actions</div>
+              <div className="flex flex-col gap-2">
+                {allowedActionOptions.map((action) => (
+                  <label key={action} htmlFor={`channel-action-${action}`} className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      id={`channel-action-${action}`}
+                      type="checkbox"
+                      checked={form.allowedActions.includes(action)}
+                      onChange={() => { toggleAllowedAction(action) }}
+                      className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500"
+                    />
+                    {action}
+                  </label>
+                ))}
+              </div>
             </div>
             <div>
               <label htmlFor="channel-notification-subscriptions" className="mb-1.5 block text-xs font-medium text-gray-500">Notification Subscriptions</label>

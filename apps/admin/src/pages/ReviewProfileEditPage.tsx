@@ -6,13 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { PageShell } from '@/components/ui/PageShell'
 
-function serializeWorkflowTypes(value: string[]) {
-  return value.join(', ')
-}
-
-function parseWorkflowTypes(value: string) {
-  return value.split(',').map((item) => item.trim()).filter(Boolean)
-}
+const workflowTypeOptions = ['triage', 'build', 'merge'] as const
 
 export default function ReviewProfileEditPage() {
   const { id: rawId } = useParams<{ id: string }>()
@@ -31,7 +25,7 @@ export default function ReviewProfileEditPage() {
     maxRounds: number
     mandatoryHumanApproval: boolean
     continueAfterPassing: boolean
-    allowedWorkflowTypes: string
+    allowedWorkflowTypes: string[]
     promptSetRef: string
     active: boolean
   } | null>(null)
@@ -43,7 +37,7 @@ export default function ReviewProfileEditPage() {
     maxRounds: data.maxRounds,
     mandatoryHumanApproval: data.mandatoryHumanApproval,
     continueAfterPassing: data.continueAfterPassing,
-    allowedWorkflowTypes: serializeWorkflowTypes(data.allowedWorkflowTypes),
+    allowedWorkflowTypes: data.allowedWorkflowTypes,
     promptSetRef: data.promptSetRef ?? '',
     active: data.active,
   } : null)
@@ -56,7 +50,7 @@ export default function ReviewProfileEditPage() {
         maxRounds: form.maxRounds,
         mandatoryHumanApproval: form.mandatoryHumanApproval,
         continueAfterPassing: form.continueAfterPassing,
-        allowedWorkflowTypes: parseWorkflowTypes(form.allowedWorkflowTypes),
+        allowedWorkflowTypes: form.allowedWorkflowTypes,
         promptSetRef: form.promptSetRef.trim() || null,
         active: form.active,
       })
@@ -75,6 +69,15 @@ export default function ReviewProfileEditPage() {
   if (!data) {
     return <PageShell title="Edit Review Profile"><p className="text-sm text-gray-400">Not found</p></PageShell>
   }
+  function toggleWorkflowType(workflowType: string) {
+    if (!form) return
+    setDraft({
+      ...form,
+      allowedWorkflowTypes: form.allowedWorkflowTypes.includes(workflowType)
+        ? form.allowedWorkflowTypes.filter((item) => item !== workflowType)
+        : [...form.allowedWorkflowTypes, workflowType],
+    })
+  }
 
   return (
     <PageShell title={`Edit ${data.name}`}>
@@ -86,7 +89,23 @@ export default function ReviewProfileEditPage() {
           <div className="space-y-4 px-5 py-5">
             <div><label htmlFor="review-profile-name" className="mb-1.5 block text-xs font-medium text-gray-500">Name</label><input id="review-profile-name" value={form?.name ?? ''} onChange={(event) => { if (form) setDraft({ ...form, name: event.target.value }); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
             <div><label htmlFor="review-profile-max-rounds" className="mb-1.5 block text-xs font-medium text-gray-500">Max Rounds</label><input id="review-profile-max-rounds" type="number" min="1" value={form?.maxRounds ?? 1} onChange={(event) => { if (form) setDraft({ ...form, maxRounds: Number(event.target.value) || 1 }); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
-            <div><label htmlFor="review-profile-workflow-types" className="mb-1.5 block text-xs font-medium text-gray-500">Allowed Workflow Types</label><input id="review-profile-workflow-types" value={form?.allowedWorkflowTypes ?? ''} onChange={(event) => { if (form) setDraft({ ...form, allowedWorkflowTypes: event.target.value }); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
+            <div>
+              <div className="mb-1.5 block text-xs font-medium text-gray-500">Allowed Workflow Types</div>
+              <div className="flex flex-col gap-2">
+                {workflowTypeOptions.map((workflowType) => (
+                  <label key={workflowType} htmlFor={`review-profile-workflow-${workflowType}`} className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      id={`review-profile-workflow-${workflowType}`}
+                      type="checkbox"
+                      checked={form?.allowedWorkflowTypes.includes(workflowType) ?? false}
+                      onChange={() => { toggleWorkflowType(workflowType) }}
+                      className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500"
+                    />
+                    {workflowType}
+                  </label>
+                ))}
+              </div>
+            </div>
             <div><label htmlFor="review-profile-prompt-set-ref" className="mb-1.5 block text-xs font-medium text-gray-500">Prompt Set Ref</label><input id="review-profile-prompt-set-ref" value={form?.promptSetRef ?? ''} onChange={(event) => { if (form) setDraft({ ...form, promptSetRef: event.target.value }); }} className="w-full rounded-[var(--radius-sm)] border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none transition-colors focus:border-accent-500 focus:ring-1 focus:ring-accent-500" /></div>
             <label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={form?.mandatoryHumanApproval ?? false} onChange={(event) => { if (form) setDraft({ ...form, mandatoryHumanApproval: event.target.checked }); }} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />Mandatory Human Approval</label>
             <label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={form?.continueAfterPassing ?? false} onChange={(event) => { if (form) setDraft({ ...form, continueAfterPassing: event.target.checked }); }} className="h-4 w-4 rounded border-gray-300 text-accent-500 focus:ring-accent-500" />Continue After Passing</label>
