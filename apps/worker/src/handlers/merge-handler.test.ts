@@ -12,9 +12,11 @@ import {
 } from '../lib/gh-cli.js';
 
 let reviewOutput = '';
+let executedReviewPrompt = '';
 
 vi.mock('node:child_process', () => ({
   exec: vi.fn((...args: any[]) => {
+    executedReviewPrompt = args[0] as string;
     const callback = args[args.length - 1] as (err: null, result: { stdout: string }) => void;
     callback(null, { stdout: reviewOutput });
   }),
@@ -32,6 +34,7 @@ vi.mock('../lib/gh-cli.js', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  executedReviewPrompt = '';
 });
 
 function makeJob(): WorkerJob {
@@ -158,5 +161,42 @@ describe('handleMergeJob', () => {
       status: 'succeeded',
       summary: expect.stringContaining('Review approved'),
     });
+  });
+
+  it('instructs the reviewer to avoid speculative request-changes decisions', async () => {
+    reviewOutput = JSON.stringify({
+      decision: 'comment',
+      summary: 'Looks fine overall',
+      concerns: [],
+      praise: [],
+    });
+
+    vi.mocked(ghCheckAuth).mockResolvedValue(true);
+    vi.mocked(ghGetPR).mockResolvedValue({
+      number: 32,
+      title: 'Add local gh polling',
+      body: 'Test PR',
+      base: 'main',
+      head: 'feature',
+      mergeable: true,
+      merged: false,
+      mergedAt: null,
+      state: 'open',
+      url: 'https://github.com/rafiki270/max-test/pull/32',
+    });
+    vi.mocked(ghGetPRDiff).mockResolvedValue('diff --git a/file b/file');
+    vi.mocked(ghGetPRFiles).mockResolvedValue(['apps/worker/src/handlers/merge-handler.ts']);
+    vi.mocked(ghAddPRComment).mockResolvedValue(undefined);
+    vi.mocked(ghMergePR).mockResolvedValue(undefined);
+
+    const { api } = makeApi();
+    const job = makeJob();
+
+    await expect(handleMergeJob(job, api)).resolves.toBeUndefined();
+
+    expect(executedReviewPrompt).toContain('Only raise a concern when it is directly supported');
+    expect(executedReviewPrompt).toContain('Do not speculate about missing lint or formatting problems');
+    expect(executedReviewPrompt).toContain('Prefer');
+    expect(executedReviewPrompt).toContain('request_changes');
   });
 });

@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
 const SUMMARY_MAX_CHARS = 2_000;
@@ -15,31 +15,50 @@ export interface CodexResult {
 export function codexExec(prompt: string, cwd?: string): Promise<CodexResult> {
   return new Promise((resolve) => {
     const start = Date.now();
+    let stdout = '';
+    let stderr = '';
+    let finished = false;
 
-    execFile(
-      'timeout',
-      ['1800', 'codex', 'exec', prompt],
-      {
-        shell: false,
-        cwd: cwd ?? process.cwd(),
-        maxBuffer: MAX_OUTPUT_BYTES,
-      },
-      (error, stdout, stderr) => {
-        const exitCode = error && typeof error.code === 'number' ? error.code : error ? null : 0;
-        const timedOut = Boolean(
-          error && (error.code === 124 || error.signal === 'SIGTERM' || error.signal === 'SIGKILL'),
-        );
+    const child = spawn('timeout', ['1800', 'codex', 'exec', prompt], {
+      cwd: cwd ?? process.cwd(),
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
 
-        resolve({
-          stdout: stdout ?? '',
-          stderr: stderr ?? '',
-          exitCode,
-          timedOut,
-          durationMs: Date.now() - start,
-          ok: !error,
-        });
-      },
-    );
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => {
+      stdout = appendChunk(stdout, chunk);
+    });
+
+    child.stderr?.setEncoding('utf8');
+    child.stderr?.on('data', (chunk: string) => {
+      stderr = appendChunk(stderr, chunk);
+    });
+
+    child.on('error', () => {
+      finish(null, null);
+    });
+
+    child.on('close', (code, signal) => {
+      finish(code, signal);
+    });
+
+    function finish(code: number | null, signal: NodeJS.Signals | null) {
+      if (finished) {
+        return;
+      }
+      finished = true;
+
+      const timedOut = code === 124 || signal === 'SIGTERM' || signal === 'SIGKILL';
+      resolve({
+        stdout,
+        stderr,
+        exitCode: code,
+        timedOut,
+        durationMs: Date.now() - start,
+        ok: code === 0 && signal === null,
+      });
+    }
   });
 }
 
@@ -52,11 +71,9 @@ export function summarizeResult(result: CodexResult): string {
 
   const outputSummary = summarizeOutput(result.stdout, result.stderr);
 
-  return [
-    `status=${status}`,
-    `duration=${Math.round(result.durationMs / 1000)}s`,
-    outputSummary,
-  ].join(' | ');
+  return [`status=${status}`, `duration=${Math.round(result.durationMs / 1000)}s`, outputSummary].join(
+    ' | ',
+  );
 }
 
 function summarizeOutput(stdout: string, stderr: string): string {
@@ -72,7 +89,7 @@ function summarizeOutput(stdout: string, stderr: string): string {
 
   const lastLines = fallback
     .split('\n')
-    .map(line => line.trim())
+    .map((line) => line.trim())
     .filter(Boolean)
     .slice(-12)
     .join('\n');
@@ -103,4 +120,28 @@ function truncate(value: string): string {
   }
 
   return `${value.slice(0, SUMMARY_MAX_CHARS)} ... [${value.length - SUMMARY_MAX_CHARS} chars truncated]`;
+}
+
+function appendChunk(current: string, chunk: string): string {
+  if (!chunk) {
+    return current;
+  }
+
+  const currentBytes = Buffer.byteLength(current, 'utf8');
+  if (currentBytes >= MAX_OUTPUT_BYTES) {
+    return current;
+  }
+
+  const remainingBytes = MAX_OUTPUT_BYTES - currentBytes;
+  const chunkBytes = Buffer.byteLength(chunk, 'utf8');
+  if (chunkBytes <= remainingBytes) {
+    return current + chunk;
+  }
+
+  let end = chunk.length;
+  while (end > 0 && Buffer.byteLength(chunk.slice(0, end), 'utf8') > remainingBytes) {
+    end -= 1;
+  }
+
+  return current + chunk.slice(0, end);
 }

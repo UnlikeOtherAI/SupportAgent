@@ -1,39 +1,48 @@
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { codexExec, summarizeResult } from './codex-exec.js';
 
-const { execFileMock } = vi.hoisted(() => ({
-  execFileMock: vi.fn(),
+class MockChildProcess extends EventEmitter {
+  stdout = new PassThrough();
+  stderr = new PassThrough();
+}
+
+const { spawnMock } = vi.hoisted(() => ({
+  spawnMock: vi.fn(),
 }));
 
 vi.mock('node:child_process', () => ({
-  execFile: execFileMock,
+  spawn: spawnMock,
 }));
 
 beforeEach(() => {
-  execFileMock.mockReset();
+  spawnMock.mockReset();
 });
 
 describe('codexExec', () => {
-  it('runs timeout 1800 codex exec in the target working directory', async () => {
-    execFileMock.mockImplementation((_command, _args, _options, callback) => {
-      callback(
-        null,
-        '## Changes Made\n- Updated src/app.ts\n\n## Verification\n- pnpm test\n- passed',
-        '',
-      );
+  it('runs timeout 1800 codex exec with stdin ignored in the target working directory', async () => {
+    spawnMock.mockImplementation((_command, _args, _options) => {
+      const child = new MockChildProcess();
+      queueMicrotask(() => {
+        child.stdout.write('## Changes Made\n- Updated src/app.ts\n\n## Verification\n- pnpm test\n- passed');
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 0, null);
+      });
+      return child;
     });
 
     const result = await codexExec('Implement the requested change', '/tmp/repo');
 
-    expect(execFileMock).toHaveBeenCalledWith(
+    expect(spawnMock).toHaveBeenCalledWith(
       'timeout',
       ['1800', 'codex', 'exec', 'Implement the requested change'],
       expect.objectContaining({
         cwd: '/tmp/repo',
         shell: false,
-        maxBuffer: 10 * 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'pipe'],
       }),
-      expect.any(Function),
     );
     expect(result).toMatchObject({
       ok: true,
@@ -47,12 +56,16 @@ describe('codexExec', () => {
   });
 
   it('captures unsuccessful executions without throwing', async () => {
-    execFileMock.mockImplementation((_command, _args, _options, callback) => {
-      callback(
-        Object.assign(new Error('Command failed'), { code: 124, signal: 'SIGTERM' }),
-        'partial stdout',
-        'partial stderr',
-      );
+    spawnMock.mockImplementation((_command, _args, _options) => {
+      const child = new MockChildProcess();
+      queueMicrotask(() => {
+        child.stdout.write('partial stdout');
+        child.stderr.write('partial stderr');
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 124, 'SIGTERM');
+      });
+      return child;
     });
 
     const result = await codexExec('Implement the requested change', '/tmp/repo');

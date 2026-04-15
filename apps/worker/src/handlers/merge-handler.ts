@@ -66,6 +66,11 @@ Review Checklist:
 4. **Tests** — Are tests adequate? Do they test the right things?
 5. **Breaking Changes** — Any API or behavior changes that could break existing consumers?
 
+Review Rules:
+- Only raise a concern when it is directly supported by the diff, PR description, or clearly implied behavior.
+- Do not speculate about missing lint or formatting problems unless the diff explicitly shows them.
+- Prefer "comment" over "request_changes" when you are uncertain or the concern is minor.
+
 Respond with your review in this JSON format:
 {
   "decision": "approve" | "request_changes" | "comment",
