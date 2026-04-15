@@ -289,14 +289,19 @@ ${review.concerns.map(c => `- ${c}`).join('\n')}\n` : ''}
     }
   } else {
     await api.postLog(jobId, 'stdout', `[merge] PR #${prNumber} not merged — ${review.decision}`);
-    await api.postProgress(jobId, 'merge', 'Not auto-merged (review passed but human review requested)');
+    await api.postProgress(jobId, 'merge', 'Not auto-merged (human follow-up required)');
   }
+
+  const finalStatus = review.decision === 'approve' ? 'succeeded' : 'failed';
+  const finalSummary = review.decision === 'approve'
+    ? `Review approved: ${review.summary}`
+    : `Human follow-up required (${review.decision}): ${review.summary}`;
 
   await api.submitReport(jobId, {
     workflowRunId,
     workflowType: 'merge',
-    status: review.decision === 'approve' ? 'succeeded' : 'succeeded',
-    summary: `Review ${review.decision}: ${review.summary}`,
+    status: finalStatus,
+    summary: finalSummary,
     stageResults: [
       { stage: 'context_fetch', status: 'passed' },
       { stage: 'review', status: 'passed' },
