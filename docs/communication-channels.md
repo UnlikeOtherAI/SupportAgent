@@ -21,6 +21,21 @@ Initial examples:
 - Microsoft Teams
 - business WhatsApp
 
+## Admin Placement
+
+Communication channels are configured under the admin `Configuration` area, not as a standalone top-level navigation category.
+
+The configuration surface owns:
+
+- channel installation and auth health
+- external workspace, channel, chat, or number pairing
+- tenant, team, connector, repository, and routing-scope bindings
+- allowed actions and approval policy
+- notification subscriptions
+- test notifications and delivery diagnostics
+
+Conversation history is operational evidence. It should appear from run detail, channel detail, delivery attempts, or audit records when useful, but it should not create a separate `Communication` product pillar.
+
 ## Core Distinction
 
 Chat channels are not the same thing as execution runtimes and they are not necessarily the same thing as issue-system connectors.

@@ -12,6 +12,7 @@ The runtime CLI should be the canonical prompt-execution and connection layer fo
 For admin implementation, each page should be scaffolded with `wf` CLI and verified with a Playwright clickthrough before the next page is started.
 The API must keep the connector platform catalog available from the shared registry at startup so the admin Apps page does not depend on a separate manual seed run.
 The first Apps page is a registry-backed install surface over connector and communication-channel records; it does not require a separate `apps` table.
+Communication-channel setup belongs under the admin Configuration area with connectors, repositories, and routing targets. Runtime conversation history should be shown as run, channel, delivery, or audit context rather than as a separate top-level Communication section.
 
 Reference scenario: [use-cases.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/use-cases.md)
 Reference configurable scenario model: [workflow-scenarios.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/workflow-scenarios.md)
@@ -343,7 +344,7 @@ The product needs:
 The admin panel should manage the operational side of the system, including:
 
 - connector configuration,
-- communication channel configuration,
+- communication channel configuration under the same Configuration area as connectors and routing,
 - source-to-repository mapping,
 - inbound and outbound connector role selection,
 - trigger policy configuration for triage, build, and merge work,
@@ -367,7 +368,7 @@ It should also expose connector-level taxonomy and capability settings such as:
 - polling configuration,
 - account capability test results.
 
-It should also expose communication-channel settings such as:
+The Configuration area should also expose communication-channel settings such as:
 
 - Slack or Teams channel pairing,
 - WhatsApp conversation pairing,

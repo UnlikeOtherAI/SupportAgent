@@ -18,26 +18,24 @@ Reference automation composition model: [automation-composition.md](/System/Volu
 1. `Workflow Runs`
 2. `Run Detail`
 3. `Apps`
-4. `Connectors`
-5. `Repository Mappings`
-6. `Trigger Policies`
-7. `Workflow Scenarios`
-8. `Scenario Executions`
-9. `Communication Channels`
-10. `Routing Targets`
-11. `Runtime Fleet`
-12. `Settings and API Keys`
+4. `Configuration`
+5. `Connectors`
+6. `Repository Mappings`
+7. `Communication Channel Configuration`
+8. `Routing Targets`
+9. `Trigger Policies`
+10. `Workflow Scenarios`
+11. `Scenario Executions`
+12. `Runtime Fleet`
+13. `Settings and API Keys`
 
 ## Primary Navigation
 
 - `Overview`
 - `Workflow Runs`
 - `Apps`
-- `Connectors`
-- `Repositories`
-- `Routing Targets`
+- `Configuration`
 - `Automation`
-- `Communication`
 - `Runtimes`
 - `Settings`
 
@@ -49,12 +47,15 @@ Reference automation composition model: [automation-composition.md](/System/Volu
 - `/runs/:workflowRunId`
 - `/apps`
 - `/apps/:platformType`
-- `/connectors`
-- `/connectors/:connectorId`
-- `/repositories`
-- `/repositories/:repositoryMappingId`
-- `/routing-targets`
-- `/routing-targets/:routingTargetId`
+- `/configuration/connectors`
+- `/configuration/connectors/:connectorId`
+- `/configuration/repositories`
+- `/configuration/repositories/:repositoryMappingId`
+- `/configuration/channels`
+- `/configuration/channels/:communicationChannelId`
+- `/configuration/channels/:communicationChannelId/conversations/:conversationId`
+- `/configuration/routing-targets`
+- `/configuration/routing-targets/:routingTargetId`
 - `/automation/triggers`
 - `/automation/scenarios`
 - `/automation/scenarios/:scenarioId`
@@ -63,8 +64,6 @@ Reference automation composition model: [automation-composition.md](/System/Volu
 - `/automation/review-profiles`
 - `/automation/execution-profiles`
 - `/automation/orchestration-profiles`
-- `/communication`
-- `/communication/conversations/:conversationId`
 - `/runtimes`
 - `/runtimes/:runtimeId`
 - `/settings/api-keys`
@@ -90,19 +89,30 @@ Reference automation composition model: [automation-composition.md](/System/Volu
 - lets operators install or configure apps that create connector instances, communication channels, or both
 - is an install surface, not a separate runtime entity unless install state later needs its own table
 
-`/connectors`
+`/configuration/*`
+
+- manages installed connectors, repository mappings, communication channels, routing targets, and configuration health
+- keeps setup, pairing, policy, subscriptions, and destination records in one configuration area instead of splitting channels into a separate product pillar
+
+`/configuration/connectors`
 
 - lists connector instances with direction, intake mode, and capability health
 
-`/connectors/:connectorId`
+`/configuration/connectors/:connectorId`
 
 - shows capability discovery, webhook or polling status, taxonomy state, trigger support, comment handling, and image-processing settings
 
-`/repositories`
+`/configuration/repositories`
 
 - shows source-to-repository mappings, execution defaults, dependency policy, and notification bindings
 
-`/routing-targets/*`
+`/configuration/channels/*`
+
+- manages Slack, Teams, WhatsApp, and similar communication-channel setup
+- shows channel health, pairing state, allowed actions, notification subscriptions, linked scopes, recent delivery attempts, and action audit trail
+- exposes conversation history only as diagnostics attached to a channel, run, or audit record, not as a standalone top-level navigation category
+
+`/configuration/routing-targets/*`
 
 - manages canonical routing targets, outbound capability health, and routing visibility
 - exposes per-destination details such as delivery type, auth health, routing usage, and recent delivery attempts
@@ -111,10 +121,6 @@ Reference automation composition model: [automation-composition.md](/System/Volu
 
 - manages trigger policies, scenario templates, scenario executions, review profiles, and execution profiles
 - shows pure control-plane scenario executions even when no `workflow_run` exists
-
-`/communication/*`
-
-- shows channel health, pairing state, linked runs, and action audit trail
 
 `/runtimes/*`
 

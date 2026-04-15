@@ -197,7 +197,7 @@ The admin app must provide:
 - build workflow controls
 - merge workflow controls
 - build review status
-- channel notifications and conversation pairing controls
+- channel notification and conversation pairing controls inside Configuration
 - repository review run visibility
 - per-connector trigger configuration for triage, build, and merge starts
 - workflow scenario management
@@ -427,7 +427,7 @@ Connector configuration should also track:
 
 Automation composition configuration should also track:
 
-- app catalog install records as registry-backed UI state that creates connector instances or communication channels
+- app catalog install records as registry-backed UI state that creates connector instances or communication channels under Configuration
 - platform event definitions and filterable fields
 - action definitions and risk levels
 - output type definitions and visibility policy

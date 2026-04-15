@@ -71,6 +71,7 @@ Every accepted incoming signal must normalize into an internal `AutomationEvent`
 Repository context is required only for actions whose definitions declare `requiresRepositoryContext=true`.
 
 Channels can trigger actions and receive outputs, but they must use the same permission, approval, rate-limit, and audit model as the dashboard and MCP.
+Channel installation, pairing, policy, subscriptions, and delivery diagnostics are configuration concerns. The admin UI should expose them under Configuration with connectors, repository mappings, and routing targets rather than as a standalone communication pillar.
 
 ## Concept Model
 
