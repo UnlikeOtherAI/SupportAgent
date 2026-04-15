@@ -25,7 +25,7 @@ Without these, different engineers will invent different payloads and state mode
 
 ## Canonical Automation Event
 
-Every accepted external, scheduled, chat, dashboard, MCP, or system signal should normalize into an `AutomationEvent` before start-trigger matching. Continuation resolution is optional and applies only when the event carries an explicit `continuationRef` or trusted signed correlation token for a pending gate.
+Every accepted external, scheduled, chat, dashboard, MCP, or system signal should normalize into an `AutomationEvent` before start-trigger matching. Continuation resolution is optional and applies only when the event carries an explicit `continuationRef` or trusted signed correlation token for a pending non-job gate.
 
 Required fields:
 
@@ -71,7 +71,7 @@ Conditional fields:
 - `communicationChannelId` when `sourceKind=communication_channel`
 - `scheduleId` when `sourceKind=schedule`
 - `requestId` when `sourceKind=dashboard` or `sourceKind=mcp`
-- `continuationRef` only when the event is a response to an existing pending approval, follow-up request, workflow run wait/cancel operation, delivery attempt, or scenario action
+- `continuationRef` only when the event is a response to an existing pending approval, follow-up request, delivery attempt, or scenario action
 
 Rules:
 
@@ -86,6 +86,7 @@ Rules:
 - A valid `continuationRef` routes the event to an existing pending execution target. It does not create a new `ScenarioExecution`.
 - `continuationRef` must identify exactly one target kind unless multiple ids describe the same already-linked approval/action/scenario chain. Ambiguous or conflicting continuation refs are rejected and audited.
 - Continuations for terminal targets are rejected and audited. They must not fall through into start-trigger matching.
+- `workflow_runs` are not continuation targets. Inspect, retry, cancel, build-after, or merge-after requests are modeled as new control-plane or workflow scenarios with the prior `workflowRunId` as input.
 - Normal workflow chaining should use outputs or system/external events that start new scenario executions with links back to prior work, not continuation refs.
 
 ## Canonical Platform Event Definition
@@ -174,6 +175,8 @@ If `workItemKind=review_target`, the normalized work item must also include:
 
 Repository, runtime, and background job execution should be modeled through `workflow_runs`. Control-plane scenario actions are modeled through `scenario_action_executions`; they only create a `workflow_run` when the selected action definition requires repository or runtime execution.
 
+Workflow runs are non-resumable jobs. A workflow run starts once, executes one bounded `triage`, `build`, or `merge` unit, and ends as `succeeded`, `failed`, `canceled`, or `lost`. Any later work starts a new scenario or workflow run linked to the prior run, work item, or output.
+
 Required means non-null on every row. Optional or conditional fields may be null until the run reaches the state that needs them.
 
 Required fields:
@@ -228,7 +231,7 @@ Parentage rules:
 
 ## Canonical Scenario Execution
 
-`ScenarioExecution` is the parent automation context created after a start trigger matches. Continuation events such as approval decisions and follow-up replies reference an existing `scenarioExecutionId`, `actionExecutionId`, `approvalRequestId`, or `workflowRunId` only when that target is pending an explicit response; they do not create a second parent execution for the same pending gate. Ordinary follow-on work should start a new scenario execution and link to the previous scenario, work item, output, or workflow run.
+`ScenarioExecution` is the parent automation context created after a start trigger matches. Continuation events such as approval decisions and follow-up replies reference an existing `scenarioExecutionId`, `actionExecutionId`, or `approvalRequestId` only when that non-job target is pending an explicit response; they do not create a second parent execution for the same pending gate. Ordinary follow-on work should start a new scenario execution and link to the previous scenario, work item, output, or workflow run.
 
 Required fields:
 
@@ -625,8 +628,6 @@ Canonical run statuses:
 - `blocked`
 - `dispatched`
 - `running`
-- `awaiting_review`
-- `awaiting_human`
 - `succeeded`
 - `failed`
 - `canceled`
@@ -637,10 +638,10 @@ Rules:
 - `blocked` means the control plane is intentionally holding the run due to dependency or policy state.
 - `dispatched` means the dispatcher assigned the run to a provider or reverse-connected runtime.
 - `lost` means the runtime or host disconnected unexpectedly and retry policy has not yet resolved the outcome.
-- `awaiting_review` is used when an internal review loop is in progress or required next.
-- `awaiting_human` is used when policy requires a manual operator step.
+- internal review is represented by `currentStage=internal_review` while the workflow run remains `running`, or by a separate scenario action after the run finishes.
+- policy-required human steps belong to scenario actions such as `approval.request`, not to workflow-run status.
 - `acceptedDispatchAttempt` is the only dispatch attempt allowed to finalize the run. Older attempts may upload stale telemetry, but they must not overwrite final state.
-- `timeoutPolicy.onTimeout` uses `retry`, `fail`, `cancel`, or `await_human`; workflow-run timeout handling should map those values onto the canonical run statuses above.
+- `timeoutPolicy.onTimeout` uses `retry`, `fail`, `cancel`, or `await_human`; for workflow runs, `await_human` blocks the owning scenario action rather than changing the workflow run into a resumable state.
 - dispatch-attempt states such as `assigned`, `acknowledged`, and `launching` are shown in dispatch timelines while `workflow_runs.status` remains `dispatched`.
 
 Specialized stage names may vary by workflow type, but the stage values listed below are the initial canonical enum. New stages require a contracts update before workers emit them.
@@ -752,9 +753,9 @@ Canonical logical key families:
 
 Webhook and polling deliveries for the same connector object/version must use the same connector object/version `logicalEventKey`. They keep different delivery `dedupeKey` values but share scenario-start idempotency.
 
-Continuation events must use the continuation logical key family. `targetKind` is one of `approval_request`, `action_execution`, `workflow_run`, `scenario_execution`, or `delivery_attempt`. `decisionOrMessageId` should be the external decision id, external message id, request id, or delivery `dedupeKey` when the source has no more specific id.
+Continuation events must use the continuation logical key family. `targetKind` is one of `approval_request`, `action_execution`, or `delivery_attempt`. `decisionOrMessageId` should be the external decision id, external message id, request id, or delivery `dedupeKey` when the source has no more specific id.
 
-Scheduled event recovery should retry or resume the existing scenario execution, not replay the same scheduled `AutomationEvent` as a new start. Manual schedule replay uses a new manual or system event with its own `requestId` or `producerEventId`.
+Scheduled recovery should retry the due scenario action through the scenario scheduler or start a new recovery scenario linked to the previous work; it must not replay the same scheduled `AutomationEvent` as a new start. Manual schedule replay uses a new manual or system event with its own `requestId` or `producerEventId`.
 
 Recommended trigger-policy precedence:
 

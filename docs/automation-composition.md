@@ -56,17 +56,17 @@ Operator-facing terms should be:
 - `Scenario`: the reusable automation recipe selected by the trigger.
 - `Action`: one configured thing the scenario does.
 - `Destination`: where a typed output is delivered.
-- `Background Job`: a `triage`, `build`, or `merge` workflow run.
+- `Background Job`: a `triage`, `build`, or `merge` workflow run. Background jobs are not resumable conversations; each job starts once, executes one bounded unit of work, and ends in a terminal outcome.
 
 Internal terms such as `AutomationEvent`, `ScenarioExecution`, `workItemKind`, `intakeMode`, and `workflowType` should appear in API/MCP docs and diagnostics, not in the default admin wizard.
 
 ## Core Invariants
 
-All triggers are incoming. A trigger is not the work itself. The default path is self-contained: an incoming event starts a scenario, the scenario does work, and the scenario emits one or more outputs. A continuation is not a normal workflow phase; it is only used when an incoming event explicitly answers a pending gate that the system already created, such as an approval request or follow-up question.
+All triggers are incoming. A trigger is not the work itself. The default path is self-contained: an incoming event starts a scenario, the scenario does work, and the scenario emits one or more outputs. Background jobs do not continue or resume; follow-on work starts a new scenario or a new job linked to the previous output.
 
 An `eventKey` is the logical event type. `intakeMode` is how it arrived: webhook, polling, chat, schedule, manual, MCP, or system. Do not mix those fields.
 
-Every accepted incoming signal must normalize into an internal `AutomationEvent` before start-trigger matching. If and only if the event carries an explicit `continuationRef` or signed correlation token for a pending gate, the API resolves that pending gate instead of treating the event as a new start trigger. `InboundWorkItem` remains the durable normalized record for issues, tickets, cards, crashes, and review targets. Not every automation event creates a work item.
+Every accepted incoming signal must normalize into an internal `AutomationEvent` before start-trigger matching. If and only if the event carries an explicit `continuationRef` or signed correlation token for a pending non-job gate, the API resolves that pending gate instead of treating the event as a new start trigger. `InboundWorkItem` remains the durable normalized record for issues, tickets, cards, crashes, and review targets. Not every automation event creates a work item.
 
 Repository context is required only for actions whose definitions declare `requiresRepositoryContext=true`.
 
@@ -326,13 +326,13 @@ Most work should remain self-contained: trigger -> scenario -> outputs. Creating
 
 Chaining should usually happen through new events. For example, when triage completes, the scenario may emit an output or system event that a separate build trigger can match. That creates a new scenario execution with links back to the previous work rather than resuming the old scenario.
 
-Continuation is reserved for pending gates where the previous scenario is explicitly waiting for a response. These events still normalize into `AutomationEvent`, but the API only checks continuation routing when `continuationRef` is present or can be derived from a trusted signed correlation token created by a previous output:
+Continuation is reserved for pending non-job gates where the previous scenario is explicitly waiting for a response. These events still normalize into `AutomationEvent`, but the API only checks continuation routing when `continuationRef` is present or can be derived from a trusted signed correlation token created by a previous output:
 
-- `approvalRequestId` resumes the matching `approval.request` action execution.
-- `actionExecutionId` resumes or cancels the matching scenario action when the action is waiting for external input.
-- `workflowRunId` may be used only for an explicit pending wait or cancel operation; ordinary "show me run status" requests can be modeled as new control-plane scenarios with the run id as input.
-- `scenarioExecutionId` appends context or requests an allowed operation on the existing scenario execution.
+- `approvalRequestId` completes the matching `approval.request` gate.
+- `actionExecutionId` completes the matching scenario action when a control-plane action is waiting for external input.
 - `deliveryAttemptId` records delivery feedback or retry decisions for an existing output.
+
+`workflowRunId` is not a continuation target. A request to inspect, retry, cancel, build after, or merge after a workflow run is a new self-contained control-plane scenario or workflow scenario with the prior `workflowRunId` as input.
 
 A continuation event must pass tenant, actor, source, channel-pairing, permission, and pending-state checks. If the continuation target is missing, terminal, or not allowed for the actor, the event is rejected or audited; it must not silently fall through into a new start-trigger match.
 
@@ -461,7 +461,7 @@ Scenario status follows child outcomes:
 - If a child workflow run is lost, the scenario remains running or blocked until retry policy resolves the run.
 - A scenario can succeed with failed delivery attempts only when delivery is marked non-critical and the failed attempt is visible in audit.
 
-Action execution statuses should be `queued`, `running`, `awaiting_approval`, `blocked`, `retry_scheduled`, `succeeded`, `failed`, `skipped`, and `canceled`.
+Scenario action execution statuses should be `queued`, `running`, `awaiting_approval`, `blocked`, `retry_scheduled`, `succeeded`, `failed`, `skipped`, and `canceled`. These statuses belong to the scenario control plane, not to worker-backed background jobs.
 
 When an action enters `retry_scheduled`, the API-owned scenario scheduler is responsible for waking it at `retryAt`, claiming the retry row, creating the next attempt, and handing that attempt to the appropriate control-plane, worker, delivery-adapter, approval-wait, scenario-wait, or transform executor. Placement executors execute an already-claimed attempt; they must not independently increment attempt numbers or schedule action retries. The implementation may use cron or a durable queue, but action retry ownership must remain centralized so restarts do not create duplicate attempts.
 
@@ -580,7 +580,7 @@ Outputs are referenced by stable paths such as `steps.triage.outputs.finding`. D
 
 Transform actions are typed mapping/template actions only in the first implementation. They may map fields, render approved templates, redact content, and convert one typed output into another typed output. They must not execute arbitrary user-supplied code.
 
-Approval actions and approval nodes are the same gate expressed at different levels: the graph node pauses execution, and the `approval.request` action creates the durable request and delivery output. `approval.request` uses `runtimePlacement=approval_wait`; the action remains `awaiting_approval` until a correlated continuation event records the decision. Approval outcomes are `approved`, `denied`, `expired`, and `canceled`.
+Approval actions and approval nodes are the same gate expressed at different levels: the graph node pauses scenario execution, and the `approval.request` action creates the durable request and delivery output. `approval.request` uses `runtimePlacement=approval_wait`; the scenario action remains `awaiting_approval` until a correlated decision event records the decision. This does not resume a background job; approved follow-on work starts as a new action or new workflow run. Approval outcomes are `approved`, `denied`, `expired`, and `canceled`.
 
 Approval node input must resolve `reason`, `approverScope`, `expiresAt` or timeout policy, `requestedByActor`, `selfApprovalAllowed`, `approvalPolicyRef`, `eligibleDecisionTargets`, and `deliveryTargets`. `approvalPolicyRef` defines the risk class and allowed decision surfaces. `eligibleDecisionTargets` is the resolved set of admin, MCP, channel, or channel-pairing surfaces allowed to record the decision for this request; delivery to a channel does not make that channel eligible unless the policy says so.
 

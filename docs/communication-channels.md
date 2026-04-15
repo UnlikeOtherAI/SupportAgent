@@ -40,7 +40,7 @@ Some issue connectors may also expose threaded comments and bot mentions. That b
 
 Where connector platforms support webhook delivery for comments or mentions, Support Agent should prefer webhook-based intake over polling.
 
-Every accepted channel command, mention, reply, approval response, or scheduled notification interaction should normalize into an internal `AutomationEvent` before start-trigger matching. The channel is the source, the message or command is the event subject, and the action policy decides whether the request may start new self-contained work. Continuation resolution is used only when the message explicitly answers a pending approval or follow-up request through a trusted correlation token.
+Every accepted channel command, mention, reply, approval response, or scheduled notification interaction should normalize into an internal `AutomationEvent` before start-trigger matching. The channel is the source, the message or command is the event subject, and the action policy decides whether the request may start new self-contained work. Continuation resolution is used only when the message explicitly answers a pending non-job approval or follow-up request through a trusted correlation token; workflow runs themselves are never resumed from chat.
 
 ## Supported Conversation Patterns
 
@@ -91,7 +91,7 @@ The initial goal is not rich ticket-system behavior inside WhatsApp. The first g
 
 WhatsApp pairing must verify the business number or conversation before it can trigger actions. The first supported mechanism should be an admin-initiated pairing code sent through the WhatsApp conversation and confirmed in the admin UI. Re-verification is required when the phone number, business account, tenant binding, or allowed-action scope changes.
 
-High-risk or destructive commands from WhatsApp should create an `approval.request` before execution. Channel confirmation is not a separate approval mechanism; it is an `approval.request` delivered to an eligible channel and resumed through the same `approval_requests`, `approval_request` output, `approval_decision` output, and `continuationRef` contracts. Confirmation through the same WhatsApp conversation is allowed only when tenant policy marks that conversation as eligible for the requested risk level; otherwise the decision must come from an admin UI session or another trusted channel.
+High-risk or destructive commands from WhatsApp should create an `approval.request` before execution. Channel confirmation is not a separate approval mechanism; it is an `approval.request` delivered to an eligible channel and completed through the same `approval_requests`, `approval_request` output, `approval_decision` output, and `continuationRef` contracts. Confirmation through the same WhatsApp conversation is allowed only when tenant policy marks that conversation as eligible for the requested risk level; otherwise the decision must come from an admin UI session or another trusted channel.
 
 ## Group Conversations
 
