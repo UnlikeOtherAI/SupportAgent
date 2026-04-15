@@ -13,6 +13,7 @@ import {
   cleanupWorkDir,
   parseGitHubRef,
 } from '../lib/gh-cli.js';
+import { buildBuildPrompt } from './build-prompt.js';
 
 const execAsync = promisify(exec);
 
@@ -109,46 +110,24 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
     return;
   }
 
-  // Generate fix with max
-  await api.postProgress(jobId, 'implementation', 'Generating fix with max m2.7');
-  await api.postLog(jobId, 'stdout', `[build] Generating fix for issue #${issueNum}`);
+  // Generate implementation with max
+  await api.postProgress(jobId, 'implementation', 'Generating implementation with max m2.7');
+  await api.postLog(jobId, 'stdout', `[build] Generating implementation for issue #${issueNum}`);
 
-  const fixPrompt = `You are a senior software engineer implementing a fix for a GitHub issue in a Python codebase.
-
-Repository: ${owner}/${repo}
-Issue #${issueNum}: ${issueTitle}
-Issue Description:
-${issueBody}
-
-Triage Analysis:
-${triageSummary || '(no triage summary — analyze the code yourself)'}
-
-IMPORTANT INSTRUCTIONS:
-1. First, read the current calculator.py and tests.py files to understand the existing code
-2. Fix ALL bugs, not just some:
-   - divide(): add a guard to raise a meaningful ValueError when b==0 (NOT ZeroDivisionError)
-   - calculate_average(): add a guard to raise ValueError when the list is empty
-   - process_numbers(): add guards to handle empty lists (max/min crash on empty lists)
-   - DO NOT change safe_divide() — it already works correctly and returns None on division by zero
-3. Update or add tests in tests.py to cover:
-   - divide(10, 0) raises ValueError (NOT ZeroDivisionError)
-   - calculate_average([]) raises ValueError
-   - process_numbers([]) returns {}
-4. Run pytest to verify all tests pass
-
-After making changes, output a brief summary.
-
-Format your response as:
-## Changes Made
-[What files you modified and what you changed]
-
-## Verification
-[pytest output showing all tests passing]`;
+  const buildPrompt = buildBuildPrompt({
+    owner,
+    repo,
+    targetBranch: targetBranch ?? '',
+    issueNumber: issueNum,
+    issueTitle,
+    issueBody,
+    triageSummary,
+  });
 
   let fixResult = '';
   try {
     const { stdout, stderr } = await execAsync(
-      `max -p "${fixPrompt.replace(/"/g, '\\"')}"`,
+      `max -p "${buildPrompt.replace(/"/g, '\\"')}"`,
       { timeout: 600_000, cwd: workDir! },
     );
     fixResult = stdout + (stderr ? '\n[stderr]: ' + stderr : '');
