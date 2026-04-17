@@ -132,6 +132,50 @@ describe('handlePrReviewJob', () => {
       expect(commentBody).toContain('/sa review --focus=security please check the auth flow');
     });
 
+    it('renders the requester handle as a markdown link when the comment URL is present', async () => {
+      const { api } = makeApi();
+      const job = makeJob({
+        triggerContext: {
+          kind: 'github.pull_request.comment',
+          comment: {
+            id: 'c-url',
+            author: 'frank',
+            body: '/sa review',
+            createdAt: '2026-04-17T10:00:00Z',
+            url: 'https://github.com/rafiki270/max-test/pull/42#issuecomment-9999',
+          },
+        },
+      });
+
+      await handlePrReviewJob(job, api);
+
+      const [, , , commentBody] = vi.mocked(ghAddPRComment).mock.calls[0];
+      expect(commentBody).toContain(
+        '[@frank](https://github.com/rafiki270/max-test/pull/42#issuecomment-9999)',
+      );
+    });
+
+    it('renders a plain handle when the comment URL is absent', async () => {
+      const { api } = makeApi();
+      const job = makeJob({
+        triggerContext: {
+          kind: 'github.pull_request.comment',
+          comment: {
+            id: 'c-no-url',
+            author: 'grace',
+            body: '/sa review',
+            createdAt: '2026-04-17T10:00:00Z',
+          },
+        },
+      });
+
+      await handlePrReviewJob(job, api);
+
+      const [, , , commentBody] = vi.mocked(ghAddPRComment).mock.calls[0];
+      expect(commentBody).toContain('Triggered by @grace:');
+      expect(commentBody).not.toContain('[@grace]');
+    });
+
     it('logs the trigger attribution via postLog', async () => {
       const { api, postLog } = makeApi();
       const job = makeJob({

@@ -195,9 +195,14 @@ One of: APPROVE, REQUEST_CHANGES, COMMENT. Justify in one sentence.`;
   await api.postLog(jobId, 'stdout', `[pr-review] Review:\n${reviewBody.slice(0, 2000)}`);
   await api.postProgress(jobId, 'analysis', 'Review drafted');
 
-  const triggerFooter = triggerContext
-    ? `\n\n---\n> Triggered by @${triggerContext.comment.author}: "${buildTriggerSnippet(triggerContext.comment.body)}"`
-    : '';
+  let triggerFooter = '';
+  if (triggerContext) {
+    const author = triggerContext.comment.author;
+    const url = triggerContext.comment.url;
+    const snippet = buildTriggerSnippet(triggerContext.comment.body);
+    const authorRef = url ? `[@${author}](${url})` : `@${author}`;
+    triggerFooter = `\n\n---\n> Triggered by ${authorRef}: "${snippet}"`;
+  }
 
   const commentBody = `${PR_REVIEW_MARKER}\n# \uD83E\uDD16 SupportAgent PR Review\n\n${reviewBody}${triggerFooter}`;
 

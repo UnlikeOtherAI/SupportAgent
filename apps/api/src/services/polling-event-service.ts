@@ -238,6 +238,7 @@ function buildWorkItemData(input: {
               body: event.comment.body,
               commentId: event.comment.id,
               createdAt: event.comment.createdAt,
+              ...(event.comment.url ? { url: event.comment.url } : {}),
             },
           ] as Prisma.InputJsonValue)
         : (event.issue.comments.map((comment) => ({
@@ -245,6 +246,7 @@ function buildWorkItemData(input: {
             body: comment.body,
             commentId: comment.id,
             createdAt: comment.createdAt,
+            ...(comment.url ? { url: comment.url } : {}),
           })) as Prisma.InputJsonValue);
 
     return {
@@ -285,6 +287,7 @@ function buildWorkItemData(input: {
               body: event.comment.body,
               commentId: event.comment.id,
               createdAt: event.comment.createdAt,
+              ...(event.comment.url ? { url: event.comment.url } : {}),
             },
           ] as Prisma.InputJsonValue,
         }
