@@ -129,7 +129,7 @@ Use browser automation or deeper code analysis after log evidence, not before.
 - Prefer non-interactive commands in automation.
 - Prefer `pnpm`.
 - Use `steroids-cli` where this project adopts it.
-- After each turn that involves code or file changes, commit and push before responding.
+- After each turn that involves code, docs, config, or any tracked-file changes, commit and push before responding. This is automatic — do not ask for confirmation. Skip only if `git status` shows a clean tree.
 
 ## What Belongs in the Repo
 

@@ -15,7 +15,7 @@ Read these before meaningful work:
 - Keep instructions modular and prefer progressive disclosure.
 - Prefer single-responsibility functions.
 - When a method mixes concerns, split it before adding more logic if that reduces complexity.
-- After each turn that involves code or file changes, commit and push before responding.
+- After each turn that involves code, docs, config, or any tracked-file changes, commit and push before responding. This is automatic — do not ask for confirmation. Skip only if `git status` shows a clean tree.
 
 ## Debugging Protocol
 
