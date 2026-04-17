@@ -20,6 +20,7 @@ import { Pagination } from '@/components/ui/Pagination'
 import { StatCard } from '@/components/ui/StatCard'
 import { Badge } from '@/components/ui/Badge'
 import { TypePill } from '@/components/ui/TypePill'
+import { relativeTime } from '@/lib/format'
 
 type TypeFilter = 'all' | WorkflowRun['workflowType']
 
@@ -71,7 +72,7 @@ const columns: Column<WorkflowRun>[] = [
   {
     key: 'started',
     header: 'Started',
-    render: (run) => <span className="font-mono text-xs text-gray-500">{run.startedAt}</span>,
+    render: (run) => <span className="text-xs text-gray-500" title={run.startedAt ?? ''}>{relativeTime(run.startedAt)}</span>,
   },
   {
     key: 'duration',

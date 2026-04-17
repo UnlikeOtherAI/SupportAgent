@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
 import { FilterTabs } from '@/components/ui/FilterTabs'
+import { relativeTime } from '@/lib/format'
 import { PageShell } from '@/components/ui/PageShell'
 import { Pagination } from '@/components/ui/Pagination'
 import { TypePill } from '@/components/ui/TypePill'
@@ -68,7 +69,7 @@ const columns: Column<WorkflowRun>[] = [
   {
     key: 'started',
     header: 'Started',
-    render: (run) => <span className="font-mono text-xs text-gray-500">{run.startedAt}</span>,
+    render: (run) => <span className="text-xs text-gray-500" title={run.startedAt ?? ''}>{relativeTime(run.startedAt)}</span>,
   },
   {
     key: 'duration',

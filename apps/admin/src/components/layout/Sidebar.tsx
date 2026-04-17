@@ -33,7 +33,6 @@ const NAV: NavSection[] = [
     items: [
       { label: 'Apps', to: '/apps', icon: <AppsIcon /> },
       { label: 'Workflows', to: '/workflows', icon: <ScenariosIcon /> },
-      { label: 'Designer', to: '/workflows/new/designer', icon: <BoltIcon /> },
       { label: 'Channels', to: '/channels', icon: <ChannelsIcon /> },
     ],
   },
