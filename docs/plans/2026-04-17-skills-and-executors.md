@@ -37,6 +37,7 @@ Every spawn must write a JSON file matching this base shape:
   body: string;                    // required — what the connector posts back
   labels?: string[];               // optional — connector applies if present
   state_change?: 'close' | 'reopen' | 'merge' | 'request_changes' | 'approve';
+  pr?: PrSpec;                     // optional — declares a PR to open; see PR mechanics
   done?: boolean;                  // loop control — see Loop semantics
   next_iteration_focus?: string;   // loop control — see Loop semantics
   extras?: Record<string, unknown>; // skill-defined open zone, ignored by connector
@@ -54,8 +55,37 @@ The connector that ingested the trigger also owns delivery. For GitHub:
 - `state_change: merge` → `gh pr merge --squash`.
 - `state_change: close|reopen` → `gh issue close|reopen`.
 - `state_change: request_changes|approve` → `gh pr review`.
+- `pr` → branch + commit + push + `gh pr create` (see _PR mechanics_).
 
 Future Slack, Linear, etc. connectors implement the same delivery interface in source-appropriate ways. The skill never knows which source it came from.
+
+### PR mechanics
+
+When a skill needs to open a PR (e.g. an "issue → fix" workflow), it modifies files in its workdir and emits a `pr` block in its output:
+
+```ts
+type PrSpec = {
+  branch: string;            // branch name to create from the workdir's HEAD
+  title: string;
+  body: string;              // PR description (markdown)
+  base?: string;             // default: repo's default branch
+  commit_message?: string;   // default: title
+  draft?: boolean;           // default: false
+};
+```
+
+**Division of labour — agentic for the change, deterministic for GitHub.** Skills are free to edit, add, or delete files inside the workdir however they like. Skills do **not** call `git` or `gh` themselves. The connector handles every git and GitHub mutation:
+
+1. Create `pr.branch` from the workdir's current HEAD.
+2. Stage all changes in the workdir (`git add -A`), then commit with `pr.commit_message` (or `pr.title` if absent).
+3. Author = the connector's bot identity (configured per connector). When the trigger carries an originating user, append a `Co-Authored-By: <user> <email>` trailer.
+4. Push the branch to the origin remote.
+5. `gh pr create --title --body --base [--draft]`.
+6. Record the PR URL on the workflow run; if the trigger came from an issue, also post a comment on that issue linking to the PR (this is just a follow-up `body` delivery).
+
+**Why deterministic.** Three reasons: (a) the bot identity, signing, and push permissions are install-specific concerns the operator owns — not something every skill author should re-implement; (b) the GitHub mutation surface stays auditable and easy to permission; (c) skills become source-portable — the same "fix this issue" skill targeting Linear or GitLab in the future emits the same `pr` block, and a different connector translates it.
+
+**Inline review comments** (line-level on the diff) are out of scope for v1. When needed, extend the contract with `review_comments?: Array<{file, line, side, body}>` and have the connector translate via `gh api` review submission. The markdown `body` field handles the most common case (one summary comment on the PR thread) without that complexity.
 
 ## Skill format
 
@@ -139,7 +169,41 @@ stages:
     inputs_from: [workers]
 ```
 
-### Pattern 3 — looping fan-out + consolidator
+### Pattern 3 — two executors in parallel, joined by an in-platform LLM call
+
+The join doesn't have to be a CLI spawn. When the merge step is just "read N JSON outputs and emit one consolidated JSON," a direct LLM API call from the platform is cheaper and faster than launching another subprocess. `inline_llm` skips the executor process entirely and calls the provider's HTTP API directly with the assembled prompt.
+
+```yaml
+key: dual-cli-with-platform-join
+default_timeout_ms: 600000
+stages:
+  - id: reviewers
+    parallel:
+      - { executor: 'codex-deep-review', count: 1 }
+      - { executor: 'claude-deep-review', count: 1 }
+    # No system_skill / complementary here — each invoked executor brings its own.
+  - id: merge
+    after: [reviewers]
+    parallel:
+      - { inline_llm: { provider: 'anthropic', model: 'claude-opus-4-7' }, count: 1 }
+    system_skill: output-merger
+    inputs_from: [reviewers]
+```
+
+Skip the merge stage entirely when each parallel output should reach the source on its own:
+
+```yaml
+key: dual-cli-no-join
+stages:
+  - id: reviewers
+    parallel:
+      - { executor: 'codex-deep-review', count: 1 }
+      - { executor: 'claude-deep-review', count: 1 }
+```
+
+With no terminal consolidator, the connector posts **one comment per output** — two parallel reviewers → two distinct PR comments. See _Final delivery_ below for the rule.
+
+### Pattern 4 — looping fan-out + consolidator
 
 ```yaml
 key: zero-defect-review
@@ -178,7 +242,7 @@ stages:
 | `loop.max_iterations` | top-level | Required safety cap. Loop terminates when reached even if `done` not set. |
 | `loop.until_done` | top-level | When `true`, loop stops as soon as the final stage's output JSON has `done: true`. |
 | `stages[].id` | per stage | Referenced by `after:` and `inputs_from:`. |
-| `stages[].parallel[]` | per stage | List of `{command, count}` tuples. `command` is a template; `{{prompt}}` is substituted at runtime. `count` is how many copies to spawn. Multiple tuples = heterogeneous fan-out. |
+| `stages[].parallel[]` | per stage | List of spawn descriptors. Each entry is one of three shapes: `{command, count}` (CLI subprocess), `{executor, count}` (recursively invoke another executor by key), or `{inline_llm: {provider, model, system?}, count}` (direct platform-side LLM API call, no subprocess). All three contribute outputs to this stage; mix freely in one list. `count` is how many copies to spawn. |
 | `stages[].after` | per stage | List of upstream stage ids that must finish first. Empty / omitted = stage 0. |
 | `stages[].system_skill` | per stage | Required. The role-defining skill loaded into every spawn in this stage. |
 | `stages[].complementary` | per stage | Zero or more knowledge skills appended to the prompt. |
@@ -256,7 +320,14 @@ Stored on the workflow run so the admin UI can render a convergence timeline (it
 
 ### Final delivery
 
-When the run terminates (loop exits via `done` or `max_iterations`, or a non-loop executor finishes its last stage), the **last consolidator output** (or, for single-stage executors, that stage's output) is the run's final output. The connector posts it back to the trigger source.
+The connector delivers **every output produced by a leaf stage** — a leaf stage being one that no downstream stage consumes via `inputs_from`. Concretely:
+
+- **Single-stage executor with one spawn** → one delivery.
+- **Single-stage executor with N parallel spawns and no consolidator** → N deliveries (e.g. two reviewer outputs become two separate PR comments).
+- **Fan-out + consolidator** → one delivery (the consolidator's output; upstream worker outputs are absorbed and never posted).
+- **Looping** → the final iteration's leaf-stage output(s) are delivered; intermediate iterations are recorded but not posted.
+
+Each delivery is a `{body, labels?, state_change?, pr?}` payload (see _Output contract_) translated by the connector into source-appropriate operations. For GitHub: each delivery becomes one comment on the originating issue or PR, plus optional label/state changes, plus an optional PR opened from the workdir.
 
 ## Storage model
 
@@ -394,6 +465,8 @@ Once these three scenarios are seeded, the worker's three handlers are deleted a
 2. **Loop expression overrides** — `until_done: true` reading the consolidator's `done` flag is the only stop signal. Worth supporting a YAML-level expression (`stop_when: extras.severity_remaining_max in ['none','low']`) for cases where operators don't want to trust the LLM's verdict, or push that policy into the consolidator skill itself? Current recommendation: skill-only for v1.
 3. **Schema declaration format** — JSON Schema in a sidecar file (proposed) vs Zod in TypeScript code (today). JSON Schema is editable in the admin UI without a redeploy and is a portable artifact; Zod is more idiomatic in this codebase. Recommend JSON Schema sidecar + runtime-converted-to-Zod via `zod-from-json-schema`.
 4. **Per-spawn cost / latency telemetry** — worth recording per-stage per-spawn duration and (where the executor exposes it) token usage? Not required for v1 but useful enough that it should be considered now to avoid schema churn.
+5. **`inline_llm` provider list for v1** — start with Anthropic only (we already use it elsewhere), or add OpenAI in the same pass? Recommend Anthropic-only for v1 to keep the platform-side LLM call surface small; add others as concrete need arises.
+6. **Bot identity per connector** — single org-wide bot account, or per-connector configurable? Recommend per-connector for multi-tenant installs but ship a single default account for v1.
 
 ## Non-goals
 
