@@ -121,6 +121,7 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
     return;
   }
 
+  try {
   // Generate implementation with Codex so the repository is actually edited.
   await api.postProgress(jobId, 'implementation', 'Generating implementation with Codex');
   await api.postLog(jobId, 'stdout', `[build] Generating implementation for issue #${issueNum}`);
@@ -181,7 +182,6 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
       await api.postLog(jobId, 'stdout', `[build] Created branch: ${branchName}`);
     } catch (err) {
       await api.postLog(jobId, 'stderr', `[build] Failed to create branch: ${err}`);
-      await cleanupWorkDir(workDir!);
       await api.submitReport(jobId, {
         workflowRunId,
         workflowType: 'build',
@@ -308,6 +308,7 @@ ${implementationSummary.slice(0, 1000)}
       { stage: 'pr_create', status: prNumber > 0 ? 'passed' : 'skipped' },
     ],
   });
-
-  if (workDir) await cleanupWorkDir(workDir);
+  } finally {
+    if (workDir) await cleanupWorkDir(workDir);
+  }
 }
