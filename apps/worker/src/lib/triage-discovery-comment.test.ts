@@ -185,6 +185,88 @@ fake content inside tilde fence
 });
 
 // ---------------------------------------------------------------------------
+// Regression: indented fences (CommonMark allows up to 3 leading spaces)
+// ---------------------------------------------------------------------------
+
+function makeFullReport(logsExcerptBlock: string, sourcesLine: string): string {
+  return [
+    '## Summary',
+    'Summary text.',
+    '',
+    '## Root Cause',
+    'Root cause text.',
+    '',
+    '## Replication Steps',
+    'Steps.',
+    '',
+    '## Suggested Fix',
+    'Fix.',
+    '',
+    '## Severity',
+    'High — critical.',
+    '',
+    '## Confidence',
+    'High — confirmed.',
+    '',
+    '## Affected Files',
+    '- src/main.ts',
+    '',
+    '## Logs Excerpt',
+    logsExcerptBlock,
+    '',
+    '## Sources',
+    sourcesLine,
+  ].join('\n');
+}
+
+describe('parseTriageReport — indented fence regression', () => {
+  it('does not split sections on a heading inside an indented backtick fence (3 spaces)', () => {
+    const report = makeFullReport(
+      '   ```\n### Sources\nfake content\n   ```',
+      '- https://real.example.com',
+    );
+    const result = parseTriageReport(report);
+    expect(result.sources).toContain('https://real.example.com');
+    expect(result.sources).not.toContain('fake content');
+    expect(result.logsExcerpt).toContain('### Sources');
+  });
+
+  it('does not split sections on a heading inside an indented tilde fence (2 spaces)', () => {
+    const report = makeFullReport(
+      '  ~~~\n### Sources\nfake tilde content\n  ~~~',
+      '- https://tilde-indented.example.com',
+    );
+    const result = parseTriageReport(report);
+    expect(result.sources).toContain('https://tilde-indented.example.com');
+    expect(result.sources).not.toContain('fake tilde content');
+    expect(result.logsExcerpt).toContain('### Sources');
+  });
+
+  it('closes the fence correctly when the closing fence is also indented', () => {
+    const report = makeFullReport(
+      ' ```\nsome log line\n ### Sources\nstill inside\n ```',
+      '- https://closed-indented.example.com',
+    );
+    const result = parseTriageReport(report);
+    expect(result.sources).toContain('https://closed-indented.example.com');
+    expect(result.logsExcerpt).toContain('some log line');
+  });
+
+  it('treats a 4-space-indented line as not a fence (headings before it are still parsed)', () => {
+    // 4-space indent is a CommonMark indented code block — our parser should
+    // NOT treat it as a fenced block, so the ### Sources heading before it is
+    // still treated as a section boundary.
+    const report = makeFullReport(
+      '    not a fence line\nnormal log text',
+      '- https://four-space.example.com',
+    );
+    const result = parseTriageReport(report);
+    // The Sources section must still be found since the "fence" was never opened.
+    expect(result.sources).toContain('https://four-space.example.com');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // parseSeverity (tested indirectly via parseTriageReport)
 // ---------------------------------------------------------------------------
 

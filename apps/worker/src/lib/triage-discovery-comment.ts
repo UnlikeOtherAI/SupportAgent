@@ -59,10 +59,10 @@ function extractSections(report: string): Record<SectionName, string> {
     const lineEnd = offset + line.length + 1; // +1 for the '\n'
 
     if (fenceMarker === null) {
-      // Check for opening fence
-      const fenceOpen = /^(`{3,}|~{3,})/.exec(line);
+      // Check for opening fence — CommonMark allows up to 3 leading spaces.
+      const fenceOpen = /^ {0,3}(`{3,}|~{3,})/.exec(line);
       if (fenceOpen) {
-        fenceMarker = fenceOpen[1][0].repeat(fenceOpen[1].length); // normalise to same char
+        fenceMarker = fenceOpen[1]; // homogeneous run of ` or ~
       } else {
         // Only match headings outside fences
         const headingMatch = headingRegex.exec(line);
@@ -81,8 +81,9 @@ function extractSections(report: string): Record<SectionName, string> {
         }
       }
     } else {
-      // Inside a fence — look for a closing fence of the same type and length
-      const fenceClose = new RegExp(`^${fenceMarker[0] === '`' ? '`' : '~'}{${fenceMarker.length},}\\s*$`);
+      // Inside a fence — closing fence must be same char, same or greater
+      // length, and may be indented up to 3 spaces (CommonMark).
+      const fenceClose = new RegExp(`^ {0,3}${fenceMarker[0] === '`' ? '`' : '~'}{${fenceMarker.length},}\\s*$`);
       if (fenceClose.test(line)) {
         fenceMarker = null;
       }
