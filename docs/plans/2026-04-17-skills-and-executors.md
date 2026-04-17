@@ -28,6 +28,23 @@ A YAML file describing how to launch one or more CLI invocations to satisfy a si
 
 Existing concept, lightly extended. A scenario binds a trigger to an executor + task prompt. "When `github.issue.opened` fires on repo X, run executor `triage-default` with this task prompt." Scenarios pick the executor; executors carry the system + complementary skills.
 
+### Remote execution boundary
+
+Skills and executors slot into the **local orchestrator** layer that already lives inside the runtime CLI — see [local-orchestrator.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/local-orchestrator.md), [runtime-cli.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/runtime-cli.md), and [llm/index.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/llm/index.md). Nothing here changes that boundary; this plan is what the local orchestrator actually executes once a job arrives.
+
+Concretely:
+
+- **Control plane** (this repo) owns: skill + executor records, scenario binding, trigger ingest via connectors, dispatch, output normalization, delivery.
+- **Runtime CLI** (separate package, customer-installed) owns: WebSocket session, fetching the executor YAML + referenced skill bodies for each dispatch, spawning subprocesses or `inline_llm` calls in the customer environment, streaming logs, posting the final `{body, labels?, state_change?, pr?}` payload back over HTTP.
+- **Trust boundary** is preserved exactly as [trust-model.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/trust-model.md) describes: source code never leaves the runtime; only the structured output contract crosses back.
+
+Practical consequences for this plan:
+
+- The runner described in _Runtime composition_ below is the local orchestrator implementation. When the worker is in-process (single-VM hosted SaaS install), the same code runs in-process; when the worker is a remote CLI, the same code runs there. The control plane sees one contract either way.
+- `inline_llm` stages (Pattern 3) execute against whichever model-access mode the runtime is configured for: `proxy` calls back through the control plane's proxy path; `tenant-provider` uses customer-managed credentials kept on the runtime host. The skill author writes neither; the runtime resolves it. See [llm/api-key-management.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/llm/api-key-management.md).
+- CLI subprocess credentials (e.g. `claude` or `codex` provider keys) live entirely on the customer host. The runtime injects them into the spawn environment; the control plane never sees them.
+- Output visibility tiers (`full` / `redacted` / `metadata_only`) from [trust-model.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/trust-model.md) apply to the streamed logs and to the `body` field. A skill that wants to include a code excerpt in `body` will have that excerpt redacted on egress when policy demands it; the skill is unaware.
+
 ### Output contract
 
 Every spawn must write a JSON file matching this base shape:
@@ -329,7 +346,100 @@ The connector delivers **every output produced by a leaf stage** — a leaf stag
 
 Each delivery is a `{body, labels?, state_change?, pr?}` payload (see _Output contract_) translated by the connector into source-appropriate operations. For GitHub: each delivery becomes one comment on the originating issue or PR, plus optional label/state changes, plus an optional PR opened from the workdir.
 
-## Storage model
+## Guardrails
+
+All guardrails are configured in the executor YAML alongside the pipeline they protect. None live in code. The runner enforces them; failed guardrails terminate the run and leave a `blocked_reason` in the run record (see [automation-composition.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/automation-composition.md) output types).
+
+```yaml
+guardrails:
+  no_self_retrigger: true                # default true; see below
+  fan_out_min_success_rate: 0.6          # require ≥60% of parallel spawns succeed
+  consolidator_max_retries: 2            # retry the consolidator on parse/exec failure
+  loop_safety:
+    min_iteration_change: false          # if true, abort when an iteration produces output identical to the previous one
+```
+
+### No self-retrigger
+
+When `true` (default), trigger matching ignores any incoming event whose actor matches the connector's own bot identity. This is the loop-prevention surface called out in [automation-composition.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/automation-composition.md): the connector's outbound markers and the bot's GitHub login are both checked. Skill authors never need to think about it. Operators can set `false` only on executors that intentionally consume their own output (rare; reviewed manually).
+
+### Fan-out success-rate threshold
+
+For stages with N parallel spawns where N > 1, `fan_out_min_success_rate` (0.0–1.0) is the floor. If fewer than `ceil(N * threshold)` spawns produce a valid output JSON, the stage fails and the consolidator is not invoked. Default omitted = 1.0 (every spawn must succeed). Set lower for "best-of-many" patterns where flaky CLIs are tolerable.
+
+### Consolidator retry
+
+`consolidator_max_retries` applies only to the final consolidator stage. Retries cover three failure modes: subprocess non-zero exit, missing/invalid output JSON, and explicit `inline_llm` API errors (timeout / rate limit). Default `0`. Worker stages do not retry — fan-out absorbs their flakiness via `fan_out_min_success_rate`.
+
+### Loop safety
+
+Beyond `loop.max_iterations`, `loop_safety.min_iteration_change: true` aborts the loop when iteration N's leaf-stage output is byte-identical to iteration N-1's. Cheap insurance against the model emitting `done: false` while making no actual progress — a real failure mode under context exhaustion. Default `false`.
+
+## Trigger allowlist
+
+Each scenario can constrain who is allowed to fire it. Stored on the scenario (not the executor — same executor may be invoked by multiple scenarios with different audiences):
+
+```yaml
+# scenario yaml fragment
+trigger_allowlist:
+  github:
+    users: ["rafiki270", "ondrej-rafaj"]   # logins
+    teams: ["@ourorg/maintainers"]          # team handles, optional
+  default: deny                             # deny | allow (default: allow)
+```
+
+Resolution order on an inbound event:
+
+1. If `trigger_allowlist` is absent on the scenario → allow (current behaviour preserved).
+2. If the actor matches any explicit `users` or `teams` entry → allow.
+3. Otherwise apply `default` (allow or deny).
+
+This is intentionally **not** a permissions system — there are no roles, no per-action grants, no admin gating. Anyone with admin access already configures everything; the allowlist exists only to keep stranger commenters from triggering automated actions on a public repo. Aligns with the user-stated principle: "whoever has access to the repo should be able to do that — we'd be overcomplicating with permissions at this stage."
+
+## Progress comment lifecycle
+
+When a scenario triggered from a comment ("@sa-bot review again, focus on auth") starts, the connector posts an immediate placeholder before the run begins, and replaces it with the final result on completion.
+
+State machine on the connector side, keyed by `(scenarioExecutionId, deliveryTarget)`:
+
+| Phase | Action |
+|---|---|
+| **Started** | Post `> SupportAgent is working on this — started <ts>. I'll update this comment when done.` Save the resulting comment id on the `action_delivery_attempt` row as `placeholderRef`. |
+| **Running** | Edit the placeholder comment in place at most once every 30s with the latest progress line (`> …running stage 'workers' (3/5 spawns done)`). |
+| **Done** | Edit the placeholder one last time, replacing its full body with the final `{body}` payload. The comment id is preserved so the GitHub thread stays anchored. |
+| **Edit unsupported** | If the source connector cannot edit (rare; e.g. Linear comment edits restricted by permission), delete the placeholder and post a fresh comment with the final body. Audit records both ids. |
+
+The same lifecycle applies to GitHub Projects status updates (the connector edits the project item's status field rather than posting a comment).
+
+The skill author is unaware of any of this — the lifecycle lives entirely on the connector. The skill produces one final output; the connector chooses whether that output replaces a placeholder or is posted fresh.
+
+## Cancel & stop
+
+Every active run gets a cancel control in the admin UI (run detail page → "Stop"). Cancel semantics:
+
+- **In-flight stage** — runner sends SIGTERM to all subprocess spawns in the active stage; aborts pending `inline_llm` calls; marks the workflow run `canceled`.
+- **Looping run** — cancel between iterations is also supported and the canceled iteration's partial outputs are recorded but not delivered.
+- **Already-delivered output** — cancellation cannot un-post a comment that already went out. The connector posts a follow-up `> SupportAgent run canceled by <user>` comment so the thread isn't left ambiguous.
+
+Cancel is a control-plane operation. For remote runtimes, the control plane sends a `cancel` message over the existing WebSocket session; the runtime CLI is responsible for terminating local subprocesses. See `runtime-cli.md` registration/dispatch contract for the existing message envelope — `cancel` slots in alongside `dispatch` and `heartbeat`.
+
+## Skill versioning & dependencies
+
+### Versioning
+
+Builtin rows (`source: BUILTIN`) follow the file in `packages/skills/builtin/<name>/SKILL.md` — the seed loop overwrites them on every boot when the file hash changes. Operators get the latest builtin behaviour automatically.
+
+User clones (`source: USER`) are never touched by the seed loop. They keep whatever body the operator saved, even if the upstream builtin moves on. The `parentSkillId` link makes it possible to surface "your clone is N edits behind the builtin" in the admin UI as advisory text only — there is no auto-merge.
+
+No semantic version field. Builtins update in place; clones are frozen at the moment of cloning. If an operator needs to track multiple variants, they clone again under a new name.
+
+### Dependencies (between skills)
+
+Claude's skill format does not have a native dependency mechanism; skills are flat files. We mirror that — a skill is one self-contained body with optional sidecar files, no `depends_on:` field.
+
+The "attach multiple skills to one executor" requirement is satisfied entirely at the executor level via `system_skill` (exactly one) and `complementary` (zero or more). The admin UI for editing an executor's skill bindings is a tickbox list filtered by role: one radio for the system skill, multi-select tickboxes for complementary skills.
+
+If a future skill format adds first-class dependencies, the loader can honour them transparently without changing the executor schema.
 
 Skills and executors ship as files in the repo and are mirrored into the database for editing.
 
@@ -432,13 +542,14 @@ Once these three scenarios are seeded, the worker's three handlers are deleted a
 - [ ] A.4 Define the skill frontmatter parser; build a loader that turns a `Skill` row into a `LoadedSkill` (frontmatter fields + body + parsed output schema if present).
 - [ ] A.5 Extract the base output schema (`OutputContractSchema`) into `packages/contracts`.
 
-### Phase B — Runner
+### Phase B — Runner (in-process worker first; identical contract for remote runtime later)
 
 - [ ] B.1 Build the prompt composer: `executor.preamble + system_skill.body + complementary[].body + output contract block + inputs_from rendering + task prompt`.
-- [ ] B.2 Build the stage scheduler: spawn parallel groups, await `after:` deps, collect outputs, feed downstream stages.
-- [ ] B.3 Build the loop wrapper: iterate stage scheduler until `done: true` or `max_iterations`. Persist iteration state.
-- [ ] B.4 Replace the three handlers with one `handleSkillJob(job, api)` that loads the executor by key, runs the pipeline, and returns the final output to the connector for delivery.
+- [ ] B.2 Build the stage scheduler: spawn parallel groups, await `after:` deps, collect outputs, feed downstream stages. Honour `guardrails.fan_out_min_success_rate` and `guardrails.consolidator_max_retries`.
+- [ ] B.3 Build the loop wrapper: iterate stage scheduler until `done: true` or `max_iterations`. Honour `guardrails.loop_safety.min_iteration_change`. Persist iteration state.
+- [ ] B.4 Replace the three handlers with one `handleSkillJob(job, api)` that loads the executor by key, runs the pipeline, and returns the final output to the connector for delivery. Code path stays identical when this runs inside the remote runtime CLI later.
 - [ ] B.5 Connector delivery: implement the GitHub delivery surface (`body`, `labels`, `state_change`) reading the run's final output.
+- [ ] B.6 Implement the progress-comment lifecycle on the GitHub connector (placeholder → in-place edit → final). Throttle edits at 30s.
 
 ### Phase C — Built-ins
 
@@ -457,16 +568,44 @@ Once these three scenarios are seeded, the worker's three handlers are deleted a
 - [ ] D.2 Scaffold `/admin/executors` list + detail with YAML editor.
 - [ ] D.3 Add executor + task-prompt fields to the Workflow Designer's action node inspector.
 - [ ] D.4 Render loop convergence timeline on the workflow run detail page.
-- [ ] D.5 Playwright clickthrough per page (headless), per the admin build loop.
+- [ ] D.5 Add a "Stop" control to the run detail page (control-plane cancel; SIGTERM to local subprocess, WebSocket `cancel` for remote runtimes).
+- [ ] D.6 Show "your clone is N edits behind builtin" advisory on cloned skill/executor detail pages (advisory only — no merge UI).
+- [ ] D.7 Skill picker on the executor edit page: one radio for `system_skill` (filtered to `role=SYSTEM`), checkboxes for `complementary[]` (filtered to `role=COMPLEMENTARY`).
+- [ ] D.8 Trigger allowlist editor on the scenario detail page (GitHub user/team list + default allow/deny).
+- [ ] D.9 Playwright clickthrough per page (headless), per the admin build loop.
 
-## Open questions
+### Phase E — Remote runtime integration
+
+The runtime CLI already exists as a contract (see [runtime-cli.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/runtime-cli.md), [llm/index.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/llm/index.md)). The skills+executors runner is what it executes once a job arrives. This phase wires the two together.
+
+- [ ] E.1 Extend the dispatch contract (`workflowType`, `executionProfile`, etc. — already present per `llm/index.md`) so it carries the resolved `executorKey` and the inlined skill bodies for that run. The runtime should not need to re-fetch every skill from the API per stage.
+- [ ] E.2 Implement skill-body fetch fallback: if the dispatch payload omits a referenced skill (e.g. complementary skill added mid-run), the runtime fetches it via `GET /v1/skills/:name` over HTTPS using the runtime API key.
+- [ ] E.3 Add a `cancel` message to the existing WebSocket session protocol; runtime CLI terminates active spawns on receipt.
+- [ ] E.4 Honour the model-access mode for `inline_llm` stages: `proxy` routes through the control-plane proxy, `tenant-provider` uses runtime-resident credentials. Same field already exists in worker config (`SUPPORT_AGENT_MODEL_ACCESS_MODE`).
+- [ ] E.5 Apply output visibility tier (`full` / `redacted` / `metadata_only`) on egress — both to the streamed log chunks and to the final `body` in the output contract.
+- [ ] E.6 Document the skills+executors model in `docs/llm/` so customer-side coding agents installing the runtime know what to expect. Most likely a new `docs/llm/skills-and-executors.md`.
+
+Phase E does not block Phase A–D shipping. The in-process worker satisfies hosted-SaaS use cases; remote runtime support layers on top once the contract exists.
+
+## Resolved questions
+
+The following were open in the original draft; user direction in the 2026-04-17 review collapsed them.
+
+1. **Bot identity per connector** — per-connector configurable, ship a single default for v1. Bot identity feeds the no-self-retrigger guardrail and the `Co-Authored-By` trailer on PRs.
+2. **Permissions model** — none. No roles, no per-action grants. The trigger allowlist (per scenario, GitHub nicknames) is the only actor gate. Whoever has admin access configures everything.
+3. **Concurrency / cost guardrails** — none in the platform. Operator decides what to spawn; the cost lesson is theirs to learn. The platform enforces only the YAML-declared `fan_out_min_success_rate` and `consolidator_max_retries`.
+4. **Skill dependency mechanism** — none in the skill format. Composition happens at the executor level via `system_skill` + `complementary[]`. Mirrors Claude's flat skill format.
+5. **Skill versioning** — builtins update in place via the seed loop; user clones are frozen at clone time. No version field.
+6. **In-flight cancel** — admin UI Stop button per run; SIGTERM to active spawns, abort pending `inline_llm` calls, leave a follow-up "canceled" comment on the source thread.
+
+## Open questions (still)
 
 1. **Markdown rendering location** — the system skill emits structured fields and the connector renders the markdown `body`, or the system skill renders the markdown directly into `body`? Recommend the latter for source-portable rendering, but flag for review.
 2. **Loop expression overrides** — `until_done: true` reading the consolidator's `done` flag is the only stop signal. Worth supporting a YAML-level expression (`stop_when: extras.severity_remaining_max in ['none','low']`) for cases where operators don't want to trust the LLM's verdict, or push that policy into the consolidator skill itself? Current recommendation: skill-only for v1.
 3. **Schema declaration format** — JSON Schema in a sidecar file (proposed) vs Zod in TypeScript code (today). JSON Schema is editable in the admin UI without a redeploy and is a portable artifact; Zod is more idiomatic in this codebase. Recommend JSON Schema sidecar + runtime-converted-to-Zod via `zod-from-json-schema`.
 4. **Per-spawn cost / latency telemetry** — worth recording per-stage per-spawn duration and (where the executor exposes it) token usage? Not required for v1 but useful enough that it should be considered now to avoid schema churn.
 5. **`inline_llm` provider list for v1** — start with Anthropic only (we already use it elsewhere), or add OpenAI in the same pass? Recommend Anthropic-only for v1 to keep the platform-side LLM call surface small; add others as concrete need arises.
-6. **Bot identity per connector** — single org-wide bot account, or per-connector configurable? Recommend per-connector for multi-tenant installs but ship a single default account for v1.
+6. **Progress comment update cadence** — every 30s is a guess. Tighten to 10s for short runs, loosen to 60s for long-running loops, or make it configurable per executor? Current recommendation: hardcode 30s for v1, revisit when telemetry exists.
 
 ## Non-goals
 
