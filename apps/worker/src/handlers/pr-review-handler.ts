@@ -15,10 +15,25 @@ import {
 const execAsync = promisify(exec);
 const MAX_DIFF_BYTES = 48_000;
 const PR_REVIEW_MARKER = '<!-- supportagent:pr-review -->';
+const TRIGGER_BODY_MAX = 280;
+
+interface TriggerComment {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  url?: string;
+}
+
+interface TriggerContext {
+  kind: 'github.pull_request.comment';
+  comment: TriggerComment;
+}
 
 interface PrReviewHints {
   prNumber?: number;
   prRef?: string;
+  triggerContext?: TriggerContext;
 }
 
 function extractPrNumber(hints: PrReviewHints): number | null {
@@ -30,14 +45,29 @@ function extractPrNumber(hints: PrReviewHints): number | null {
   return null;
 }
 
+function buildTriggerSnippet(body: string): string {
+  return body.length > TRIGGER_BODY_MAX ? `${body.slice(0, TRIGGER_BODY_MAX)}\u2026` : body;
+}
+
 export async function handlePrReviewJob(
   job: WorkerJob,
   api: WorkerApiClient,
 ): Promise<void> {
   const { jobId, workflowRunId, targetRepo } = job;
   const providerHints = (job as any).providerHints ?? {};
+  const triggerContext = providerHints.triggerContext as TriggerContext | undefined;
 
   await api.postLog(jobId, 'stdout', `[pr-review] Starting review for ${targetRepo}`);
+
+  if (triggerContext) {
+    const snippet = buildTriggerSnippet(triggerContext.comment.body);
+    await api.postLog(
+      jobId,
+      'stdout',
+      `[pr-review] Triggered by @${triggerContext.comment.author}: "${snippet}"`,
+    );
+  }
+
   await api.postProgress(jobId, 'context_fetch', 'Checking GitHub authentication');
 
   if (!(await ghCheckAuth())) {
@@ -115,6 +145,10 @@ export async function handlePrReviewJob(
 
   await api.postProgress(jobId, 'analysis', 'Running code review analysis');
 
+  const triggerContextSection = triggerContext
+    ? `\nReview requested by @${triggerContext.comment.author} with the comment:\n"${triggerContext.comment.body}"\nHonor any explicit flags or focus areas in that comment (e.g. --focus=security).\n`
+    : '';
+
   const reviewPrompt = `You are a senior software engineer reviewing a pull request.
 
 Repository: ${owner}/${repo}
@@ -122,7 +156,7 @@ PR #${pr.number}: ${pr.title}
 Base: ${pr.base} -> Head: ${pr.head}
 PR Body:
 ${pr.body ?? '(no description)'}
-
+${triggerContextSection}
 Diff:
 ${diffExcerpt || '(no diff available)'}
 
@@ -161,7 +195,11 @@ One of: APPROVE, REQUEST_CHANGES, COMMENT. Justify in one sentence.`;
   await api.postLog(jobId, 'stdout', `[pr-review] Review:\n${reviewBody.slice(0, 2000)}`);
   await api.postProgress(jobId, 'analysis', 'Review drafted');
 
-  const commentBody = `${PR_REVIEW_MARKER}\n# 🤖 SupportAgent PR Review\n\n${reviewBody}`;
+  const triggerFooter = triggerContext
+    ? `\n\n---\n> Triggered by @${triggerContext.comment.author}: "${buildTriggerSnippet(triggerContext.comment.body)}"`
+    : '';
+
+  const commentBody = `${PR_REVIEW_MARKER}\n# \uD83E\uDD16 SupportAgent PR Review\n\n${reviewBody}${triggerFooter}`;
 
   await api.postProgress(jobId, 'comment_post', 'Posting review comment');
   try {

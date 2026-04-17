@@ -9,7 +9,14 @@ function readTriggerComment(raw: unknown): TriggerComment | null {
   const author = typeof r.author === 'string' ? r.author : null;
   const body = typeof r.body === 'string' ? r.body : null;
   const createdAt = typeof r.createdAt === 'string' ? r.createdAt : null;
-  if (!id || !author || !body || !createdAt) return null;
+  if (!id || !author || !body || !createdAt) {
+    if (Object.keys(r).length > 0) {
+      console.warn('[dispatcher] readTriggerComment: comment object missing required fields', {
+        presentKeys: Object.keys(r),
+      });
+    }
+    return null;
+  }
   const comment: TriggerComment = { id, author, body, createdAt };
   if (typeof r.url === 'string') comment.url = r.url;
   return comment;
