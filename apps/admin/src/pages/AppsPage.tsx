@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { platformTypesApi, type PlatformTypeDetail } from '@/api/platform-types'
@@ -37,85 +37,107 @@ function AvailableCard({ platform }: { platform: PlatformTypeDetail }) {
 
 // ─── Right panel: installed connectors ────────────────────────────────────────
 
-function DeleteButton({ connectorId }: { connectorId: string }) {
-  const [confirm, setConfirm] = useState(false)
-  const queryClient = useQueryClient()
-
-  const deleteMutation = useMutation({
-    mutationFn: () => connectorsApi.delete(connectorId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['connectors'] })
-    },
-  })
-
-  if (deleteMutation.isPending) {
-    return <span className="text-xs text-gray-400">Deleting...</span>
-  }
-
-  if (confirm) {
-    return (
-      <div className="flex items-center gap-1">
-        <Button
-          variant="danger"
-          className="px-2 py-1 text-xs"
-          onClick={() => {
-            deleteMutation.mutate()
-          }}
-        >
-          Confirm
-        </Button>
-        <Button
-          variant="ghost"
-          className="px-2 py-1 text-xs"
-          onClick={() => {
-            setConfirm(false)
-          }}
-        >
-          Cancel
-        </Button>
-      </div>
-    )
-  }
-
-  return (
-    <Button
-      variant="ghost"
-      className="px-2 py-1 text-xs text-gray-400 hover:text-red-500"
-      onClick={() => {
-        setConfirm(true)
-      }}
-    >
-      Delete
-    </Button>
-  )
+function connectorSubtitle(config?: Record<string, string>, intakeMode?: string): string {
+  if (config?.repo_owner && config?.repo_name) return `${config.repo_owner}/${config.repo_name}`
+  if (config?.repo_name) return config.repo_name
+  if (config?.repo_owner) return config.repo_owner
+  if (config?.project_key) return config.project_key
+  if (config?.base_url) return config.base_url
+  const extra = Object.values(config ?? {}).find((v) => v && v !== 'oauth' && v !== 'token' && v !== 'local_gh')
+  if (extra) return extra
+  return intakeMode ?? ''
 }
 
 function ConnectorCard({
   connector,
   platformKey,
 }: {
-  connector: { id: string; name: string; status: string }
+  connector: { id: string; name: string; status: string; config?: Record<string, string>; intakeMode: string }
   platformKey: string
 }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const queryClient = useQueryClient()
+
+  const deleteMutation = useMutation({
+    mutationFn: () => connectorsApi.delete(connector.id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['connectors'] })
+    },
+  })
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [menuOpen])
+
   const statusColor =
     connector.status === 'healthy' ? 'bg-accent-500' :
     connector.status === 'degraded' ? 'bg-signal-amber-500' : 'bg-gray-300'
-  const statusLabel =
-    connector.status === 'healthy' ? 'Connected' :
-    connector.status === 'degraded' ? 'Degraded' : 'Unconfigured'
+
+  const subtitle = connectorSubtitle(connector.config, connector.intakeMode)
+
+  if (deleteConfirm) {
+    return (
+      <div className="flex items-center justify-between rounded-md border border-red-100 bg-red-50/50 px-3 py-2">
+        <span className="text-xs text-red-600">Delete this connector?</span>
+        <div className="flex items-center gap-1">
+          {deleteMutation.isPending ? (
+            <span className="text-xs text-gray-400">Deleting…</span>
+          ) : (
+            <>
+              <Button variant="danger" className="px-2 py-1 text-xs" onClick={() => deleteMutation.mutate()}>Confirm</Button>
+              <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => setDeleteConfirm(false)}>Cancel</Button>
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex items-center justify-between rounded-md border border-gray-100 bg-gray-50/50 px-3 py-2">
       <div className="flex items-center gap-2 min-w-0">
         <span className={`h-2 w-2 shrink-0 rounded-full ${statusColor}`} />
-        <span className="truncate text-sm text-gray-700">{connector.name || 'Untitled'}</span>
-        <span className="shrink-0 text-xs text-gray-400">({statusLabel})</span>
+        <div className="min-w-0">
+          <span className="truncate text-sm text-gray-700">{connector.name || 'Untitled'}</span>
+          {subtitle && <span className="ml-2 text-xs text-gray-400">{subtitle}</span>}
+        </div>
       </div>
-      <div className="flex items-center gap-1 shrink-0 ml-2">
-        <Link to={`/apps/${platformKey}/configure/${connector.id}`}>
-          <Button variant="ghost" className="px-2 py-1 text-xs">Configure</Button>
-        </Link>
-        <DeleteButton connectorId={connector.id} />
+      <div className="relative shrink-0 ml-2" ref={menuRef}>
+        <button
+          type="button"
+          className="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          onClick={() => setMenuOpen((o) => !o)}
+          aria-label="Options"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <circle cx="8" cy="2.5" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="8" cy="13.5" r="1.5"/>
+          </svg>
+        </button>
+        {menuOpen && (
+          <div className="absolute right-0 top-full z-20 mt-1 w-32 rounded-md border border-gray-200 bg-white py-1 shadow-lg">
+            <Link
+              to={`/apps/${platformKey}/configure/${connector.id}`}
+              onClick={() => setMenuOpen(false)}
+              className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+            >
+              Configure
+            </Link>
+            <button
+              type="button"
+              className="block w-full px-3 py-1.5 text-left text-xs text-red-500 hover:bg-red-50"
+              onClick={() => { setMenuOpen(false); setDeleteConfirm(true) }}
+            >
+              Delete
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -127,7 +149,7 @@ function InstalledPlatformGroup({
   platform,
 }: {
   platformKey: string
-  connectors: { id: string; name: string; status: string }[]
+  connectors: { id: string; name: string; status: string; config?: Record<string, string>; intakeMode: string }[]
   platform: PlatformTypeDetail
 }) {
   return (
