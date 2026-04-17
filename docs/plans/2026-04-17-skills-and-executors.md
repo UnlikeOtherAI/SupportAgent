@@ -191,6 +191,22 @@ stages:
 - Loops require a final stage that emits `done: boolean`; if `until_done: true` and `done` is missing, the run fails fast on the first iteration.
 - Loop iteration N's prompt for the workers stage receives the previous iteration's `consolidator.next_iteration_focus` (when set), giving the loop a natural narrative carryover.
 
+### Picking `loop.max_iterations`
+
+`max_iterations` is **not** a safety net we expect to rarely trip — it is a primary control. Even strong models hallucinate and over-correct under iteration: a clean codebase reviewed three times in a row will often grow imaginary issues by the third pass as the model invents work to justify another loop. The cap stops that drift.
+
+Guidance:
+
+| Use case | Recommended `max_iterations` |
+|---|---|
+| Triage / single-shot analysis (no loop) | n/a — omit `loop:` entirely |
+| PR review (find issues, post once) | `1` (single pass; the loop wrapper is overkill — prefer no `loop:`) |
+| Iterative fix-and-recheck on small changes | `2` |
+| Iterative fix-and-recheck on large changes | `3` |
+| Anything higher | requires explicit operator justification in the executor's `description` field |
+
+The admin UI surfaces the cap on the executor detail page and warns when `max_iterations > 3`. The runner records per-iteration outputs so a human can audit whether later iterations actually added value or just churned.
+
 ## Runtime composition
 
 For each spawn, the runner builds the full prompt as:
