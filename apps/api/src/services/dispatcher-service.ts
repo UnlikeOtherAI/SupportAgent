@@ -1,6 +1,19 @@
 import { type PrismaClient } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
-import { type ExecutionProvider, type WorkerDispatchJob } from './execution-provider.js';
+import { type ExecutionProvider, type TriggerComment, type WorkerDispatchJob } from './execution-provider.js';
+
+function readTriggerComment(raw: unknown): TriggerComment | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const id = typeof r.commentId === 'string' ? r.commentId : null;
+  const author = typeof r.author === 'string' ? r.author : null;
+  const body = typeof r.body === 'string' ? r.body : null;
+  const createdAt = typeof r.createdAt === 'string' ? r.createdAt : null;
+  if (!id || !author || !body || !createdAt) return null;
+  const comment: TriggerComment = { id, author, body, createdAt };
+  if (typeof r.url === 'string') comment.url = r.url;
+  return comment;
+}
 
 class NoProviderAvailableError extends Error {
   constructor(readonly workflowType: string) {
@@ -175,10 +188,22 @@ export function createDispatcherService(
                 parentBuildRunId: run.parentWorkflowRunId,
                 prRef: run.providerExecutionRef ?? '',
               }),
-              ...(run.workflowType === 'review' && {
-                prNumber: run.workItem.reviewTargetNumber ?? undefined,
-                prRef: run.workItem.externalUrl ?? issueRef,
-              }),
+              ...(run.workflowType === 'review' && (() => {
+                const rawComments = run.workItem.comments;
+                const firstComment = Array.isArray(rawComments) && rawComments.length > 0
+                  ? readTriggerComment(rawComments[0])
+                  : null;
+                return {
+                  prNumber: run.workItem.reviewTargetNumber ?? undefined,
+                  prRef: run.workItem.externalUrl ?? issueRef,
+                  ...(firstComment && {
+                    triggerContext: {
+                      kind: 'github.pull_request.comment' as const,
+                      comment: firstComment,
+                    },
+                  }),
+                };
+              })()),
             },
           };
 

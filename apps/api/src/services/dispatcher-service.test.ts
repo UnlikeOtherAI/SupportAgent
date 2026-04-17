@@ -116,6 +116,97 @@ describe('DispatcherService', () => {
     expect(dispatched.length).toBeGreaterThan(0);
   });
 
+  it('populates triggerContext when review workItem has a comment', async () => {
+    const reviewItem = await prisma.inboundWorkItem.create({
+      data: {
+        connectorInstanceId: connectorId,
+        platformType: 'github',
+        workItemKind: 'review_target',
+        reviewTargetType: 'pull_request',
+        reviewTargetNumber: 42,
+        externalItemId: '42',
+        externalUrl: 'https://github.com/test/repo/pull/42',
+        title: 'Review test PR',
+        dedupeKey: `review-test-42-${Date.now()}`,
+        repositoryMappingId: repoMappingId,
+        comments: [
+          {
+            commentId: 'cmt-001',
+            author: 'alice',
+            body: '/sa review',
+            createdAt: '2026-04-17T10:00:00Z',
+          },
+        ],
+      },
+    });
+
+    await prisma.workflowRun.create({
+      data: {
+        tenantId,
+        workflowType: 'review',
+        status: 'queued',
+        workItemId: reviewItem.id,
+        repositoryMappingId: repoMappingId,
+      },
+    });
+
+    const result = await dispatcher.dispatchNext();
+    expect(result).not.toBeNull();
+
+    const dispatch = await prisma.workerDispatch.findUnique({
+      where: { id: result!.dispatchId },
+    });
+    const payload = dispatch!.jobPayload as Record<string, unknown>;
+    const hints = payload.providerHints as Record<string, unknown>;
+    expect(hints.triggerContext).toMatchObject({
+      kind: 'github.pull_request.comment',
+      comment: {
+        id: 'cmt-001',
+        author: 'alice',
+        body: '/sa review',
+        createdAt: '2026-04-17T10:00:00Z',
+      },
+    });
+    expect((hints.triggerContext as Record<string, unknown>).comment).not.toHaveProperty('url');
+  });
+
+  it('omits triggerContext when review workItem has no comments', async () => {
+    const reviewItem = await prisma.inboundWorkItem.create({
+      data: {
+        connectorInstanceId: connectorId,
+        platformType: 'github',
+        workItemKind: 'review_target',
+        reviewTargetType: 'pull_request',
+        reviewTargetNumber: 43,
+        externalItemId: '43',
+        externalUrl: 'https://github.com/test/repo/pull/43',
+        title: 'Review test PR no comment',
+        dedupeKey: `review-test-43-${Date.now()}`,
+        repositoryMappingId: repoMappingId,
+      },
+    });
+
+    await prisma.workflowRun.create({
+      data: {
+        tenantId,
+        workflowType: 'review',
+        status: 'queued',
+        workItemId: reviewItem.id,
+        repositoryMappingId: repoMappingId,
+      },
+    });
+
+    const result = await dispatcher.dispatchNext();
+    expect(result).not.toBeNull();
+
+    const dispatch = await prisma.workerDispatch.findUnique({
+      where: { id: result!.dispatchId },
+    });
+    const payload = dispatch!.jobPayload as Record<string, unknown>;
+    const hints = payload.providerHints as Record<string, unknown>;
+    expect(hints.triggerContext).toBeUndefined();
+  });
+
   it('dispatchAll dispatches multiple queued runs', async () => {
     // Create 2 queued runs
     for (let i = 0; i < 2; i++) {

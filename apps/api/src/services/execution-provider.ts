@@ -7,6 +7,35 @@ export interface ProviderSelectionInput {
   macRequired?: boolean;
 }
 
+export interface TriggerComment {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  url?: string;
+}
+
+export interface TriggerContext {
+  kind: 'github.pull_request.comment';
+  comment: TriggerComment;
+}
+
+export interface WorkerDispatchProviderHints {
+  workItemId?: string;
+  scenarioId?: string | null;
+  scenarioKey?: string | null;
+  actionConfig?: Record<string, unknown>;
+  outputConfigs?: Array<{ kind: string; config: Record<string, unknown> }>;
+  issueRef?: string;
+  issueNumber?: number;
+  parentTriageRunId?: string | null;
+  parentBuildRunId?: string | null;
+  prRef?: string;
+  prNumber?: number;
+  triggerContext?: TriggerContext;
+  [key: string]: unknown;
+}
+
 export interface WorkerDispatchJob {
   jobId: string;
   workflowRunId: string;
@@ -19,7 +48,7 @@ export interface WorkerDispatchJob {
   executionProfile: string;
   timeoutSeconds: number;
   /** Extra context for the worker: issue numbers, PR refs, parent run IDs, etc. */
-  providerHints?: Record<string, unknown>;
+  providerHints?: WorkerDispatchProviderHints;
 }
 
 export interface ProviderDispatchResult {
