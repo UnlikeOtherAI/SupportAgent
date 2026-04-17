@@ -34,7 +34,7 @@ export interface ParsedTriageReport {
 
 export function hasDiscoveryComment(issue: GitHubIssueSummary): boolean {
   return issue.comments.some((comment) =>
-    comment.body.includes(TRIAGE_DISCOVERY_MARKER) || /(^|\n)#{1,3}\s*Summary\b/i.test(comment.body),
+    comment.body.includes(TRIAGE_DISCOVERY_MARKER),
   );
 }
 
@@ -46,22 +46,49 @@ function extractSections(report: string): Record<SectionName, string> {
   const map: Record<string, string> = {};
   for (const name of CANONICAL_SECTIONS) map[name] = '';
 
-  const headingRegex = /^\s{0,3}#{1,4}\s+(.+?)\s*$/gm;
+  // Walk line-by-line tracking fence state so that headings inside fenced
+  // code blocks (``` or ~~~) are not treated as section boundaries.
+  const lines = report.split('\n');
+  const headingRegex = /^\s{0,3}#{1,4}\s+(.+?)\s*$/;
+
+  let fenceMarker: string | null = null; // the opening fence string (``` or ~~~)
   const matches: Array<{ name: SectionName; contentStart: number; headingEnd: number }> = [];
 
-  let found: RegExpExecArray | null;
-  while ((found = headingRegex.exec(report)) !== null) {
-    const raw = found[1].trim();
-    const canonical = CANONICAL_SECTIONS.find(
-      (s) => s.toLowerCase() === raw.toLowerCase(),
-    );
-    if (canonical) {
-      matches.push({
-        name: canonical,
-        contentStart: found.index + found[0].length,
-        headingEnd: found.index,
-      });
+  let offset = 0;
+  for (const line of lines) {
+    const lineEnd = offset + line.length + 1; // +1 for the '\n'
+
+    if (fenceMarker === null) {
+      // Check for opening fence
+      const fenceOpen = /^(`{3,}|~{3,})/.exec(line);
+      if (fenceOpen) {
+        fenceMarker = fenceOpen[1][0].repeat(fenceOpen[1].length); // normalise to same char
+      } else {
+        // Only match headings outside fences
+        const headingMatch = headingRegex.exec(line);
+        if (headingMatch) {
+          const raw = headingMatch[1].trim();
+          const canonical = CANONICAL_SECTIONS.find(
+            (s) => s.toLowerCase() === raw.toLowerCase(),
+          );
+          if (canonical) {
+            matches.push({
+              name: canonical,
+              contentStart: offset + headingMatch[0].length,
+              headingEnd: offset,
+            });
+          }
+        }
+      }
+    } else {
+      // Inside a fence — look for a closing fence of the same type and length
+      const fenceClose = new RegExp(`^${fenceMarker[0] === '`' ? '`' : '~'}{${fenceMarker.length},}\\s*$`);
+      if (fenceClose.test(line)) {
+        fenceMarker = null;
+      }
     }
+
+    offset = lineEnd;
   }
 
   for (let i = 0; i < matches.length; i++) {
