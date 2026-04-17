@@ -32,7 +32,20 @@ Many teams don't live in the issue list — they live on a Project board. To be 
 
 ## Connector Model
 
-Extend the existing GitHub connector with a `projects` block. Stored on the connector config, edited via the Apps UI.
+### Where It Lives In The UI
+
+GitHub Projects is **not a separate connector**. It lives inside the existing GitHub connector as a second tab in the Apps UI:
+
+- **Repositories** tab — current behavior (issues, PRs, polling intervals).
+- **Projects** tab — new. Lists Projects under the same GitHub auth, lets you add/configure each one and pick which repos feed into it.
+
+Rationale: a Project item is almost always an issue or PR that lives in a repo. Forcing two auth flows (one for repos, one for Projects) doubles setup friction for zero gain, and risks token-scope mismatches between the two. One GitHub auth → both tabs unlock.
+
+The single org-Projects-but-no-repos case is handled by simply leaving the Repositories tab empty — no extra abstraction required.
+
+### Config Shape
+
+Extend the existing GitHub connector with a `projects` block. Stored on the connector config, edited via the Apps → GitHub → Projects tab.
 
 ```json
 {
