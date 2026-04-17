@@ -95,11 +95,21 @@ type StructuredFindings = {
 };
 ```
 
-Each `DeliveryOp` is independently routable (see _Connector delivery_ below). The connector ignores anything it doesn't recognize. `body` content is plain markdown — no skill-side rendering of GitHub-specific syntax (e.g. `gh`-only suggestion blocks).
+Each `DeliveryOp` is independently routable (see _Connector delivery_ below). The connector ignores anything it doesn't recognize. `body` content is plain markdown — no skill-side rendering of source-specific syntax (e.g. GitHub suggestion blocks).
+
+**Comment body source — mutual exclusion rule.** For any single leaf output, exactly one of the following holds:
+
+1. The skill emits one or more `comment` ops with `body` populated → the connector posts those bodies verbatim (after applying its egress redaction tier).
+2. The skill emits `findings` and **no** `comment` op → the API injects a synthetic `comment` op whose body is rendered by the **source connector's** findings renderer (a thin per-source markdown templater that reads `findings`). This is the path triage-style skills take so a Slack-routed triage and a GitHub-routed triage produce idiomatic output for each surface without the skill knowing the destination.
+3. Both `findings` and a `comment` op present → executor parser rejects the skill's output schema at parse time (`blocked_reason: ambiguous_comment_source`). This keeps the rule statically checkable; skill authors choose one path.
+
+The findings renderer lives next to the connector adapter (`apps/api/src/connectors/{kind}/findings-renderer.ts`), not inside the skill, so adding a new source is one renderer plus the existing connector plumbing.
 
 ### Connector delivery
 
-**Source connector ≠ delivery connector.** The connector that ingested the trigger does not necessarily own every output. The runtime resolves a `deliveryTarget` per `DeliveryOp` based on its `kind`:
+**Delivery is API-owned, not runtime-owned.** The runtime returns the leaf-stage `SkillRunResult` set to the API; the **API persists `action_outputs` and `action_delivery_attempts` rows and invokes the connector adapters** for each `DeliveryOp` (see [contracts.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/contracts.md) delivery-attempt contract and [automation-composition.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/automation-composition.md) action-output model). The runtime never calls `gh` for delivery — its job ends when it posts the leaf outputs. This applies identically to in-process workers (no HTTP hop, but the API service still owns the persistence + adapter call) and remote-runtime workers (the `submitReport` HTTP call carries the `SkillRunResult` set; the API does the rest).
+
+**Source connector ≠ delivery connector.** The connector that ingested the trigger does not necessarily own every output. The API resolves a `deliveryTarget` per `DeliveryOp` based on its `kind`:
 
 | `kind` | Delivery target |
 |---|---|
@@ -108,7 +118,7 @@ Each `DeliveryOp` is independently routable (see _Connector delivery_ below). Th
 | `state` | The **source connector** if the state change applies to the source object; for `merge`, route to the **code-host connector** owning the PR's repository (which may differ when the trigger came from an issue and the PR was opened mid-run). |
 | `pr` | Always the **code-host connector** for the workflow run's `targetRepo`, never the source connector. |
 
-For v1 the source and code-host connectors are both GitHub in every shipped scenario, so the routing collapses to one connector. The split is in place so a Linear-triggered scenario that opens a GitHub PR delivers the comment to Linear and the PR to GitHub. Skills remain source-agnostic — they emit `DeliveryOp[]` and the runtime resolves targets.
+For v1 the source and code-host connectors are both GitHub in every shipped scenario, so the routing collapses to one connector — but **multiple GitHub connector instances within one tenant are explicitly supported** (one per GitHub App install or per org). To remove guessing, the dispatch envelope carries `resolvedSourceConnectorInstanceId` and `resolvedCodeHostConnectorInstanceId` resolved from the scenario's repository mapping at run-creation time. If either cannot be resolved (no connector instance maps to `targetRepo`), the run is refused with `blocked_reason: code_host_connector_unresolved` before dispatch. The split is also in place so a Linear-triggered scenario that opens a GitHub PR delivers the comment to Linear and the PR to GitHub. Skills remain source-agnostic — they emit `DeliveryOp[]` and the API resolves targets.
 
 GitHub connector translation:
 
@@ -120,6 +130,8 @@ GitHub connector translation:
 - `pr` → branch + commit + push + `gh pr create` against the code-host target (see _PR mechanics_).
 
 Future Slack, Linear, etc. connectors implement the same `DeliveryOp` interface. The skill never knows which source it came from.
+
+**Op ordering and produced values.** Within a single leaf output, `delivery[]` is executed in declaration order. The `pr` op produces a `prUrl` value once it completes; later ops in the same `delivery[]` may reference it via the `${prev.prUrl}` placeholder in their `body` field. The API substitutes placeholders before invoking the adapter. This is the only inter-op data flow defined; no other op produces values for the v1 surface. If an op fails, later ops in the same `delivery[]` are skipped and recorded as `delivery_skipped: prior_op_failed`.
 
 ### PR mechanics
 
@@ -140,7 +152,7 @@ type PrSpec = {
 
 1. Create `pr.branch` from the workdir's current HEAD.
 2. Stage all changes in the workdir (`git add -A`), then commit with `pr.commit_message` (or `pr.title` if absent).
-3. Author = the connector's bot identity (configured per connector). Append a `Co-Authored-By: <user> <email>` trailer **only** when the trigger carries an originating user **and** that user is not the bot identity itself. Otherwise omit the trailer (no self-attribution on schedule triggers, label triggers, or bot-replied threads).
+3. Author = the connector's bot identity (configured per connector). Append a `Co-Authored-By: <login> <email>` trailer **only** when the trigger carries an originating user **and** that user is not the bot identity itself. Otherwise omit the trailer (no self-attribution on schedule triggers, label triggers, or bot-replied threads). For GitHub, `<email>` is the noreply form `{numeric-id}+{login}@users.noreply.github.com` derived from the verified `AutomationEvent.actor` fields — never the user's primary email, never a guess. If the actor lacks a numeric id (non-GitHub source without a stable id surface), omit the trailer.
 4. Push the branch to the origin remote.
 5. `gh pr create --title --body --base [--draft]`.
 6. Record the PR URL on the workflow run; if the trigger came from an issue, also post a comment on that issue linking to the PR (this is just a follow-up `body` delivery).
@@ -306,7 +318,7 @@ stages:
 | `stages[].id` | per stage | Referenced by `after:` and `inputs_from:`. |
 | `stages[].parallel[]` | per stage | List of spawn descriptors. Each entry is one of three shapes: `{command, count}` (CLI subprocess), `{executor, count}` (recursively invoke another executor by key), or `{inline_llm: {provider, model, system?}, count}` (direct platform-side LLM API call, no subprocess). All three contribute outputs to this stage; mix freely in one list. `count` is how many copies to spawn. |
 | `stages[].after` | per stage | List of upstream stage ids that must finish first. Empty / omitted = stage 0. |
-| `stages[].system_skill` | per stage | Required. The role-defining skill loaded into every spawn in this stage. |
+| `stages[].system_skill` | per stage | Required for stages whose `parallel[]` contains any `command` or `inline_llm` entry. **Optional** for stages composed entirely of nested-executor entries (`{executor: 'foo'}`) — each invoked executor brings its own system skill, so attaching one at the outer stage would be a no-op. |
 | `stages[].complementary` | per stage | Zero or more knowledge skills appended to the prompt. |
 | `stages[].inputs_from` | per stage | Which upstream outputs to feed into this stage's `{{prompt}}`. Plain list = current iteration only. Object form (see Pattern 3) selects per-source iteration scope. |
 
@@ -405,7 +417,12 @@ The connector delivers **every output produced by a leaf stage** — a leaf stag
 
 Each delivery is a `SkillRunResult` translated by the connector into source-appropriate operations via its `delivery[]` ops. For GitHub: each `comment` op becomes one comment on the originating issue or PR; `labels`/`state` ops mutate the source object; `pr` ops open a PR from the workdir.
 
-**Multi-leaf safety rule.** When a stage has N > 1 leaf outputs (the no-consolidator case), only `kind: comment` and `kind: labels` ops are honoured — every other op kind is **rejected at parse time** during executor validation. Mutating ops (`state.change: merge|close|reopen|approve|request_changes`, `pr`) require a single consolidator that emits exactly one decision. The runner enforces this by checking the executor's leaf stages: a leaf stage with `count > 1` (or with multiple `parallel[]` entries summing to > 1) may declare only the comment+labels op kinds in its skill's output schema. Without this rule, two parallel reviewers could both decide "approve" and "request_changes" for the same PR with non-deterministic ordering.
+**Multi-leaf safety rule.** When a stage has N > 1 leaf outputs (the no-consolidator case), only `kind: comment` and `kind: labels` ops are honoured — every other op kind is forbidden. Mutating ops (`state.change: merge|close|reopen|approve|request_changes`, `pr`) require a single consolidator that emits exactly one decision. Enforcement is **two-layer**:
+
+1. **Parse-time best-effort lint.** During executor validation the parser inspects the leaf stage's skill `output.schema.json` and rejects the executor (`blocked_reason: multi_leaf_op_kind_forbidden`) when the schema demonstrably permits a forbidden op kind. Permissive constructs (`oneOf`, `$ref`, free-form `enum`) may slip past this static check — the lint is a safety net, not a proof.
+2. **Runtime backstop.** When the scheduler finalizes a leaf stage with effective multiplicity > 1, it walks each `SkillRunResult.delivery[]` and **rejects the entire stage output** if any op is not `comment` or `labels` (`blocked_reason: multi_leaf_op_kind_forbidden_runtime`). This guards against schemas the static lint accepted but a model chose to populate with a forbidden op.
+
+Without this rule, two parallel reviewers could both decide "approve" and "request_changes" for the same PR with non-deterministic ordering.
 
 ### Fan-out failure cascade
 
@@ -446,7 +463,11 @@ For stages with N parallel spawns where N > 1, `fan_out_min_success_rate` (0.0�
 
 ### Loop safety
 
-Beyond `loop.max_iterations`, `loop_safety.min_iteration_change: true` aborts the loop when iteration N's leaf-stage output is byte-identical to iteration N-1's. Cheap insurance against the model emitting `loop.done: false` while making no actual progress — a real failure mode under context exhaustion. Defaults to `true` whenever `until_done: true`; default `false` for fixed-iteration loops.
+Beyond `loop.max_iterations`, `loop_safety.min_iteration_change: true` aborts the loop when iteration N's leaf-stage output is **structurally equal** to iteration N-1's. Cheap insurance against the model emitting `loop.done: false` while making no actual progress — a real failure mode under context exhaustion.
+
+Normalization before comparison strips fields that change every iteration without indicating progress: `artifacts[]` (per-iteration paths), `reportSummary` (free-text rephrasing), `loop.next_iteration_focus` (carryover hint), and any field a skill marks as volatile in its `output.schema.json` via the `x-loop-volatile: true` annotation. The remainder is canonicalized (sorted keys, normalized whitespace) and SHA-256 hashed; equal hashes between iteration N and N-1 trigger the abort.
+
+Defaults to `true` whenever `until_done: true`; default `false` for fixed-iteration loops.
 
 ## Trigger allowlist
 
@@ -470,7 +491,12 @@ Resolution order on an inbound event:
 3. If the actor's resolved team set intersects the scenario's `teams` entry → allow.
 4. Otherwise apply `default` (allow or deny).
 
-**Team resolution.** Team handles use the GitHub team slug format (`@org/team-slug`, never display names). When a scenario references a team, the connector calls `gh api orgs/{org}/teams/{team-slug}/members` using the bot identity's authenticated client and caches the membership list with a 5-minute TTL keyed by `(org, team-slug)`. Resolution failures (404, 403, network error) are **fail-closed**: the run is marked `blocked` with `blocked_reason: team_resolution_failed`, with the failed team handle in the audit. The scenario does not silently fall through to `default: deny`.
+**Team resolution.** Team handles use the GitHub team slug format (`@org/team-slug`, never display names). When a scenario references a team, the connector calls `gh api orgs/{org}/teams/{team-slug}/members` using the bot identity's authenticated client. Cache policy is **risk-graded**:
+
+- **High-risk scenarios** (any whose executor can produce `state.change: merge|close|approve|request_changes`, a `pr` op, or dispatch a `build` / `merge` workflowType) — resolve membership fresh on every event. No cache. The cost is one API call per gated trigger, well within rate limits even at scale.
+- **Comment-only scenarios** — cache membership for 5 minutes keyed by `(org, team-slug)` in the **shared API process cache** (Redis or equivalent — never per-pod), so a horizontally-scaled fleet sees the same answer.
+
+Resolution failures: a 404 (team gone) or 403 (bot lost access) is a hard fail-closed (`blocked_reason: team_resolution_failed`). A transient 5xx or network error serves the cached membership if available and not older than 15 minutes; otherwise fail-closed. The scenario does not silently fall through to `default: deny` on resolution failure.
 
 **v1 scope.** Only the GitHub connector implements `trigger_allowlist`. Other connectors validate the allowlist YAML at scenario save time but reject any non-GitHub `users`/`teams` entries until their connector ships allowlist support. The scenario YAML thereby remains source-typed (no ambiguous mixing of platforms).
 
@@ -490,6 +516,8 @@ State machine on the connector side, keyed by the **`actionDeliveryAttemptId`** 
 | **Edit unsupported** | If the source connector cannot edit (rare; e.g. Linear comment edits restricted by permission), delete the placeholder and post a fresh comment with the final body. Audit records both ids. |
 
 A placeholder going stale is an **audit event, not a delivery failure** — the user gets the final result either way. The run is only marked failed if posting the new placeholder also fails.
+
+**Multi-leaf delivery (N > 1 `comment` ops).** The placeholder is replaced by the first comment via in-place edit; the remaining N-1 comments are posted as fresh comments. The `actionDeliveryAttemptId` records all resulting comment ids. The "Started"/"Running"/"Done" lifecycle still anchors to the first comment; the others have no progress phase and are posted at Done time only.
 
 The same lifecycle applies to GitHub Projects status updates (the connector edits the project item's status field rather than posting a comment).
 
@@ -511,6 +539,12 @@ Output preservation:
 
 For remote runtimes, the control plane sends `cancel_requested` over the existing WebSocket session; the runtime CLI is responsible for the checkpoint loop and for terminating local subprocesses on force-stop. See `runtime-cli.md` registration/dispatch contract for the existing message envelope — `cancel_requested` and `cancel_force` slot in alongside `dispatch` and `heartbeat`.
 
+**Persistence contract.** The preservation rules above are only meaningful if completed-iteration state is durable across runner restarts. The runner writes a checkpoint to the API (`POST /v1/dispatch-attempts/:id/checkpoints`, see Phase A.8) at three points: after each clean stage completion, after each loop iteration's leaf output is finalized, and after each delivery op completes. Each checkpoint carries `{kind: 'iteration' | 'stage' | 'delivery_cursor', iteration?, stageId?, opIndex?, payload}`. On runner restart (or `lost`-reconciliation), the resume path reads the latest checkpoints for the dispatch attempt, replays only the in-flight stage from scratch, and applies the cancel rules using the persisted state. Without this, "completed iterations are kept" is aspirational; with it, the runner can crash and the API still knows what to deliver.
+
+**In-flight `inline_llm` and idempotency.** On cancel receipt, in-flight `inline_llm` HTTP calls are treated as failed: the runner does not wait for the response and the consolidator's retry logic (`consolidator_max_retries`) handles recovery. v1 does **not** carry idempotency keys on `inline_llm`, so a cancel-recovery retry can result in the model provider double-billing for the same logical call. The cost is bounded (one duplicate per cancel) and v1 ships without idempotency; a follow-up phase adds keys.
+
+**Heartbeat-lost interaction.** A run whose status is `cancel_requested` and whose dispatch heartbeat has expired transitions to `canceled` (not `failed`) via the dispatcher's lost-reconciliation path; `loop.done: true` output preservation rules still apply against the persisted checkpoints.
+
 ## Skill versioning & dependencies
 
 ### Versioning
@@ -521,7 +555,7 @@ User clones (`source: USER`) are never touched by the seed loop. They keep whate
 
 No semantic version field. Builtins update in place; clones are frozen at the moment of cloning. If an operator needs to track multiple variants, they clone again under a new name.
 
-**Schema-drift safety.** When an executor references a system skill, the executor parser records the skill's `output.schema.json` content hash in the executor's parsed AST. At dispatch time the runner compares this against the system skill that will actually load (the operator's clone, or the current builtin). If the hash differs, the run is **refused before spawning** with `blocked_reason: skill_schema_drift`, naming both the executor's expected hash and the loaded skill's actual hash. The admin UI surfaces this as a hard error on the cloned skill's detail page ("schema drift from builtin v…; re-clone or update the executor"). Optional, non-schema body edits do not trigger this — only the JSON schema sidecar is hashed for compatibility.
+**Schema-drift safety — checked at control-plane resolution time, not runtime.** The executor parser records the resolved `system_skill.schemaHash` (the SHA-256 of the skill's `outputSchema` JSON) in the executor's parsed AST when the executor row is saved. When the API resolves a workflow run's dispatch (just before it pins revisions on the run record), it loads the same-named skill rows and compares the parser's recorded `schemaHash` against the to-be-pinned skill's current `schemaHash`. If they differ, the run is **refused at creation** with `blocked_reason: skill_schema_drift`, naming both hashes. Once pinned, the runtime trusts the inlined manifest — no second drift check at the runtime boundary. The admin UI surfaces drift on the cloned skill's detail page ("schema drift from executor's expected hash; re-clone or update the executor"). Optional, non-schema body edits do not trigger this — only the JSON schema sidecar is hashed for compatibility.
 
 ### Dependencies (between skills)
 
@@ -585,6 +619,8 @@ On boot, the API upserts every file under `packages/skills/builtin/` and `packag
 
 **Revision pinning at dispatch time.** When a workflow run is created, the API resolves the executor and all skills the executor references, then **freezes the resolved set** by writing the resolved `(executorId, contentHash)` and the per-skill `(skillId, contentHash)` pairs onto the run record (`workflow_runs.resolvedExecutorRevision`, `workflow_runs.resolvedSkillRevisions: Json`). The runner — local or remote — never reads "the latest" mutable rows; it only loads exactly the rows pinned on the run. An operator editing a skill mid-flight does not affect a run already in flight; the next run picks up the new revision. This makes runs reproducible and removes a class of "but it worked when I clicked Run" bugs.
 
+**Skill name resolution rule.** When the API resolves a skill reference for `(tenantId, name)`, it prefers the tenant's `source: USER` row over the `source: BUILTIN` row. Clones keep the parent's name by default; if the tenant already owns a `USER` row with that name, the duplicate operation fails and the admin UI prompts for rename. The executor's recorded `schemaHash` (see _Schema-drift safety_) is recomputed against the resolved row whenever an executor is saved, so a tenant clone with a different schema fails the drift check at save time, not at dispatch.
+
 The admin UI:
 
 - Edits and deletes are allowed only on `source: USER` rows.
@@ -621,15 +657,15 @@ The Workflow Designer's action node inspector adds an executor dropdown (sourced
 
 ## Migration plan
 
-The three existing handlers become three built-in scenarios + skills + executors. **`workflowType` collapses to a single value (`triage`)** at the dispatch envelope level — `merge` and `review` were never separate workflow types in the new model, just different scenarios pointed at different executors.
+The three existing handlers become three built-in scenarios + skills + executors. **`workflowType` keeps its three core values (`triage`, `build`, `merge`)** — only `review` is removed because PR-on-command review is just a triage flow with a different scenario binding, not a top-level type. `triage` / `build` / `merge` continue to drive provider selection, workflow chaining, and admin-UI filtering exactly as today; routing inside the worker switches to `executorKey`.
 
 | Today | After |
 |---|---|
 | `handleTriageJob` | Scenario "GitHub Issue Triage" → executor `triage-default` (single stage, `max -p`) → system skill `triage-issue` (with `output.schema.json` mirroring today's `TriageOutputSchema`). Dispatch `workflowType=triage`, `workItemKind=issue`. |
-| `handleMergeJob` | Scenario "PR Merge Review" → executor `merge-default` → system skill `merge-reviewer`. Dispatch `workflowType=triage`, `workItemKind=merge_target`. |
+| `handleMergeJob` | Scenario "PR Merge Review" → executor `merge-default` → system skill `merge-reviewer`. Dispatch `workflowType=merge`, `workItemKind=merge_target`. |
 | `handlePrReviewJob` | Scenario "PR Review On Command" → executor `pr-review-default` → system skill `pr-reviewer`. Dispatch `workflowType=triage`, `workItemKind=review_target`, with the originating review command attached as `triggerContext.reviewProfileId`. |
 
-This plan does **not** introduce or preserve a fourth top-level workflow type. The runner routes by `executorKey` only; `workflowType` exists solely as a coarse classifier on the run record (and is a candidate for removal in a follow-up cleanup once admin UI filters are updated).
+The only enum-level change is dropping `review` from `WorkflowType`; existing `review` rows migrate to `triage` with `workItemKind=review_target`. The runner routes by `executorKey` only; `workflowType` remains the coarse classifier across the rest of the canonical run model.
 
 The current 9-section triage rendering (`renderTriageReportMarkdown`) splits as follows: the system skill emits **structured fields** (`StructuredFindings` in the output envelope), the connector calls the **findings API** with those fields, and the connector also renders the markdown comment body from the same fields using a thin per-connector renderer (so different connectors can adapt formatting — Slack mrkdwn vs GitHub markdown vs Linear markdown). The skill never knows the destination format.
 
@@ -641,11 +677,12 @@ Once these three scenarios are seeded, the worker's three handlers are deleted a
 
 - [ ] A.1 Add `Skill` and `Executor` Prisma models (with `tenantId`, `contentHash`, `schemaHash`) + migration.
 - [ ] A.2 Build the file → DB seed loop (boot-time upsert, hash-based change detection).
-- [ ] A.3 Define the executor YAML JSON schema; build a parser + validator returning typed AST. The AST records the resolved `system_skill.schemaHash` and `complementary[].contentHash` per stage so dispatch can pin them.
+- [ ] A.3 Define the executor YAML JSON schema; build a parser + validator returning typed AST. The parser loads referenced skill rows via the loader from A.4 so it can: (a) record the referenced skill's `Skill.schemaHash` field (SHA-256 of the skill's `outputSchema` JSON, distinct from the `Executor.contentHash` which is the executor's own revision id) and each complementary skill's `Skill.contentHash` per stage so dispatch can pin them, and (b) perform the parse-time multi-leaf safety lint by inspecting the leaf-stage system skill's `outputSchema`.
 - [ ] A.4 Define the skill frontmatter parser; build a loader that turns a `Skill` row into a `LoadedSkill` (frontmatter fields + body + parsed output schema if present).
 - [ ] A.5 Extract the `SkillRunResult` envelope schema (with `DeliveryOp[]`, `StructuredFindings`, `loop`, `extras`, `artifacts`) into `packages/contracts`.
-- [ ] A.6 Update `WorkerJobSchema`: add `executorKey: string` and `resolvedSkills: Array<{name, contentHash, body, outputSchema?}>` (the inlined revisions). Keep `workflowType` as `'triage'` only — emit a Prisma migration that maps existing `merge` and `review` rows to `triage` and drops the unused enum values from the DB enum. Update `worker.ts` routing to `handleSkillJob` keyed by `executorKey`. No legacy fallback path — completed runs of the old types are read-only.
+- [ ] A.6 Update `WorkerJobSchema`: add optional `executorKey: string` and a `resolvedSkillManifest: Array<{name, contentHash, fetchUrl}>` plus `executorRevisionHash: string`. Keep `workflowType` as the existing `triage | build | merge` enum (drop only `review` — see migration table). Update `worker.ts` routing: dispatches with `executorKey` go to `handleSkillJob`; dispatches without `executorKey` continue to the legacy `triage` / `build` / `merge` handlers. The fallback path remains in place until C.8 confirms every active scenario has been migrated and every pre-migration dispatch has reached terminal state.
 - [ ] A.7 Add `workflow_runs.resolvedExecutorRevision` and `workflow_runs.resolvedSkillRevisions: Json` columns; the API populates them at run creation time.
+- [ ] A.8 Add a `dispatch_attempt_checkpoints` table (one row per `(dispatchAttemptId, kind)`): durable per-iteration leaf outputs, the loop control state, and a delivery cursor. The worker API gains `POST /v1/dispatch-attempts/:id/checkpoints` so the runner can write progress between cancel checkpoints. Cancel-and-resume reads from this table; `lost`-reconciliation also reads it before declaring the attempt failed.
 
 ### Phase B — Runner (in-process worker first; identical contract for remote runtime later)
 
@@ -666,7 +703,7 @@ Once these three scenarios are seeded, the worker's three handlers are deleted a
 - [ ] C.5 Author `packages/skills/builtin/deep-reviewer/` (system skill for the cross-LLM worker pattern).
 - [ ] C.6 Author one or two complementary skills as proofs (`codebase-architecture`, `api-best-practices`).
 - [ ] C.7 Author `packages/executors/builtin/triage-default.yaml`, `merge-default.yaml`, `pr-review-default.yaml`, `cross-llm-review.yaml`, `zero-defect-review.yaml`.
-- [ ] C.8 Write a migration script that walks every `WorkflowScenarioStep` whose `stepType` matches a legacy handler, creates the corresponding executor row if needed, and writes `executorKey` + `taskPrompt` into `config`. Steps whose `config` contains hand-tuned fields (custom prompts, non-default CLI args, custom labels) are flagged with `migration_status: requires_manual_review` and surfaced as a banner in the admin UI; the script does not silently overwrite operator customisation. After migration completes (operator confirms in admin UI), delete the three legacy handlers.
+- [ ] C.8 Write a migration script that walks every `WorkflowScenarioStep` whose `stepType` matches a legacy handler, creates the corresponding executor row if needed, and writes `executorKey` + `taskPrompt` into `config`. Steps whose `config` contains hand-tuned fields (custom prompts, non-default CLI args, custom labels) are flagged with `migration_status: requires_manual_review` and surfaced as a banner in the admin UI; the script does not silently overwrite operator customisation. **Drain gate before legacy-handler removal:** the legacy handlers are deleted only after (a) operator confirms migration completion in the admin UI and (b) a preflight query reports zero non-terminal `workflow_runs` whose dispatch carries `workflowType: review` or any dispatch lacking `executorKey`. Until that gate passes, the legacy fallback in A.6 stays alive.
 
 ### Phase D — Admin UI
 
@@ -684,9 +721,9 @@ Once these three scenarios are seeded, the worker's three handlers are deleted a
 
 The runtime CLI already exists as a contract (see [runtime-cli.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/runtime-cli.md), [llm/index.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/llm/index.md)). The skills+executors runner is what it executes once a job arrives. This phase wires the two together.
 
-- [ ] E.1 Extend the dispatch contract so every dispatch carries the **fully resolved set**: `executorKey`, `executorRevisionHash`, the parsed YAML AST, and an inlined `resolvedSkills` array containing every system + complementary skill referenced by the executor (each with `name`, `contentHash`, `body`, optional `outputSchema`). The runtime never re-fetches a skill mid-run. Skills cannot be added "mid-run" because dispatch resolution happens once at run creation; admin edits during a run go to the next run, not this one (see _Revision pinning_).
+- [ ] E.1 Extend the dispatch contract so every dispatch carries the **fully resolved manifest**: `executorKey`, `executorRevisionHash`, the parsed YAML AST, and a `resolvedSkillManifest` array of `{name, contentHash, fetchUrl, schemaHash?}` entries — one per referenced system + complementary skill. The runtime fetches each body on first use via authenticated HTTP `GET {fetchUrl}` (the URL embeds the dispatch attempt id and content hash; the API serves only the exact pinned hash). This keeps dispatch messages bounded (≤ 10 KB for typical executors) so they fit comfortably inside the existing WebSocket envelope, while preserving the pin guarantee — the API will refuse to serve a different content hash even if the underlying skill row has been edited. Skills cannot be added "mid-run" because dispatch resolution happens once at run creation; admin edits during a run go to the next run, not this one (see _Revision pinning_). Bodies fetched on first use are cached in-process for the dispatch's lifetime; restarts re-fetch.
 - [ ] E.2 Add a `cancel_requested` and `cancel_force` message pair to the existing WebSocket session protocol (see _Cancel & stop_); runtime CLI honours the checkpoint loop on `cancel_requested`, terminates spawns on `cancel_force`.
-- [ ] E.3 Honour the model-access mode for `inline_llm` stages: `proxy` routes through the control-plane proxy, `tenant-provider` uses runtime-resident credentials. **For v1, `inline_llm` is only available in `proxy` mode** — the prompt assembled by the runtime can include code excerpts from `inputs_from`, and routing those through `tenant-provider` would bypass the control-plane redaction tier. A future phase can lift this when the runtime applies redaction itself before the direct API call.
+- [ ] E.3 Honour the model-access mode for `inline_llm` stages: `proxy` routes through the control-plane proxy, `tenant-provider` uses runtime-resident credentials. **For v1, `inline_llm` is only available in `proxy` mode** — the prompt assembled by the runtime can include code excerpts from `inputs_from`, and routing those through `tenant-provider` would bypass the control-plane redaction tier. A future phase can lift this when the runtime applies redaction itself before the direct API call. **Mismatch surface.** When the API resolves a workflow run whose executor contains any `inline_llm` stage and the resolved tenant routing is `tenant_provider`, the run is refused at dispatch creation with `blocked_reason: inline_llm_requires_proxy`. The executor save-time validator additionally flags scenarios bound to such an executor with a warning when the scenario's tenant routes via `tenant_provider`, so operators see the mismatch before the first trigger fires.
 - [ ] E.4 Apply output visibility tier (`full` / `redacted` / `metadata_only`) on egress — both to the streamed log chunks and to every `comment.body` in the output envelope.
 - [ ] E.5 Document the skills+executors model in `docs/llm/` so customer-side coding agents installing the runtime know what to expect. Most likely a new `docs/llm/skills-and-executors.md`.
 
