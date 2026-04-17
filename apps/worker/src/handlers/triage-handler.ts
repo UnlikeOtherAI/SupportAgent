@@ -1,5 +1,4 @@
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
+import { join } from 'node:path';
 import { type WorkerJob } from '@support-agent/contracts';
 import { type WorkerApiClient } from '../lib/api-client.js';
 import {
@@ -13,12 +12,29 @@ import {
 } from '../lib/gh-cli.js';
 import {
   buildTriageDiscoveryComment,
-  parseTriageReport,
+  confidenceNumeric,
+  renderTriageReportMarkdown,
+  TRIAGE_OUTPUT_TEMPLATE,
+  TriageOutputSchema,
+  type TriageOutput,
 } from '../lib/triage-discovery-comment.js';
+import {
+  ExecutorOutputError,
+  getDefaultExecutor,
+  runWithJsonOutput,
+  type Executor,
+} from '../executors/index.js';
 
-const execAsync = promisify(exec);
+export interface TriageHandlerOptions {
+  executor?: Executor;
+}
 
-export async function handleTriageJob(job: WorkerJob, api: WorkerApiClient): Promise<void> {
+export async function handleTriageJob(
+  job: WorkerJob,
+  api: WorkerApiClient,
+  options: TriageHandlerOptions = {},
+): Promise<void> {
+  const executor = options.executor ?? getDefaultExecutor();
   const { jobId, workflowRunId, targetRepo } = job;
 
   // ── 1. Auth check ────────────────────────────────────────────────
@@ -40,14 +56,12 @@ export async function handleTriageJob(job: WorkerJob, api: WorkerApiClient): Pro
   await api.postProgress(jobId, 'auth', 'GitHub authenticated');
 
   // ── 2. Extract issue number from job context ──────────────────────
-  // The workItemId carries the issue number context via providerHints
   const providerHints = (job as any).providerHints ?? {};
   const issueNumber = providerHints.issueNumber ?? parseInt(providerHints.issueRef ?? '0');
   const issueRef = providerHints.issueRef ?? '';
 
   let issueNum = issueNumber;
   if (!issueNum && issueRef) {
-    // e.g. "owner/repo#123" or "owner/repo/issues/123"
     const m = issueRef.match(/(?:issues?|pull)\/(\d+)/);
     if (m) issueNum = parseInt(m[1]);
   }
@@ -110,13 +124,12 @@ export async function handleTriageJob(job: WorkerJob, api: WorkerApiClient): Pro
     return;
   }
 
-  // ── 5–9. Post-clone flow — cleanup is guaranteed by finally ──────────
   try {
-  // ── 5. Run triage analysis with max (MiniMax m2.7) ─────────────────
-  await api.postProgress(jobId, 'investigation', 'Running AI triage analysis');
-  await api.postLog(jobId, 'stdout', `[triage] Running max m2.7 triage analysis`);
+    // ── 5. Run triage analysis via the configured executor ──────────────
+    await api.postProgress(jobId, 'investigation', `Running triage analysis (${executor.key})`);
+    await api.postLog(jobId, 'stdout', `[triage] Running ${executor.key} triage analysis`);
 
-  const triagePrompt = `You are a senior software engineer doing triage analysis for a GitHub issue.
+    const promptBody = `You are a senior software engineer doing triage analysis for a GitHub issue.
 
 Repository: ${owner}/${repo}
 Issue #${issue.number}: ${issue.title}
@@ -126,148 +139,146 @@ Labels: ${issue.labels.join(', ')}
 
 Read relevant source files to understand the codebase before writing. Cite file paths and line numbers.
 
-Your output MUST be a single markdown document containing exactly the following 9 sections in this order, with the exact headings shown:
+You will produce a structured triage analysis. Each field has a specific purpose:
 
-### Summary
-One short paragraph naming the error, where it surfaced, and how it was captured.
+- summary: One short paragraph naming the error, where it surfaced, and how it was captured.
+- rootCause: The specific code path with quoted code (file + line range) and the chain of conditions that cause it.
+- replicationSteps: A markdown numbered list a developer can follow to reproduce.
+- suggestedFix: One or more numbered remediations with code examples. Distinguish the primary fix from defensive guards.
+- severity.level: one of "Low", "Medium", "High", "Critical", "Unknown".
+- severity.justification: one short sentence explaining the level.
+- confidence.label: one of "Low", "Medium", "High".
+- confidence.reason: one short sentence on what makes you uncertain (or confident).
+- affectedFiles: array of file paths the fix should touch or where relevant context lives.
+- logsExcerpt: the real log or telemetry extract used. Empty string if none.
+- sources: array of files or artifacts you read during the investigation.`;
 
-### Root Cause
-The specific code path with a quoted code snippet (file + line range) and the chain of conditions that cause it.
+    const outputPath = join(workDir!, '.sa', `triage-${jobId}.json`);
 
-### Replication Steps
-A numbered list a developer can follow to reproduce.
+    let triageOutput: TriageOutput;
+    try {
+      triageOutput = await runWithJsonOutput(executor, {
+        promptBody,
+        schema: TriageOutputSchema,
+        template: TRIAGE_OUTPUT_TEMPLATE,
+        outputPath,
+        cwd: workDir,
+        timeoutMs: 300_000,
+      });
+    } catch (err) {
+      const detail =
+        err instanceof ExecutorOutputError
+          ? `${err.message}\n--- raw output (first 500 chars) ---\n${err.rawContent.slice(0, 500)}`
+          : (err as Error).message;
+      await api.postLog(jobId, 'stderr', `[triage] ${executor.key} analysis failed: ${detail}`);
+      await api.submitReport(jobId, {
+        workflowRunId,
+        workflowType: 'triage',
+        status: 'failed',
+        summary: `Triage analysis failed: ${(err as Error).message}`,
+        stageResults: [
+          { stage: 'auth', status: 'passed' },
+          { stage: 'issue_fetch', status: 'passed' },
+          { stage: 'repository_setup', status: 'passed' },
+          { stage: 'investigation', status: 'failed' },
+        ],
+      });
+      return;
+    }
 
-### Suggested Fix
-One or more numbered remediations with code examples. Distinguish the primary fix from defensive guards.
-
-### Severity
-One of: Low | Medium | High | Critical. Follow with a one-line justification on the same line, e.g. "High — prevents POS from rendering".
-
-### Confidence
-One of: Low | Medium | High. Follow with the main reason for uncertainty on the same line.
-
-### Affected Files
-Bullet list of file paths the fix should touch or where relevant context lives.
-
-### Logs Excerpt
-The real log or telemetry extract used for the investigation, fenced as a code block. If none is available, write "None available.".
-
-### Sources
-Bullet list of every file or artifact you read during the investigation.
-
-Do not emit any other headings, preamble, or trailing commentary. Do not wrap the whole output in a code fence.`;
-
-  let triageResult = '';
-  try {
-    const { stdout } = await execAsync(
-      `max -p "${triagePrompt.replace(/"/g, '\\"')}"`,
-      { timeout: 300_000, cwd: workDir! },
+    await api.postLog(
+      jobId,
+      'stdout',
+      `[triage] Triage analysis: severity=${triageOutput.severity.level} confidence=${triageOutput.confidence.label} files=${triageOutput.affectedFiles.length}`,
     );
-    triageResult = stdout;
-  } catch (err: any) {
-    triageResult = `[max analysis unavailable: ${err.message}]\n\nManual triage: Review issue and codebase to determine fix.`;
-    await api.postLog(jobId, 'stderr', `[triage] max analysis failed: ${err.message}`);
-  }
+    await api.postProgress(jobId, 'investigation', 'Analysis complete');
 
-  await api.postLog(jobId, 'stdout', `[triage] Triage analysis:\n${triageResult.slice(0, 2000)}`);
-  await api.postProgress(jobId, 'investigation', 'Analysis complete');
+    // ── 6. Submit findings to API ─────────────────────────────────────
+    await api.postProgress(jobId, 'findings', 'Submitting findings');
 
-  // ── 6. Parse the 9-section report into structured findings ─────────
-  await api.postProgress(jobId, 'findings', 'Parsing triage report');
-
-  const parsed = parseTriageReport(triageResult);
-  const confidenceVal = parsed.confidenceNumeric;
-
-  await api.postLog(
-    jobId,
-    'stdout',
-    `[triage] Parsed sections: severity=${parsed.severity ?? 'n/a'} confidence=${parsed.confidenceLabel ?? 'n/a'} files=${parsed.affectedFiles.length}`,
-  );
-
-  // ── 7. Submit findings to API ───────────────────────────────────────
-  const findingPayload = {
-    summary: parsed.summary
-      ? `Triage for #${issue.number}: ${parsed.summary.slice(0, 200)}`
-      : `Triage for #${issue.number}: ${issue.title}`,
-    rootCauseHypothesis: parsed.rootCause || triageResult.slice(0, 500),
-    confidence: confidenceVal,
-    reproductionStatus: 'not_started',
-    affectedAreas: { files: parsed.affectedFiles },
-    evidenceRefs: {
-      triage_report: triageResult.slice(0, 8000),
-      severity: parsed.severity ?? null,
-      confidence_label: parsed.confidenceLabel ?? null,
-    },
-    recommendedNextAction: parsed.suggestedFix || 'Review analysis and implement fix',
-    suspectFiles: parsed.affectedFiles,
-  };
-
-  try {
-    await fetch(`${api.baseUrl}/v1/runs/${workflowRunId}/findings`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${api.secret}`,
+    const reportMarkdown = renderTriageReportMarkdown(triageOutput);
+    const findingPayload = {
+      summary: triageOutput.summary
+        ? `Triage for #${issue.number}: ${triageOutput.summary.slice(0, 200)}`
+        : `Triage for #${issue.number}: ${issue.title}`,
+      rootCauseHypothesis: triageOutput.rootCause || reportMarkdown.slice(0, 500),
+      confidence: confidenceNumeric(triageOutput.confidence.label),
+      reproductionStatus: 'not_started',
+      affectedAreas: { files: triageOutput.affectedFiles },
+      evidenceRefs: {
+        triage_report: reportMarkdown.slice(0, 8000),
+        severity: triageOutput.severity.level,
+        confidence_label: triageOutput.confidence.label,
       },
-      body: JSON.stringify(findingPayload),
-    });
-    await api.postLog(jobId, 'stdout', `[triage] Findings submitted to API`);
-  } catch (err) {
-    await api.postLog(jobId, 'stderr', `[triage] Failed to submit findings: ${err}`);
-  }
+      recommendedNextAction: triageOutput.suggestedFix || 'Review analysis and implement fix',
+      suspectFiles: triageOutput.affectedFiles,
+    };
 
-  // ── 8. Post the discovery comment, then label the issue ─────────────
-  try {
-    await ghAddIssueComment(
-      owner,
-      repo,
-      issueNum,
-      buildTriageDiscoveryComment({ report: triageResult }),
-    );
-    await api.postLog(jobId, 'stdout', `[triage] Posted discovery comment on issue #${issueNum}`);
-  } catch (err) {
-    await api.postLog(jobId, 'stderr', `[triage] Could not post discovery comment: ${err}`);
+    try {
+      await fetch(`${api.baseUrl}/v1/runs/${workflowRunId}/findings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${api.secret}`,
+        },
+        body: JSON.stringify(findingPayload),
+      });
+      await api.postLog(jobId, 'stdout', `[triage] Findings submitted to API`);
+    } catch (err) {
+      await api.postLog(jobId, 'stderr', `[triage] Failed to submit findings: ${err}`);
+    }
+
+    // ── 7. Post the discovery comment, then label the issue ────────────
+    try {
+      await ghAddIssueComment(
+        owner,
+        repo,
+        issueNum,
+        buildTriageDiscoveryComment({ output: triageOutput }),
+      );
+      await api.postLog(jobId, 'stdout', `[triage] Posted discovery comment on issue #${issueNum}`);
+    } catch (err) {
+      await api.postLog(jobId, 'stderr', `[triage] Could not post discovery comment: ${err}`);
+      await api.submitReport(jobId, {
+        workflowRunId,
+        workflowType: 'triage',
+        status: 'failed',
+        summary: `Triage for #${issue.number} failed while posting the discovery comment`,
+        stageResults: [
+          { stage: 'auth', status: 'passed' },
+          { stage: 'issue_fetch', status: 'passed' },
+          { stage: 'repository_setup', status: 'passed' },
+          { stage: 'investigation', status: 'passed' },
+          { stage: 'findings', status: 'failed' },
+        ],
+      });
+      return;
+    }
+
+    const severityLabel = `severity-${triageOutput.severity.level.toLowerCase()}`;
+    const labels = ['triaged', severityLabel];
+    try {
+      await ghAddIssueLabels(owner, repo, issueNum, labels);
+    } catch (err) {
+      await api.postLog(jobId, 'stderr', `[triage] Could not label issue: ${err}`);
+    }
+
+    // ── 8. Done ────────────────────────────────────────────────────────
+    await api.postProgress(jobId, 'delivery', 'Triage complete');
+
     await api.submitReport(jobId, {
       workflowRunId,
       workflowType: 'triage',
-      status: 'failed',
-      summary: `Triage for #${issue.number} failed while posting the discovery comment`,
+      status: 'succeeded',
+      summary: `Triage for #${issue.number}: ${issue.title}`,
       stageResults: [
         { stage: 'auth', status: 'passed' },
         { stage: 'issue_fetch', status: 'passed' },
         { stage: 'repository_setup', status: 'passed' },
         { stage: 'investigation', status: 'passed' },
-        { stage: 'findings', status: 'failed' },
+        { stage: 'findings', status: 'passed' },
       ],
     });
-    return;
-  }
-
-  const severityLabel = parsed.severity ? `severity-${parsed.severity.toLowerCase()}` : 'severity-unknown';
-  const labels = ['triaged', severityLabel];
-  try {
-    await ghAddIssueLabels(owner, repo, issueNum, labels);
-  } catch (err) {
-    await api.postLog(jobId, 'stderr', `[triage] Could not label issue: ${err}`);
-  }
-
-  // ── 9. Done ────────────────────────────────────────────────────────
-  await api.postProgress(jobId, 'delivery', 'Triage complete');
-
-  await api.submitReport(jobId, {
-    workflowRunId,
-    workflowType: 'triage',
-    status: 'succeeded',
-    summary: `Triage for #${issue.number}: ${issue.title}`,
-    stageResults: [
-      { stage: 'auth', status: 'passed' },
-      { stage: 'issue_fetch', status: 'passed' },
-      { stage: 'repository_setup', status: 'passed' },
-      { stage: 'investigation', status: 'passed' },
-      { stage: 'findings', status: 'passed' },
-    ],
-  });
-
   } finally {
     if (workDir) {
       await cleanupWorkDir(workDir);

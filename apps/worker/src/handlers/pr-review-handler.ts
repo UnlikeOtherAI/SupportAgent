@@ -1,5 +1,7 @@
 import { exec } from 'node:child_process';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { z } from 'zod';
 import { type WorkerJob } from '@support-agent/contracts';
 import { type WorkerApiClient } from '../lib/api-client.js';
 import {
@@ -11,11 +13,30 @@ import {
   ghGetPRDiff,
   parseGitHubRef,
 } from '../lib/gh-cli.js';
+import {
+  ExecutorOutputError,
+  getDefaultExecutor,
+  runWithJsonOutput,
+  type Executor,
+} from '../executors/index.js';
 
 const execAsync = promisify(exec);
 const MAX_DIFF_BYTES = 48_000;
 const PR_REVIEW_MARKER = '<!-- supportagent:pr-review -->';
 const TRIGGER_BODY_MAX = 280;
+
+const PrReviewOutputSchema = z.object({
+  summary: z.string(),
+  recommendation: z.enum(['APPROVE', 'REQUEST_CHANGES', 'COMMENT']),
+  body: z.string(),
+});
+type PrReviewOutput = z.infer<typeof PrReviewOutputSchema>;
+
+const PR_REVIEW_OUTPUT_TEMPLATE: PrReviewOutput = {
+  summary: '',
+  recommendation: 'COMMENT',
+  body: '',
+};
 
 interface TriggerComment {
   id: string;
@@ -36,6 +57,10 @@ interface PrReviewHints {
   triggerContext?: TriggerContext;
 }
 
+export interface PrReviewHandlerOptions {
+  executor?: Executor;
+}
+
 function extractPrNumber(hints: PrReviewHints): number | null {
   if (typeof hints.prNumber === 'number' && hints.prNumber > 0) return hints.prNumber;
   if (typeof hints.prRef === 'string') {
@@ -52,7 +77,9 @@ function buildTriggerSnippet(body: string): string {
 export async function handlePrReviewJob(
   job: WorkerJob,
   api: WorkerApiClient,
+  options: PrReviewHandlerOptions = {},
 ): Promise<void> {
+  const executor = options.executor ?? getDefaultExecutor();
   const { jobId, workflowRunId, targetRepo } = job;
   const providerHints = (job as any).providerHints ?? {};
   const triggerContext = providerHints.triggerContext as TriggerContext | undefined;
@@ -143,13 +170,13 @@ export async function handlePrReviewJob(
     await api.postLog(jobId, 'stderr', `[pr-review] WARNING: could not check out PR branch: ${err}`);
   }
 
-  await api.postProgress(jobId, 'analysis', 'Running code review analysis');
+  await api.postProgress(jobId, 'analysis', `Running code review analysis (${executor.key})`);
 
   const triggerContextSection = triggerContext
     ? `\nReview requested by @${triggerContext.comment.author} with the comment:\n"${triggerContext.comment.body}"\nHonor any explicit flags or focus areas in that comment (e.g. --focus=security).\n`
     : '';
 
-  const reviewPrompt = `You are a senior software engineer reviewing a pull request.
+  const promptBody = `You are a senior software engineer reviewing a pull request.
 
 Repository: ${owner}/${repo}
 PR #${pr.number}: ${pr.title}
@@ -167,29 +194,44 @@ Produce a focused code review covering:
 - Security concerns (input validation, authentication, authorization, data handling)
 - Tests (missing coverage, fragile assertions, flakiness risk)
 
-Output format:
-## Summary
-One paragraph summarizing the PR and overall review verdict (approve / request changes / comment).
+You will produce a structured review. Each field has a specific purpose:
 
-## Strengths
-Bulleted list of concrete things this PR does well.
+- summary: One paragraph summarizing the PR and your overall verdict.
+- recommendation: One of "APPROVE", "REQUEST_CHANGES", "COMMENT".
+- body: The full markdown review that will be posted as a PR comment. Use these sections, in order:
 
-## Issues
-Numbered list of concrete issues. For each: file path and line if possible, problem description, and suggested fix with code when relevant.
+  ## Summary
+  One paragraph summarizing the PR and overall review verdict.
 
-## Recommendation
-One of: APPROVE, REQUEST_CHANGES, COMMENT. Justify in one sentence.`;
+  ## Strengths
+  Bulleted list of concrete things this PR does well.
+
+  ## Issues
+  Numbered list of concrete issues. For each: file path and line if possible, problem description, and suggested fix with code when relevant.
+
+  ## Recommendation
+  One of: APPROVE, REQUEST_CHANGES, COMMENT. Justify in one sentence.`;
+
+  const outputPath = join(workDir!, '.sa', `pr-review-${jobId}.json`);
 
   let reviewBody = '';
   try {
-    const { stdout } = await execAsync(
-      `max -p "${reviewPrompt.replace(/"/g, '\\"')}"`,
-      { timeout: 300_000, cwd: workDir },
-    );
-    reviewBody = stdout.trim();
-  } catch (err: any) {
-    reviewBody = `[max review unavailable: ${err.message ?? err}]\n\nManual review required.`;
-    await api.postLog(jobId, 'stderr', `[pr-review] max review failed: ${err.message ?? err}`);
+    const reviewOutput = await runWithJsonOutput(executor, {
+      promptBody,
+      schema: PrReviewOutputSchema,
+      template: PR_REVIEW_OUTPUT_TEMPLATE,
+      outputPath,
+      cwd: workDir,
+      timeoutMs: 300_000,
+    });
+    reviewBody = reviewOutput.body.trim() || reviewOutput.summary;
+  } catch (err) {
+    const detail =
+      err instanceof ExecutorOutputError
+        ? `${err.message}\n--- raw output (first 500 chars) ---\n${err.rawContent.slice(0, 500)}`
+        : (err as Error).message;
+    reviewBody = `[${executor.key} review unavailable: ${(err as Error).message}]\n\nManual review required.`;
+    await api.postLog(jobId, 'stderr', `[pr-review] ${executor.key} review failed: ${detail}`);
   }
 
   await api.postLog(jobId, 'stdout', `[pr-review] Review:\n${reviewBody.slice(0, 2000)}`);

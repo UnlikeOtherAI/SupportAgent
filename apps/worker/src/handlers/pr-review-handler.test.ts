@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { handlePrReviewJob } from './pr-review-handler.js';
 import { type WorkerApiClient } from '../lib/api-client.js';
 import { type WorkerJob } from '@support-agent/contracts';
@@ -9,13 +12,12 @@ import {
   ghGetPR,
   ghGetPRDiff,
 } from '../lib/gh-cli.js';
-
-let reviewOutput = '';
+import type { Executor } from '../executors/index.js';
 
 vi.mock('node:child_process', () => ({
   exec: vi.fn((...args: any[]) => {
     const callback = args[args.length - 1] as (err: null, result: { stdout: string }) => void;
-    callback(null, { stdout: reviewOutput });
+    callback(null, { stdout: '' });
   }),
 }));
 
@@ -29,9 +31,29 @@ vi.mock('../lib/gh-cli.js', () => ({
   cleanupWorkDir: vi.fn(),
 }));
 
-beforeEach(() => {
+let workDir = '';
+let reviewBody = '';
+
+function makeExecutor(): Executor {
+  return {
+    key: 'mock',
+    async run() {
+      return {
+        stdout: '',
+        outputContent: JSON.stringify({
+          summary: 'Looks good.',
+          recommendation: 'COMMENT',
+          body: reviewBody,
+        }),
+      };
+    },
+  };
+}
+
+beforeEach(async () => {
   vi.clearAllMocks();
-  reviewOutput = '## Summary\nLooks good.';
+  workDir = await mkdtemp(join(tmpdir(), 'pr-review-handler-'));
+  reviewBody = '## Summary\nLooks good.';
 
   vi.mocked(ghCheckAuth).mockResolvedValue(true);
   vi.mocked(ghGetPR).mockResolvedValue({
@@ -47,8 +69,12 @@ beforeEach(() => {
     url: 'https://github.com/rafiki270/max-test/pull/42',
   });
   vi.mocked(ghGetPRDiff).mockResolvedValue('diff --git a/src/index.ts b/src/index.ts');
-  vi.mocked(ghCloneRepo).mockResolvedValue({ workDir: '/tmp/work-dir', branch: 'main' });
+  vi.mocked(ghCloneRepo).mockResolvedValue({ workDir, branch: 'main' });
   vi.mocked(ghAddPRComment).mockResolvedValue(undefined);
+});
+
+afterEach(async () => {
+  await rm(workDir, { recursive: true, force: true });
 });
 
 function makeApi(): { api: WorkerApiClient; submitReport: ReturnType<typeof vi.fn>; postLog: ReturnType<typeof vi.fn> } {
@@ -105,7 +131,7 @@ describe('handlePrReviewJob', () => {
         },
       });
 
-      await handlePrReviewJob(job, api);
+      await handlePrReviewJob(job, api, { executor: makeExecutor() });
 
       const [, , , commentBody] = vi.mocked(ghAddPRComment).mock.calls[0];
       expect(commentBody).toContain('@alice');
@@ -125,7 +151,7 @@ describe('handlePrReviewJob', () => {
         },
       });
 
-      await handlePrReviewJob(job, api);
+      await handlePrReviewJob(job, api, { executor: makeExecutor() });
 
       const [, , , commentBody] = vi.mocked(ghAddPRComment).mock.calls[0];
       expect(commentBody).toContain('Triggered by @bob');
@@ -147,7 +173,7 @@ describe('handlePrReviewJob', () => {
         },
       });
 
-      await handlePrReviewJob(job, api);
+      await handlePrReviewJob(job, api, { executor: makeExecutor() });
 
       const [, , , commentBody] = vi.mocked(ghAddPRComment).mock.calls[0];
       expect(commentBody).toContain(
@@ -169,7 +195,7 @@ describe('handlePrReviewJob', () => {
         },
       });
 
-      await handlePrReviewJob(job, api);
+      await handlePrReviewJob(job, api, { executor: makeExecutor() });
 
       const [, , , commentBody] = vi.mocked(ghAddPRComment).mock.calls[0];
       expect(commentBody).toContain('Triggered by @grace:');
@@ -190,7 +216,7 @@ describe('handlePrReviewJob', () => {
         },
       });
 
-      await handlePrReviewJob(job, api);
+      await handlePrReviewJob(job, api, { executor: makeExecutor() });
 
       const logCalls = vi.mocked(postLog).mock.calls.map(([, , msg]) => msg);
       expect(logCalls.some((msg) => msg.includes('@carol'))).toBe(true);
@@ -202,7 +228,7 @@ describe('handlePrReviewJob', () => {
       const { api } = makeApi();
       const job = makeJob();
 
-      await handlePrReviewJob(job, api);
+      await handlePrReviewJob(job, api, { executor: makeExecutor() });
 
       const [, , , commentBody] = vi.mocked(ghAddPRComment).mock.calls[0];
       expect(commentBody).not.toContain('Triggered by');
@@ -212,7 +238,7 @@ describe('handlePrReviewJob', () => {
       const { api, submitReport } = makeApi();
       const job = makeJob();
 
-      await handlePrReviewJob(job, api);
+      await handlePrReviewJob(job, api, { executor: makeExecutor() });
 
       expect(submitReport).toHaveBeenCalledTimes(1);
       const [, report] = submitReport.mock.calls[0];
@@ -236,7 +262,7 @@ describe('handlePrReviewJob', () => {
         },
       });
 
-      await handlePrReviewJob(job, api);
+      await handlePrReviewJob(job, api, { executor: makeExecutor() });
 
       const [, , , commentBody] = vi.mocked(ghAddPRComment).mock.calls[0];
       // The footer snippet must be truncated — not the full 300-char string
@@ -262,7 +288,7 @@ describe('handlePrReviewJob', () => {
         },
       });
 
-      await handlePrReviewJob(job, api);
+      await handlePrReviewJob(job, api, { executor: makeExecutor() });
 
       const [, , , commentBody] = vi.mocked(ghAddPRComment).mock.calls[0];
       expect(commentBody).toContain(exactBody);

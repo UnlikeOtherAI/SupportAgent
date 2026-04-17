@@ -10,17 +10,7 @@ import {
   ghGetPRFiles,
   ghMergePR,
 } from '../lib/gh-cli.js';
-
-let reviewOutput = '';
-let executedReviewPrompt = '';
-
-vi.mock('node:child_process', () => ({
-  exec: vi.fn((...args: any[]) => {
-    executedReviewPrompt = args[0] as string;
-    const callback = args[args.length - 1] as (err: null, result: { stdout: string }) => void;
-    callback(null, { stdout: reviewOutput });
-  }),
-}));
+import type { Executor } from '../executors/index.js';
 
 vi.mock('../lib/gh-cli.js', () => ({
   ghAddPRComment: vi.fn(),
@@ -32,9 +22,21 @@ vi.mock('../lib/gh-cli.js', () => ({
   ghGetIssue: vi.fn(),
 }));
 
+let executorPrompt = '';
+
+function makeExecutor(outputContent: string): Executor {
+  return {
+    key: 'mock',
+    async run(input) {
+      executorPrompt = input.prompt;
+      return { stdout: '', outputContent };
+    },
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  executedReviewPrompt = '';
+  executorPrompt = '';
 });
 
 function makeJob(): WorkerJob {
@@ -76,12 +78,14 @@ describe('handleMergeJob', () => {
   it.each(['comment', 'request_changes'] as const)(
     'marks %s review decisions as failed when the PR is not merged',
     async (decision) => {
-      reviewOutput = JSON.stringify({
-        decision,
-        summary: 'Human follow-up is needed',
-        concerns: ['Needs manual review'],
-        praise: [],
-      });
+      const executor = makeExecutor(
+        JSON.stringify({
+          decision,
+          summary: 'Human follow-up is needed',
+          concerns: ['Needs manual review'],
+          praise: [],
+        }),
+      );
 
       vi.mocked(ghCheckAuth).mockResolvedValue(true);
       vi.mocked(ghGetPR).mockResolvedValue({
@@ -104,7 +108,7 @@ describe('handleMergeJob', () => {
       const { api, submitReport } = makeApi();
       const job = makeJob();
 
-      await expect(handleMergeJob(job, api)).resolves.toBeUndefined();
+      await expect(handleMergeJob(job, api, { executor })).resolves.toBeUndefined();
 
       expect(ghMergePR).not.toHaveBeenCalled();
       expect(submitReport).toHaveBeenCalledTimes(1);
@@ -124,12 +128,14 @@ describe('handleMergeJob', () => {
   );
 
   it('keeps approved and merged PRs succeeded', async () => {
-    reviewOutput = JSON.stringify({
-      decision: 'approve',
-      summary: 'Looks good',
-      concerns: [],
-      praise: ['Good structure'],
-    });
+    const executor = makeExecutor(
+      JSON.stringify({
+        decision: 'approve',
+        summary: 'Looks good',
+        concerns: [],
+        praise: ['Good structure'],
+      }),
+    );
 
     vi.mocked(ghCheckAuth).mockResolvedValue(true);
     vi.mocked(ghGetPR).mockResolvedValue({
@@ -152,7 +158,7 @@ describe('handleMergeJob', () => {
     const { api, submitReport } = makeApi();
     const job = makeJob();
 
-    await expect(handleMergeJob(job, api)).resolves.toBeUndefined();
+    await expect(handleMergeJob(job, api, { executor })).resolves.toBeUndefined();
 
     expect(ghMergePR).toHaveBeenCalledWith('rafiki270', 'max-test', 32, 'squash');
     const [, report] = submitReport.mock.calls[0];
@@ -164,12 +170,14 @@ describe('handleMergeJob', () => {
   });
 
   it('instructs the reviewer to avoid speculative request-changes decisions', async () => {
-    reviewOutput = JSON.stringify({
-      decision: 'comment',
-      summary: 'Looks fine overall',
-      concerns: [],
-      praise: [],
-    });
+    const executor = makeExecutor(
+      JSON.stringify({
+        decision: 'comment',
+        summary: 'Looks fine overall',
+        concerns: [],
+        praise: [],
+      }),
+    );
 
     vi.mocked(ghCheckAuth).mockResolvedValue(true);
     vi.mocked(ghGetPR).mockResolvedValue({
@@ -192,11 +200,11 @@ describe('handleMergeJob', () => {
     const { api } = makeApi();
     const job = makeJob();
 
-    await expect(handleMergeJob(job, api)).resolves.toBeUndefined();
+    await expect(handleMergeJob(job, api, { executor })).resolves.toBeUndefined();
 
-    expect(executedReviewPrompt).toContain('Only raise a concern when it is directly supported');
-    expect(executedReviewPrompt).toContain('Do not speculate about missing lint or formatting problems');
-    expect(executedReviewPrompt).toContain('Prefer');
-    expect(executedReviewPrompt).toContain('request_changes');
+    expect(executorPrompt).toContain('Only raise a concern when it is directly supported');
+    expect(executorPrompt).toContain('Do not speculate about missing lint or formatting problems');
+    expect(executorPrompt).toContain('Prefer');
+    expect(executorPrompt).toContain('request_changes');
   });
 });

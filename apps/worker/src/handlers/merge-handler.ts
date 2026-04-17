@@ -1,5 +1,6 @@
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { z } from 'zod';
 import { type WorkerJob } from '@support-agent/contracts';
 import { type WorkerApiClient } from '../lib/api-client.js';
 import {
@@ -9,19 +10,36 @@ import {
   ghMergePR,
   ghAddPRComment,
   ghGetPRFiles,
-  ghGetIssue,
 } from '../lib/gh-cli.js';
+import {
+  ExecutorOutputError,
+  getDefaultExecutor,
+  runWithJsonOutput,
+  type Executor,
+} from '../executors/index.js';
 
-const execAsync = promisify(exec);
+const MergeReviewSchema = z.object({
+  decision: z.enum(['approve', 'request_changes', 'comment']),
+  summary: z.string(),
+  concerns: z.array(z.string()),
+  praise: z.array(z.string()),
+});
+type MergeReview = z.infer<typeof MergeReviewSchema>;
 
-interface ReviewResult {
-  decision: 'approve' | 'request_changes' | 'comment';
-  summary: string;
-  concerns: string[];
-  praise: string[];
+const MERGE_REVIEW_TEMPLATE: MergeReview = {
+  decision: 'comment',
+  summary: '',
+  concerns: [],
+  praise: [],
+};
+
+export interface MergeHandlerOptions {
+  executor?: Executor;
 }
 
 async function runAIReview(
+  executor: Executor,
+  jobId: string,
   owner: string,
   repo: string,
   prNumber: number,
@@ -29,8 +47,7 @@ async function runAIReview(
   body: string | null,
   baseBranch: string,
   onLog: (msg: string) => void,
-): Promise<ReviewResult> {
-  // Get PR diff and changed files
+): Promise<MergeReview> {
   onLog(`[merge] Fetching PR diff for #${prNumber}`);
   let diff = '';
   try {
@@ -47,7 +64,7 @@ async function runAIReview(
     onLog(`[merge] Could not get file list: ${err}`);
   }
 
-  const reviewPrompt = `You are a senior code reviewer. Review this pull request carefully.
+  const promptBody = `You are a senior code reviewer. Review this pull request carefully.
 
 Repository: ${owner}/${repo}
 PR #${prNumber}: ${title}
@@ -71,52 +88,45 @@ Review Rules:
 - Do not speculate about missing lint or formatting problems unless the diff explicitly shows them.
 - Prefer "comment" over "request_changes" when you are uncertain or the concern is minor.
 
-Respond with your review in this JSON format:
-{
-  "decision": "approve" | "request_changes" | "comment",
-  "summary": "One sentence summary of your verdict",
-  "concerns": ["concern 1", "concern 2"],
-  "praise": ["what was done well"]
-}
+Field meanings:
+- decision: one of "approve", "request_changes", "comment"
+- summary: one-sentence verdict
+- concerns: list of concrete concerns; empty list if none
+- praise: list of things the PR does well; empty list if none
 
 Be honest. Request changes if there are real problems.`;
 
-  let reviewOutput = '';
+  const outputPath = join(tmpdir(), `merge-review-${jobId}.json`);
+
   try {
-    const { stdout } = await execAsync(
-      `max -p "${reviewPrompt.replace(/"/g, '\\"')}"`,
-      { timeout: 300_000 },
-    );
-    reviewOutput = stdout;
-  } catch (err: any) {
-    reviewOutput = JSON.stringify({
+    return await runWithJsonOutput(executor, {
+      promptBody,
+      schema: MergeReviewSchema,
+      template: MERGE_REVIEW_TEMPLATE,
+      outputPath,
+      timeoutMs: 300_000,
+    });
+  } catch (err) {
+    const detail =
+      err instanceof ExecutorOutputError
+        ? `${err.message}\n--- raw output (first 500 chars) ---\n${err.rawContent.slice(0, 500)}`
+        : (err as Error).message;
+    onLog(`[merge] ${executor.key} review failed: ${detail}`);
+    return {
       decision: 'comment',
-      summary: `Review tool failed: ${err.message}`,
+      summary: `Review tool failed: ${(err as Error).message}`,
       concerns: ['Review tool could not run'],
       praise: [],
-    });
-    onLog(`[merge] max review failed: ${err.message}`);
+    };
   }
-
-  // Try to parse JSON
-  try {
-    const jsonMatch = reviewOutput.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]) as ReviewResult;
-    }
-  } catch {
-    onLog(`[merge] Could not parse review JSON`);
-  }
-
-  return {
-    decision: 'comment',
-    summary: reviewOutput.slice(0, 300),
-    concerns: ['Could not parse structured review'],
-    praise: [],
-  };
 }
 
-export async function handleMergeJob(job: WorkerJob, api: WorkerApiClient): Promise<void> {
+export async function handleMergeJob(
+  job: WorkerJob,
+  api: WorkerApiClient,
+  options: MergeHandlerOptions = {},
+): Promise<void> {
+  const executor = options.executor ?? getDefaultExecutor();
   const { jobId, workflowRunId, targetRepo } = job;
 
   await api.postProgress(jobId, 'auth', 'Checking GitHub authentication');
@@ -237,11 +247,21 @@ export async function handleMergeJob(job: WorkerJob, api: WorkerApiClient): Prom
   }
 
   // Run AI review
-  await api.postProgress(jobId, 'review', 'Running AI code review with max m2.7');
-  await api.postLog(jobId, 'stdout', `[merge] Running AI review on PR #${prNumber}`);
+  await api.postProgress(jobId, 'review', `Running AI code review (${executor.key})`);
+  await api.postLog(jobId, 'stdout', `[merge] Running ${executor.key} review on PR #${prNumber}`);
 
   const logFn = (msg: string) => api.postLog(jobId, 'stdout', msg);
-  const review = await runAIReview(owner, repo, prNumber, pr.title, pr.body ?? '', pr.base, logFn);
+  const review = await runAIReview(
+    executor,
+    jobId,
+    owner,
+    repo,
+    prNumber,
+    pr.title,
+    pr.body ?? '',
+    pr.base,
+    logFn,
+  );
 
   await api.postLog(jobId, 'stdout', `[merge] Review decision: ${review.decision}`);
   await api.postLog(jobId, 'stdout', `[merge] Summary: ${review.summary}`);
@@ -249,18 +269,25 @@ export async function handleMergeJob(job: WorkerJob, api: WorkerApiClient): Prom
   await api.postProgress(jobId, 'review', `Decision: ${review.decision}`);
 
   // Post review comment
-  const reviewComment = `## AI Code Review Results (SupportAgent — max m2.7)
+  const verdictBadge =
+    review.decision === 'approve'
+      ? 'APPROVE'
+      : review.decision === 'request_changes'
+        ? 'REQUEST CHANGES'
+        : 'COMMENT';
 
-### Verdict: **${review.decision === 'approve' ? '✅ APPROVE' : review.decision === 'request_changes' ? '❌ REQUEST CHANGES' : '💬 COMMENT'}**
+  const reviewComment = `## AI Code Review Results (SupportAgent — ${executor.key})
+
+### Verdict: **${verdictBadge}**
 
 **Summary:** ${review.summary}
 
 ${review.praise.length > 0 ? `### What looks good
-${review.praise.map(p => `- ${p}`).join('\n')}\n` : ''}
+${review.praise.map((p) => `- ${p}`).join('\n')}\n` : ''}
 ${review.concerns.length > 0 ? `### Concerns
-${review.concerns.map(c => `- ${c}`).join('\n')}\n` : ''}
+${review.concerns.map((c) => `- ${c}`).join('\n')}\n` : ''}
 ---
-*Automated review by SupportAgent (max m2.7)*`;
+*Automated review by SupportAgent (${executor.key})*`;
 
   try {
     await ghAddPRComment(owner, repo, prNumber, reviewComment);
@@ -275,7 +302,7 @@ ${review.concerns.map(c => `- ${c}`).join('\n')}\n` : ''}
   if (review.decision === 'approve') {
     try {
       await ghMergePR(owner, repo, prNumber, 'squash');
-      await api.postLog(jobId, 'stdout', `[merge] ✅ PR #${prNumber} merged (squash)`);
+      await api.postLog(jobId, 'stdout', `[merge] PR #${prNumber} merged (squash)`);
       await api.postProgress(jobId, 'merge', 'PR merged successfully');
     } catch (err) {
       await api.postLog(jobId, 'stderr', `[merge] Merge failed: ${err}`);

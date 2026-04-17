@@ -1,35 +1,51 @@
+import { z } from 'zod';
 import { type GitHubIssueSummary } from '@support-agent/github-cli';
 
 export const TRIAGE_DISCOVERY_MARKER = '<!-- support-agent:triage-discovery -->';
 
-const CANONICAL_SECTIONS = [
-  'Summary',
-  'Root Cause',
-  'Replication Steps',
-  'Suggested Fix',
-  'Severity',
-  'Confidence',
-  'Affected Files',
-  'Logs Excerpt',
-  'Sources',
-] as const;
+export const TriageSeveritySchema = z.enum(['Low', 'Medium', 'High', 'Critical', 'Unknown']);
+export const TriageConfidenceSchema = z.enum(['Low', 'Medium', 'High']);
 
-type SectionName = (typeof CANONICAL_SECTIONS)[number];
+export const TriageOutputSchema = z.object({
+  summary: z.string(),
+  rootCause: z.string(),
+  replicationSteps: z.string(),
+  suggestedFix: z.string(),
+  severity: z.object({
+    level: TriageSeveritySchema,
+    justification: z.string(),
+  }),
+  confidence: z.object({
+    label: TriageConfidenceSchema,
+    reason: z.string(),
+  }),
+  affectedFiles: z.array(z.string()),
+  logsExcerpt: z.string(),
+  sources: z.array(z.string()),
+});
 
-export interface ParsedTriageReport {
-  summary: string;
-  rootCause: string;
-  replicationSteps: string;
-  suggestedFix: string;
-  severity: 'Low' | 'Medium' | 'High' | 'Critical' | null;
-  severityJustification: string;
-  confidenceLabel: 'Low' | 'Medium' | 'High' | null;
-  confidenceReason: string;
-  confidenceNumeric: number;
-  affectedFiles: string[];
-  logsExcerpt: string;
-  sources: string[];
-  sectionMap: Record<SectionName, string>;
+export type TriageOutput = z.infer<typeof TriageOutputSchema>;
+
+export const TRIAGE_OUTPUT_TEMPLATE: TriageOutput = {
+  summary: '',
+  rootCause: '',
+  replicationSteps: '',
+  suggestedFix: '',
+  severity: { level: 'Unknown', justification: '' },
+  confidence: { label: 'Low', reason: '' },
+  affectedFiles: [],
+  logsExcerpt: '',
+  sources: [],
+};
+
+const CONFIDENCE_NUMERIC: Record<z.infer<typeof TriageConfidenceSchema>, number> = {
+  Low: 0.3,
+  Medium: 0.6,
+  High: 0.85,
+};
+
+export function confidenceNumeric(label: TriageOutput['confidence']['label']): number {
+  return CONFIDENCE_NUMERIC[label];
 }
 
 export function hasDiscoveryComment(issue: GitHubIssueSummary): boolean {
@@ -42,142 +58,64 @@ export function hasTriagedLabel(issue: GitHubIssueSummary): boolean {
   return issue.labels.some((label) => label.toLowerCase() === 'triaged');
 }
 
-function extractSections(report: string): Record<SectionName, string> {
-  const map: Record<string, string> = {};
-  for (const name of CANONICAL_SECTIONS) map[name] = '';
-
-  // Walk line-by-line tracking fence state so that headings inside fenced
-  // code blocks (``` or ~~~) are not treated as section boundaries.
-  const lines = report.split('\n');
-  const headingRegex = /^\s{0,3}#{1,4}\s+(.+?)\s*$/;
-
-  let fenceMarker: string | null = null; // the opening fence string (``` or ~~~)
-  const matches: Array<{ name: SectionName; contentStart: number; headingEnd: number }> = [];
-
-  let offset = 0;
-  for (const line of lines) {
-    const lineEnd = offset + line.length + 1; // +1 for the '\n'
-
-    if (fenceMarker === null) {
-      // Check for opening fence — CommonMark allows up to 3 leading spaces.
-      const fenceOpen = /^ {0,3}(`{3,}|~{3,})/.exec(line);
-      if (fenceOpen) {
-        fenceMarker = fenceOpen[1]; // homogeneous run of ` or ~
-      } else {
-        // Only match headings outside fences
-        const headingMatch = headingRegex.exec(line);
-        if (headingMatch) {
-          const raw = headingMatch[1].trim();
-          const canonical = CANONICAL_SECTIONS.find(
-            (s) => s.toLowerCase() === raw.toLowerCase(),
-          );
-          if (canonical) {
-            matches.push({
-              name: canonical,
-              contentStart: offset + headingMatch[0].length,
-              headingEnd: offset,
-            });
-          }
-        }
-      }
-    } else {
-      // Inside a fence — closing fence must be same char, same or greater
-      // length, and may be indented up to 3 spaces (CommonMark).
-      const fenceClose = new RegExp(`^ {0,3}${fenceMarker[0] === '`' ? '`' : '~'}{${fenceMarker.length},}\\s*$`);
-      if (fenceClose.test(line)) {
-        fenceMarker = null;
-      }
-    }
-
-    offset = lineEnd;
-  }
-
-  for (let i = 0; i < matches.length; i++) {
-    const current = matches[i];
-    const next = matches[i + 1];
-    const end = next ? next.headingEnd : report.length;
-    map[current.name] = report.slice(current.contentStart, end).trim();
-  }
-
-  return map as Record<SectionName, string>;
+function renderBulletList(items: string[]): string {
+  if (items.length === 0) return 'None available.';
+  return items.map((item) => `- ${item}`).join('\n');
 }
 
-function parseSeverity(line: string): {
-  level: ParsedTriageReport['severity'];
-  justification: string;
-} {
-  const trimmed = line.trim();
-  const levels: NonNullable<ParsedTriageReport['severity']>[] = ['Critical', 'High', 'Medium', 'Low'];
-  for (const lvl of levels) {
-    const re = new RegExp(`^${lvl}\\b`, 'i');
-    if (re.test(trimmed)) {
-      const rest = trimmed.slice(lvl.length).replace(/^[\s\u2014\u2013\-:]+/, '').trim();
-      return { level: lvl, justification: rest };
-    }
-  }
-  return { level: null, justification: trimmed };
+function renderSeverityLine(severity: TriageOutput['severity']): string {
+  return severity.justification.length > 0
+    ? `${severity.level} — ${severity.justification}`
+    : severity.level;
 }
 
-function parseConfidence(line: string): {
-  label: ParsedTriageReport['confidenceLabel'];
-  reason: string;
-  numeric: number;
-} {
-  const trimmed = line.trim();
-  const levels: Array<{ label: NonNullable<ParsedTriageReport['confidenceLabel']>; numeric: number }> = [
-    { label: 'High', numeric: 0.85 },
-    { label: 'Medium', numeric: 0.6 },
-    { label: 'Low', numeric: 0.3 },
-  ];
-  for (const lvl of levels) {
-    const re = new RegExp(`^${lvl.label}\\b`, 'i');
-    if (re.test(trimmed)) {
-      const rest = trimmed.slice(lvl.label.length).replace(/^[\s\u2014\u2013\-:]+/, '').trim();
-      return { label: lvl.label, reason: rest, numeric: lvl.numeric };
-    }
-  }
-  return { label: null, reason: trimmed, numeric: 0.5 };
+function renderConfidenceLine(confidence: TriageOutput['confidence']): string {
+  return confidence.reason.length > 0
+    ? `${confidence.label} — ${confidence.reason}`
+    : confidence.label;
 }
 
-function parseBulletList(body: string): string[] {
-  return body
-    .split('\n')
-    .map((line) => line.replace(/^\s*[-*]\s+/, '').trim())
-    .filter((line) => line.length > 0 && !/^none available\.?$/i.test(line));
+function renderLogsExcerpt(text: string): string {
+  if (!text.trim()) return 'None available.';
+  return ['```', text, '```'].join('\n');
 }
 
-function firstMeaningfulLine(body: string): string {
-  for (const raw of body.split('\n')) {
-    const line = raw.trim();
-    if (line.length > 0 && !line.startsWith('```')) return line;
-  }
-  return '';
+/**
+ * Render a TriageOutput object as the canonical 9-section markdown report.
+ * The exact heading order and section names are part of the contract — other
+ * tooling reads this comment.
+ */
+export function renderTriageReportMarkdown(output: TriageOutput): string {
+  return [
+    '## Summary',
+    output.summary || '_(no summary)_',
+    '',
+    '## Root Cause',
+    output.rootCause || '_(no root cause identified)_',
+    '',
+    '## Replication Steps',
+    output.replicationSteps || '_(no replication steps)_',
+    '',
+    '## Suggested Fix',
+    output.suggestedFix || '_(no fix suggested)_',
+    '',
+    '## Severity',
+    renderSeverityLine(output.severity),
+    '',
+    '## Confidence',
+    renderConfidenceLine(output.confidence),
+    '',
+    '## Affected Files',
+    renderBulletList(output.affectedFiles),
+    '',
+    '## Logs Excerpt',
+    renderLogsExcerpt(output.logsExcerpt),
+    '',
+    '## Sources',
+    renderBulletList(output.sources),
+  ].join('\n');
 }
 
-export function parseTriageReport(report: string): ParsedTriageReport {
-  const sections = extractSections(report);
-
-  const severityInfo = parseSeverity(firstMeaningfulLine(sections.Severity));
-  const confidenceInfo = parseConfidence(firstMeaningfulLine(sections.Confidence));
-
-  return {
-    summary: sections.Summary.trim(),
-    rootCause: sections['Root Cause'].trim(),
-    replicationSteps: sections['Replication Steps'].trim(),
-    suggestedFix: sections['Suggested Fix'].trim(),
-    severity: severityInfo.level,
-    severityJustification: severityInfo.justification,
-    confidenceLabel: confidenceInfo.label,
-    confidenceReason: confidenceInfo.reason,
-    confidenceNumeric: confidenceInfo.numeric,
-    affectedFiles: parseBulletList(sections['Affected Files']),
-    logsExcerpt: sections['Logs Excerpt'].trim(),
-    sources: parseBulletList(sections.Sources),
-    sectionMap: sections,
-  };
-}
-
-export function buildTriageDiscoveryComment(input: { report: string }): string {
-  const report = input.report.trim();
-  return `${TRIAGE_DISCOVERY_MARKER}\n${report}`;
+export function buildTriageDiscoveryComment(input: { output: TriageOutput }): string {
+  return `${TRIAGE_DISCOVERY_MARKER}\n${renderTriageReportMarkdown(input.output)}`;
 }
