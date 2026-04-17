@@ -44,21 +44,6 @@ export const router = createBrowserRouter([
         { path: 'connectors/:id/edit',     element: load(() => import('@/pages/ConnectorEditPage')) },
         { path: 'connectors/:id/triggers', element: load(() => import('@/pages/ConnectorTriggersPage')) },
 
-        /* Repositories */
-        { path: 'repositories',          element: load(() => import('@/pages/RepositoriesPage')) },
-        { path: 'repositories/new',      element: load(() => import('@/pages/RepositoryNewPage')) },
-        { path: 'repositories/:id',      element: load(() => import('@/pages/RepositoryDetailPage')) },
-        { path: 'repositories/:id/edit', element: load(() => import('@/pages/RepositoryEditPage')) },
-
-        /* Routing */
-        { path: 'routing',                       element: load(() => import('@/pages/RoutingPage')) },
-        { path: 'routing/rules/new',              element: load(() => import('@/pages/RoutingRuleNewPage')) },
-        { path: 'routing/rules/:id',              element: load(() => import('@/pages/RoutingRuleDetailPage')) },
-        { path: 'routing/rules/:id/edit',         element: load(() => import('@/pages/RoutingRuleEditPage')) },
-        { path: 'routing/destinations',            element: load(() => import('@/pages/DestinationsPage')) },
-        { path: 'routing/destinations/new',        element: load(() => import('@/pages/DestinationNewPage')) },
-        { path: 'routing/destinations/:id',        element: load(() => import('@/pages/DestinationDetailPage')) },
-        { path: 'routing/destinations/:id/edit',   element: load(() => import('@/pages/DestinationEditPage')) },
 
         /* Scenarios */
         { path: 'workflows',                 element: load(() => import('@/pages/WorkflowsPage')) },

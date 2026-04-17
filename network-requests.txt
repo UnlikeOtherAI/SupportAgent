@@ -1,0 +1,2 @@
+[GET] http://localhost:4440/v1/platform-types => [200] OK
+[GET] http://localhost:4440/v1/connectors?limit=100 => [200] OK
