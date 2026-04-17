@@ -14,4 +14,5 @@ test-results/
 playwright-report/
 *.png
 *.txt
+*-snapshot.yml
 apps/worker/[0-9]*
