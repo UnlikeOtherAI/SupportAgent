@@ -1,4 +1,5 @@
 import { type PrismaClient } from '@prisma/client';
+import { matchesPrCommentTrigger } from '@support-agent/contracts';
 
 export type TriggerKind =
   | 'github.issue.opened'
@@ -179,11 +180,7 @@ export function createScenarioMatcher(prisma: PrismaClient) {
       }
 
       if (event.kind === 'github.pull_request.comment') {
-        const keyword = typeof scenario.trigger.config.keyword === 'string'
-          ? scenario.trigger.config.keyword.trim()
-          : '';
-        if (!keyword) return false;
-        return event.body.includes(keyword);
+        return matchesPrCommentTrigger(scenario, { body: event.body, author: event.author });
       }
 
       return true;

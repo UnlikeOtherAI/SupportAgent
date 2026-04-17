@@ -6,6 +6,7 @@ import {
   type GitHubIssueSummary,
   type GitHubPrComment,
 } from '@support-agent/github-cli';
+import { matchesPrCommentTrigger } from './trigger-matchers.js';
 
 export interface PollingScenarioTarget {
   connectorId: string;
@@ -110,14 +111,6 @@ function matchesIssueLabeledTrigger(scenario: CompiledScenario, label: string) {
 
 function matchesPrOpenedTrigger(scenario: CompiledScenario) {
   return scenario.trigger.kind === 'github.pull_request.opened';
-}
-
-function matchesPrCommentTrigger(scenario: CompiledScenario, body: string) {
-  if (scenario.trigger.kind !== 'github.pull_request.comment') return false;
-  const keyword = typeof scenario.trigger.config.keyword === 'string'
-    ? scenario.trigger.config.keyword.trim()
-    : '';
-  return keyword !== '' && body.includes(keyword);
 }
 
 function anyScenarioWantsIssues(scenarios: CompiledScenario[]) {
@@ -269,7 +262,7 @@ async function processPrsForTarget(input: {
     for (const comment of comments) {
       for (const scenario of input.scenarios) {
         if (!scenarioAppliesToConnector(scenario, input.target.connectorId)) continue;
-        if (!matchesPrCommentTrigger(scenario, comment.body)) continue;
+        if (!matchesPrCommentTrigger(scenario, { body: comment.body, author: comment.author })) continue;
 
         await dispatchScenarioEvent({
           apiBaseUrl: input.apiBaseUrl,

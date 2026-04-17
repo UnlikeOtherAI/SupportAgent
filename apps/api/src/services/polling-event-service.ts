@@ -76,12 +76,17 @@ function workflowTypeForAction(actionKind: string): 'triage' | 'build' | 'review
   return null;
 }
 
-function dedupeKeyForEvent(event: PollingEvent, scenarioId: string, repositoryUrl: string) {
+export function dedupeKeyForEvent(event: PollingEvent, scenarioId: string, repositoryUrl: string) {
   if (event.kind === 'github.issue.opened') {
     return `scn:${scenarioId}:${repositoryUrl}:issue-opened:${event.issue.number}`;
   }
   if (event.kind === 'github.issue.labeled') {
-    return `scn:${scenarioId}:${repositoryUrl}:issue-labeled:${event.label}:${event.issue.number}`;
+    // updatedAt is included so that removing and re-adding a label (which bumps
+    // updatedAt on the issue) produces a fresh dedupe key and allows the scenario
+    // to fire again. When updatedAt is absent we fall back to Date.now() so that
+    // every poll produces a unique key rather than creating a permanent block.
+    const discriminator = event.issue.updatedAt ?? String(Date.now());
+    return `scn:${scenarioId}:${repositoryUrl}:issue-labeled:${event.label}:${event.issue.number}:${discriminator}`;
   }
   if (event.kind === 'github.pull_request.opened') {
     return `scn:${scenarioId}:${repositoryUrl}:pr-opened:${event.pr.number}`;
