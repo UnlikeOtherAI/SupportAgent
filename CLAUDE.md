@@ -28,3 +28,4 @@ Read these before meaningful work:
 - The admin panel is CSR React only.
 - Tailwind is the styling system.
 - Use the local skill notes in `docs/skills/` when building architecture or UI.
+- Run Playwright headless unless the user explicitly requests headed mode.

@@ -11,7 +11,7 @@ When building the admin app:
 - scaffold each new page with `wf` CLI
 - build one page or route slice at a time
 - wire the real route, query, and mutation boundary before moving on
-- run a Playwright clickthrough after each loop turn
+- run a Playwright clickthrough after each loop turn (headless unless explicitly requested otherwise)
 - fix failures and re-run before starting the next page
 
 Do not batch several unfinished pages and promise to test them later.
