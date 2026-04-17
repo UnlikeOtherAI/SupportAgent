@@ -2,7 +2,7 @@
 
 A menu of workflow scenarios that any development team should be able to enable, disable, and parameterize through the Workflow Designer — with no bespoke code per team. Each entry lists the trigger, executor, outputs, config knobs, and current buildability status.
 
-> Architectural model lives in [workflow-scenarios.md](./workflow-scenarios.md). This file is the library of concrete, shippable scenarios built on those primitives.
+> Architectural model lives in [workflow-scenarios.md](./workflow-scenarios.md). The skill-driven runner that powers the loop / multi-executor scenarios in §11–§14 is specified in [docs/plans/2026-04-17-skills-and-executors.md](./plans/2026-04-17-skills-and-executors.md). This file is the library of concrete, shippable scenarios built on those primitives.
 
 ## Primitives Today
 
@@ -365,6 +365,183 @@ Comment `/sa summarize` on a long issue → post a TL;DR.
 
 ---
 
+## 11. Architecture & Scope Guards
+
+These scenarios use the looping executor pattern from [docs/plans/2026-04-17-skills-and-executors.md](./plans/2026-04-17-skills-and-executors.md). The system skill defines the contract; one or more complementary skills carry the architecture rules. The loop runs until the consolidator declares `done: true` or `max_iterations` is hit.
+
+### 11.1 Architecture Compliance Reviewer (looping)
+On every PR, verify the change does not violate the documented architecture and does not introduce out-of-scope behaviour. Loop until either no above-threshold issues remain or the cap trips.
+
+- **Trigger:** `github.pull_request.opened` or `github.pull_request.synchronize`
+- **Executor:** `architecture-guard` (looping fan-out + consolidator)
+  - Workers: `max -p` ×3, `claude -p` ×1, `codex exec` ×1
+  - System skill: `architecture-reviewer` (defines the issue-list output schema with severities)
+  - Complementary skills: `<project>-architecture`, `clean-api-design`, `<project>-conventions`
+  - Consolidator system skill: `architecture-consolidator-and-fixer`
+  - `loop.max_iterations: 2` (per the hallucination guidance — bigger numbers churn)
+  - `loop.until_done: true`
+- **Outputs (per the connector):**
+  - `body` → one `github.pr.comment` summarising remaining issues, grouped by severity, with file:line citations.
+  - `labels` → `architecture-clean` if `done: true` reached organically, `architecture-needs-attention` if `max_iterations` tripped.
+  - `state_change: request_changes` when above-threshold issues remain at exit; `state_change: approve` only when `done: true` reached.
+- **Knobs:** which complementary skills to attach; severity threshold the consolidator treats as "must fix" vs "noted"; maximum loop iterations.
+- **Status:** 🔧 needs skills + executors runtime, looping, consolidator-and-fixer skill pattern.
+
+### 11.2 Scope Creep Guard
+PR introduces files or behaviour not implied by the linked issue. Comment with what looks out-of-scope and ask the author to split the PR or update the issue.
+
+- **Trigger:** `github.pull_request.opened`
+- **Executor:** `scope-guard` (single stage, single CLI)
+  - System skill: `scope-reviewer` (output: list of suspect changes with file paths + the linked issue's stated scope)
+  - Complementary skills: `<project>-architecture`
+  - Inputs to the prompt: PR diff + linked issue body + the issue's prior comments
+- **Outputs:** `github.pr.comment` (template `scope_creep` with bullet list of out-of-scope items) + `github.issue.label: scope-review`.
+- **Knobs:** issue link source (`Fixes #N` parsing vs explicit `linked_issue` field), file globs to ignore (e.g. lockfiles, generated code).
+- **Status:** 🔧 needs skills + executors runtime + comment-thread fetch.
+
+### 11.3 Documentation Drift Watcher
+PR changes code in `apps/api/src/` (or other documented areas) without touching the corresponding docs. Comment listing each undocumented change.
+
+- **Trigger:** `github.pull_request.opened`
+- **Executor:** `docs-drift` (single stage)
+  - System skill: `docs-drift-reviewer`
+  - Complementary skills: `<project>-architecture`, `<project>-doc-conventions`
+- **Outputs:** `github.pr.comment` + `github.issue.label: docs-needed`.
+- **Knobs:** code-glob ↔ doc-glob mapping (`src/services/* → docs/services/*`).
+- **Status:** 🔧 needs skills + executors runtime + changed-files lookup.
+
+---
+
+## 12. Conversational Iteration (back-channel via comments)
+
+A first-class category enabled by the skills+executors design: **PR/issue comments are how humans talk back to the system.** When a developer disagrees with a suggested change, they reply in the existing thread; the system reads the latest reply, re-runs the executor with the new direction baked into its prompt, and posts/pushes the revised result. No new UI; the comment thread is the conversation.
+
+### 12.1 PR Re-Roll On Reviewer Disagreement
+Reviewer comments on a PR opened by the system, e.g. _"@sa-bot no — don't pull this into a hook, do it inline."_ System reads the thread, re-runs the build executor with the original context **plus** the new direction, force-pushes to the same branch, and posts a follow-up comment summarising what changed.
+
+- **Trigger:** `github.pull_request.comment` with `keyword: @sa-bot` or `mentions: <bot-name>` and the PR was opened by the bot.
+- **Executor:** `pr-re-roll` (single stage)
+  - System skill: `iterative-builder` (output schema includes `pr.commit_message`, `pr.body` for an updated PR description, and `body` for the follow-up comment)
+  - Complementary skills: same as the original build (carried forward from the PR's first run)
+  - Inputs to the prompt:
+    - The original task prompt (the issue that produced the PR)
+    - The full PR comment thread up to and including the triggering comment
+    - The current PR diff
+- **Outputs:**
+  - `pr.branch` = same branch (force-push), `pr.commit_message` describing the revision
+  - `body` posted as a follow-up PR comment: "Updated per @reviewer's note — moved logic inline, see commit `<sha>`."
+- **Knobs:** required keyword/bot-mention pattern; whether to force-push or open a new commit; max number of re-rolls per PR before requiring human intervention (`max_re_rolls`, default 5).
+- **Status:** 🔧 needs comment-thread fetch + same-branch push semantics + per-PR re-roll counter.
+
+### 12.2 Triage Re-Run On New Information
+Reporter or maintainer adds a comment to a triaged issue: _"@sa-bot also it only happens on Safari."_ System ingests the new comment, re-runs triage with the original report + every subsequent comment, and **edits its prior triage comment in place** rather than posting a new one (so the issue stays readable).
+
+- **Trigger:** `github.issue.comment` with `keyword: @sa-bot` on an issue that already carries the `triaged` label.
+- **Executor:** `triage-refresh` (single stage)
+  - System skill: `triage-issue` (same skill the original triage used)
+  - Inputs to the prompt: full issue body + every comment + the existing triage comment (so the model knows what it previously said)
+- **Outputs:** `body` posted as an **edit** to the prior triage comment (connector identifies the comment by the `<!-- support-agent:triage-discovery -->` marker we already use).
+- **Knobs:** strategy on edit vs new comment (`edit`, `new`, `edit-and-summarise-delta`).
+- **Status:** 🔧 needs `github.issue.comment` trigger + comment-edit output + previous-comment lookup by marker.
+
+### 12.3 Architecture Defence
+Reviewer challenges an architecture decision: _"@sa-bot why did you choose factory pattern here over inheritance?"_ System re-reads the relevant code + complementary architecture skill, posts a citation-backed defence — or, if it agrees with the reviewer, opens a follow-up PR with the alternative.
+
+- **Trigger:** `github.pull_request.comment` with bot mention + a question pattern (`why|why not|should we|prefer`)
+- **Executor:** `architecture-defender`
+  - System skill: `architecture-reviewer` (re-used from 11.1, so the model knows the same rules the original reviewer used)
+  - Complementary skills: `<project>-architecture`, `<project>-conventions`
+- **Outputs:**
+  - If defending: `body` posted as a comment with file:line citations.
+  - If conceding: `body` saying "you're right, opening a follow-up" + `pr` block with the revised approach.
+- **Knobs:** `concede_threshold` (consolidator confidence below which it opens a follow-up PR instead of defending).
+- **Status:** 🔧 needs skills + executors runtime + the `pr` output block.
+
+---
+
+## 13. Context-Aware Triggers (ingest the full thread)
+
+Several scenarios above need the system to read more than just the triggering payload. This pattern needs first-class support in the trigger → prompt pipeline: when the trigger hint says `include_context: full_thread`, the connector fetches the issue body + every comment + linked PR/issue bodies before assembling the executor's `{{prompt}}`.
+
+### 13.1 Build From Issue Discussion
+`needs-pr` label is applied to an issue that has 30 comments of clarifying discussion. The build run must read **all of them**, not just the original issue body, before writing code.
+
+- **Trigger:** `github.issue.labeled` with `labelName: needs-pr`
+- **Executor:** `iterative-builder` (single stage; or 11.1's `architecture-guard` for stricter projects)
+  - Inputs to the prompt: issue body + **every comment in the issue** + bodies of issues linked via `#NN` references in the discussion
+- **Outputs:** standard `pr` block.
+- **Knobs:** `include_context` = `body` | `body+comments` | `full_thread_with_links`; max comments to ingest (default 50).
+- **Status:** 🔧 needs `include_context` knob on the build action + thread fetch in the connector.
+
+### 13.2 PR Build From Review Synthesis
+Reviewer summarises everything they want in a long PR comment thread. Triggering a re-build on that PR should ingest the entire thread, not just the latest comment.
+
+- **Trigger:** `github.pull_request.comment` with bot mention
+- **Executor:** `pr-re-roll` (12.1) but with `include_context: full_thread`
+- **Status:** 🔧 same as 13.1.
+
+### 13.3 Linked-Issue Awareness
+PR mentions `Fixes #123, refs #124, refs #125`. Architecture review and scope guard should see all three issue bodies as context.
+
+- **Trigger:** any PR-opened scenario that opts into linked-issue context
+- **Knobs:** `follow_links` (bool), `max_linked_items` (default 5)
+- **Status:** 🔧 needs `Fixes/refs/closes` parser in the connector + multi-issue fetch.
+
+---
+
+## 14. Multi-Executor & Loop Patterns (showcase scenarios)
+
+Concrete recipes that exercise the executor YAML patterns from the skills+executors plan. Each one is something a real team would deploy.
+
+### 14.1 Cross-LLM Independent Review (no joiner)
+Codex and Claude each post their own PR review comment. Two opinions, no merge step — the human reviewer can compare.
+
+- **Trigger:** `github.pull_request.opened`
+- **Executor:** single stage with two parallel spawns; `system_skill: deep-reviewer`; no consolidator. Each spawn's output is delivered as its own PR comment per the multi-output delivery rule.
+- **Knobs:** which two CLIs to use; whether each comment is prefixed with the model name.
+- **Status:** 🔧 needs skills + executors runtime.
+
+### 14.2 Cross-LLM Reviewed, Consolidated, Posted Once
+Same setup as 14.1 but with a consolidator stage that produces a single agreed-on comment.
+
+- **Trigger:** `github.pull_request.opened`
+- **Executor:** Pattern 2 from the plan — workers (`max ×3`, `claude ×1`, `codex ×1`) → consolidator (`codex ×1`).
+- **Outputs:** one PR comment (the consolidator's `body`).
+- **Knobs:** which workers; which consolidator; consolidation prompt focus (`agree`, `most-critical-only`, `union`).
+- **Status:** 🔧 needs skills + executors runtime.
+
+### 14.3 Loop-Until-Architecturally-Clean
+The flagship looping scenario. Workers find architecture violations, consolidator applies fixes, re-runs workers, loops until none above threshold. PR opened only when clean.
+
+- **Trigger:** `github.issue.labeled` with `labelName: needs-pr` (so this runs on issue → PR builds)
+- **Executor:** Pattern 4 (looping fan-out + consolidator) from the plan.
+  - Workers: `max ×3`, `claude ×1`, `codex ×1`; system skill `architecture-reviewer`; complementary `<project>-architecture`.
+  - Consolidator: `codex ×1`; system skill `consolidator-and-fixer` (this skill writes file changes between iterations).
+  - `loop.max_iterations: 2` — `loop.until_done: true`.
+- **Outputs:** `pr` block on the final consolidator output. Iteration history persisted on the workflow run for the convergence-timeline UI.
+- **Knobs:** worker mix; severity threshold for `done: true`; iteration cap.
+- **Status:** 🔧 needs skills + executors runtime + iteration persistence.
+
+### 14.4 Two Executors Joined By An In-Platform LLM Call
+A heavyweight reviewer (Codex) and a fast reviewer (Claude) run in parallel; an `inline_llm` Anthropic call merges their outputs into one comment. Cheaper than spawning a third CLI.
+
+- **Trigger:** `github.pull_request.opened`
+- **Executor:** Pattern 3 — `reviewers` stage with two `executor:` spawns, `merge` stage with one `inline_llm` spawn.
+- **Outputs:** one PR comment.
+- **Knobs:** Anthropic model to use for the merge.
+- **Status:** 🔧 needs `executor:` and `inline_llm:` spawn types.
+
+### 14.5 Architecture Drift Patrol (scheduled loop)
+Once a week, run the architecture reviewer over the whole codebase (not a PR). For each above-threshold finding, file an issue with `architecture-debt` and the reviewer's suggested fix. No looping (each scan is a single pass), but uses the same skills as 11.1.
+
+- **Trigger:** `schedule.interval` (e.g. `7d`)
+- **Executor:** `architecture-patrol` (single-stage cross-LLM review of the full repo, no consolidator — outputs grouped by file)
+- **Outputs:** one issue created per finding (new output: `github.issue.create`) + `github.issue.label: architecture-debt`.
+- **Knobs:** scan scope globs; severity threshold for filing; dedupe against existing open issues with the same title.
+- **Status:** 🔧 needs scheduled executor + `github.issue.create` output + dedupe matcher.
+
+---
+
 ## Primitive Gap Summary
 
 What we'd need to ship the full catalog. Ordered by leverage (most scenarios unblocked first):
@@ -383,8 +560,17 @@ What we'd need to ship the full catalog. Ordered by leverage (most scenarios unb
 | 10 | **PR-merged trigger** + author history | 9.1 |
 | 11 | **`agent.respond` action handler** (lightweight, no repo clone) | 1.4, 6.1, 10.3, 9.1 |
 | 12 | **`approval.request` action handler** | 5.2 |
+| 13 | **Skills + executors runtime** (one `handleSkillJob`, executor YAML loader, prompt composer, stage scheduler) per [plans/2026-04-17-skills-and-executors.md](./plans/2026-04-17-skills-and-executors.md) | 11.1, 11.2, 11.3, 12.1, 12.2, 12.3, 14.1, 14.2 |
+| 14 | **Loop wrapper** (iterate stages until consolidator's `done: true` or `max_iterations`; persist iteration state) | 11.1, 14.3 |
+| 15 | **`executor:` and `inline_llm:` spawn types** (recursive executor invocation; direct platform-side LLM API call without subprocess) | 14.4 |
+| 16 | **`pr` output block + deterministic connector PR mechanics** (skill modifies workdir, connector branches/commits/pushes/opens PR with bot identity + Co-Authored-By trailer) | 11.x re-rolls, 12.1, 12.3 |
+| 17 | **Multi-output delivery** (every leaf-stage output → one comment when no consolidator absorbs it) | 14.1 |
+| 18 | **`include_context` knob** on actions (fetches issue body + every comment + bodies of `Fixes/refs` linked items into the executor prompt) | 12.1, 12.2, 13.1, 13.2, 13.3 |
+| 19 | **Comment-edit output** (edit a prior comment in place, identified by hidden HTML marker) | 12.2 |
+| 20 | **Same-branch force-push semantics** in the connector + per-PR re-roll counter | 12.1 |
+| 21 | **Bot-mention trigger pattern** (`mentions: <bot-name>` predicate on comment triggers; complements the existing `keyword:` pattern) | 12.1, 12.2, 12.3 |
 
-Shipping #1 and #2 alone unlocks at least 10 scenarios in this catalog.
+Shipping #1 and #2 alone unlocks at least 10 scenarios in this catalog. Shipping #13–#16 unlocks the entire skill-driven half (§11–§14).
 
 ---
 
