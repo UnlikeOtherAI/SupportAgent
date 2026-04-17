@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
 
 export type PollingEvent =
@@ -81,11 +82,25 @@ export function dedupeKeyForEvent(event: PollingEvent, scenarioId: string, repos
     return `scn:${scenarioId}:${repositoryUrl}:issue-opened:${event.issue.number}`;
   }
   if (event.kind === 'github.issue.labeled') {
-    // updatedAt is included so that removing and re-adding a label (which bumps
-    // updatedAt on the issue) produces a fresh dedupe key and allows the scenario
-    // to fire again. When updatedAt is absent we fall back to Date.now() so that
-    // every poll produces a unique key rather than creating a permanent block.
-    const discriminator = event.issue.updatedAt ?? String(Date.now());
+    // updatedAt is the preferred discriminator: removing and re-adding a label
+    // bumps updatedAt on the issue, producing a fresh dedupe key so the scenario
+    // can fire again. When updatedAt is absent (e.g. webhook payloads that omit
+    // it) we derive a stable identity from the event's observable content —
+    // label name, issue number, sorted labels array, and state. This stays
+    // constant across polls of the same state and changes when the labels or
+    // state actually change, so dedupe still works correctly.
+    const discriminator =
+      event.issue.updatedAt ??
+      createHash('sha1')
+        .update(event.label)
+        .update(':')
+        .update(String(event.issue.number))
+        .update(':')
+        .update(JSON.stringify([...event.issue.labels].sort()))
+        .update(':')
+        .update(event.issue.state)
+        .digest('hex')
+        .slice(0, 16);
     return `scn:${scenarioId}:${repositoryUrl}:issue-labeled:${event.label}:${event.issue.number}:${discriminator}`;
   }
   if (event.kind === 'github.pull_request.opened') {
