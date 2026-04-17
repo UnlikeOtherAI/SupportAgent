@@ -125,7 +125,7 @@ export const outputItems: DesignerPaletteItem[] = [
   {
     key: 'github.issue.label',
     label: 'Apply GitHub label',
-    description: 'Set triaged, complexity, or handoff labels.',
+    description: 'Set triaged, severity, or handoff labels.',
     type: 'output',
     config: { destinationType: 'github.issue.label', labels: 'triaged' },
   },

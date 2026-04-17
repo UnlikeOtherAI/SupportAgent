@@ -836,7 +836,7 @@ scheduled poll via local gh
 -> support-ticket-triage scenario
 -> workflow.create_triage_run with workItemId
 -> issue.comment discovery report
--> issue.label triaged and complexity labels
+-> issue.label triaged and severity labels
 -> optional approval.request for PR
 ```
 

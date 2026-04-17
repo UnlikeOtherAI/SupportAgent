@@ -102,7 +102,7 @@ const schemasBySourceKey: Record<string, DesignerNodeConfigSchema> = {
         key: 'labels',
         label: 'Labels to apply (comma separated)',
         kind: 'text',
-        description: 'Example: triaged, complexity:medium.',
+        description: 'Example: triaged, severity-medium.',
         placeholder: 'triaged',
       },
     ],
