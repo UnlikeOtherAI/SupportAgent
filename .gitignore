@@ -11,3 +11,7 @@ coverage/
 .playwright-cli/
 .playwright-mcp/
 test-results/
+playwright-report/
+*.png
+*.txt
+apps/worker/[0-9]*
