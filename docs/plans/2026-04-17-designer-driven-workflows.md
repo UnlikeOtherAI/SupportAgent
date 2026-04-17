@@ -12,7 +12,7 @@ All configured by the operator inside the Workflow Designer and Apps UI. No hard
      - `GitHub issue opened`
      - `GitHub issue labeled` with configurable label (e.g. `needs-triage`)
    - Action: `Run triage`
-   - Output: `GitHub issue comment` with findings (problem, reproduction steps, suggested fix) + `Apply label` (`triaged`, complexity).
+   - Output: `GitHub issue comment` with findings (problem, reproduction steps, suggested fix) + `Apply label` (`triaged`, severity).
 2. **Issue To Pull Request**
    - Trigger: `GitHub issue labeled` with configurable label (e.g. `needs-pr`).
    - Action: `Build PR candidate`.

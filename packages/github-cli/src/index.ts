@@ -15,17 +15,25 @@ const LABEL_DEFINITIONS: Record<string, { color: string; description: string }> 
     color: '0E8A16',
     description: 'Processed by SupportAgent triage',
   },
-  'complexity-low': {
+  'severity-low': {
     color: '1D76DB',
-    description: 'Low-complexity issue',
+    description: 'Severity: low — assigned by SupportAgent triage',
   },
-  'complexity-medium': {
+  'severity-medium': {
     color: 'FBCA04',
-    description: 'Medium-complexity issue',
+    description: 'Severity: medium — assigned by SupportAgent triage',
   },
-  'complexity-high': {
+  'severity-high': {
     color: 'D93F0B',
-    description: 'High-complexity issue',
+    description: 'Severity: high — assigned by SupportAgent triage',
+  },
+  'severity-critical': {
+    color: 'B60205',
+    description: 'Severity: critical — assigned by SupportAgent triage',
+  },
+  'severity-unknown': {
+    color: 'BFBFBF',
+    description: 'Severity could not be determined',
   },
 };
 

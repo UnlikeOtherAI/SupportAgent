@@ -126,7 +126,7 @@ For local-`gh` GitHub issue polling, the polling path must only queue triage for
 - the Support Agent discovery comment marker,
 - the `triaged` issue label.
 
-When triage completes for that path, Support Agent must post the discovery comment first, then ensure the required GitHub labels exist, then apply the `triaged` and complexity labels so the next poll cycle skips the issue deterministically.
+When triage completes for that path, Support Agent must post the discovery comment first, then ensure the required GitHub labels exist, then apply the `triaged` and severity labels so the next poll cycle skips the issue deterministically.
 
 The implementation direction should follow the already-proven pattern from `../KiloSupport`: source-specific intake at the edge, a normalized workflow run in the core system, and source-specific outbound delivery after the investigation is complete.
 

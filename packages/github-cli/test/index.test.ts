@@ -55,12 +55,26 @@ describe('ghListAccessibleRepos', () => {
     });
 
     const { ghAddIssueLabels } = await import('../src/index.ts');
-    await ghAddIssueLabels('rafiki270', 'max-test', 32, ['triaged', 'complexity-medium']);
+    await ghAddIssueLabels('rafiki270', 'max-test', 32, ['triaged', 'severity-medium']);
 
     expect(execMock.mock.calls.map((call) => call[0])).toEqual([
       'gh label create "triaged" --repo rafiki270/max-test --force --color 0E8A16 --description "Processed by SupportAgent triage"',
-      'gh label create "complexity-medium" --repo rafiki270/max-test --force --color FBCA04 --description "Medium-complexity issue"',
-      'gh issue edit 32 --repo rafiki270/max-test --add-label "triaged,complexity-medium"',
+      'gh label create "severity-medium" --repo rafiki270/max-test --force --color FBCA04 --description "Severity: medium — assigned by SupportAgent triage"',
+      'gh issue edit 32 --repo rafiki270/max-test --add-label "triaged,severity-medium"',
     ]);
+  });
+
+  it('defines severity-critical with the expected color', async () => {
+    execPromisifyMock.mockImplementation(async (command: string) => {
+      execMock(command);
+      return { stdout: '', stderr: '' };
+    });
+
+    const { ghAddIssueLabels } = await import('../src/index.ts');
+    await ghAddIssueLabels('rafiki270', 'max-test', 99, ['severity-critical']);
+
+    expect(execMock.mock.calls.map((call) => call[0])).toContain(
+      'gh label create "severity-critical" --repo rafiki270/max-test --force --color B60205 --description "Severity: critical — assigned by SupportAgent triage"',
+    );
   });
 });

@@ -228,7 +228,7 @@ Rules:
 - The runtime CLI should be the canonical customer-facing implementation of worker or gateway registration.
 - The runtime CLI should be the canonical prompt-fetch, manifest-fetch, and connection layer for workers and gateways.
 - The worker-side GitHub helper layer must be shared with the API-facing local-runtime RPC for local-`gh` repo discovery, issue fetches, issue comments, and label management.
-- GitHub triage delivery must post the discovery comment before labeling, and it must ensure `triaged` and complexity labels exist before applying them so local polling does not requeue already-processed issues.
+- GitHub triage delivery must post the discovery comment before labeling, and it must ensure `triaged` and severity labels exist before applying them so local polling does not requeue already-processed issues.
 
 Reference: [worker-architecture.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/worker-architecture.md)
 Reference: [worker-deployment.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/worker-deployment.md)
