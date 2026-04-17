@@ -11,7 +11,7 @@ function makeScenario(config: Record<string, unknown>) {
 }
 
 describe('matchesPrCommentTrigger', () => {
-  it('matches when keyword is present and no botName is configured', () => {
+  it('matches when keyword is present as a word-boundary token and no botName is configured', () => {
     const scenario = makeScenario({ keyword: '/sa review' });
     expect(matchesPrCommentTrigger(scenario, { body: 'please /sa review this', author: 'alice' })).toBe(true);
   });
@@ -21,13 +21,13 @@ describe('matchesPrCommentTrigger', () => {
     expect(matchesPrCommentTrigger(scenario, { body: '/sa review', author: 'random-bot' })).toBe(true);
   });
 
-  it('matches when keyword is present and author matches botName (case-insensitive)', () => {
+  it('matches when keyword is present and body contains @botName mention (case-insensitive)', () => {
     const scenario = makeScenario({ keyword: '/sa review', botName: 'SupportAgent' });
-    expect(matchesPrCommentTrigger(scenario, { body: '/sa review', author: 'supportagent' })).toBe(true);
-    expect(matchesPrCommentTrigger(scenario, { body: '/sa review', author: 'SUPPORTAGENT' })).toBe(true);
+    expect(matchesPrCommentTrigger(scenario, { body: '/sa review @supportagent', author: 'alice' })).toBe(true);
+    expect(matchesPrCommentTrigger(scenario, { body: '/sa review @SUPPORTAGENT', author: 'bob' })).toBe(true);
   });
 
-  it('does not match when keyword is present but author does not match botName', () => {
+  it('does not match when keyword is present but body lacks @botName mention', () => {
     const scenario = makeScenario({ keyword: '/sa review', botName: 'SupportAgent' });
     expect(matchesPrCommentTrigger(scenario, { body: '/sa review', author: 'alice' })).toBe(false);
   });
