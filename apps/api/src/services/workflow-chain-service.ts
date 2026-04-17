@@ -6,6 +6,8 @@ import { type PrismaClient } from '@prisma/client';
  * The chain works like this:
  * 1. Triage run completes (succeeded) → create a "build" run for the same work item
  * 2. Build run completes with PR reference → create a "merge" run for that PR
+ *    (only when the originating build's action config carries autoMergeOnSuccess: true,
+ *     or when force: true is passed explicitly by an operator action)
  * 3. Merge run completes → chain halts; PR either merged or needs human review
  */
 export function createWorkflowChainService(prisma: PrismaClient) {
@@ -42,7 +44,6 @@ export function createWorkflowChainService(prisma: PrismaClient) {
         repositoryMappingId: triageRun.workItem.repositoryMappingId,
         status: 'queued',
         parentWorkflowRunId: triageRunId,
-        // Pass issue context through providerExecutionRef or a separate mechanism
         // Store the triage run ID so build can look up findings
         providerExecutionRef: triageRun.providerExecutionRef ?? undefined,
       },
@@ -52,10 +53,51 @@ export function createWorkflowChainService(prisma: PrismaClient) {
   }
 
   /**
+   * Resolve whether auto-merge is opted in for a given build run.
+   * Reads the latest WorkerDispatch for the run and inspects
+   * jobPayload.providerHints.actionConfig.autoMergeOnSuccess.
+   *
+   * Returns true only when the flag is explicitly true.
+   * Returns false (silently) when no dispatch exists or the field is absent/false.
+   * Logs a warning when jobPayload exists but actionConfig parsing throws.
+   */
+  async function isAutoMergeEnabled(buildRunId: string): Promise<boolean> {
+    const dispatch = await prisma.workerDispatch.findFirst({
+      where: { workflowRunId: buildRunId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!dispatch) return false;
+
+    try {
+      const payload = dispatch.jobPayload as Record<string, unknown> | null;
+      if (!payload) return false;
+      const hints = payload['providerHints'] as Record<string, unknown> | undefined;
+      if (!hints) return false;
+      const actionConfig = hints['actionConfig'] as Record<string, unknown> | undefined;
+      if (!actionConfig) return false;
+      return actionConfig['autoMergeOnSuccess'] === true;
+    } catch (err) {
+      console.warn(
+        `[workflow-chain] Failed to parse actionConfig for buildRunId=${buildRunId}:`,
+        err,
+      );
+      return false;
+    }
+  }
+
+  /**
    * After a build run succeeds, trigger a merge run for the created PR.
    * The PR reference is stored in buildRun.providerExecutionRef as "pr:owner/repo#123"
+   *
+   * Auto-chaining only proceeds when:
+   *  - the build's action config carries autoMergeOnSuccess: true, OR
+   *  - options.force === true (manual operator action via the /trigger-merge route)
    */
-  async function chainBuildToMerge(buildRunId: string): Promise<{ mergeRunId: string } | null> {
+  async function chainBuildToMerge(
+    buildRunId: string,
+    options?: { force?: boolean },
+  ): Promise<{ mergeRunId: string } | null> {
     const buildRun = await prisma.workflowRun.findUnique({
       where: { id: buildRunId },
       include: { workItem: { include: { repositoryMapping: true } } },
@@ -69,6 +111,13 @@ export function createWorkflowChainService(prisma: PrismaClient) {
     if (!prRef.startsWith('pr:')) {
       // No PR was created — nothing to merge
       return null;
+    }
+
+    // Gate: skip unless operator forced or action config opts in
+    const forced = options?.force === true;
+    if (!forced) {
+      const autoMerge = await isAutoMergeEnabled(buildRunId);
+      if (!autoMerge) return null;
     }
 
     // Check if merge already exists for this build
@@ -101,6 +150,9 @@ export function createWorkflowChainService(prisma: PrismaClient) {
   /**
    * Scan all completed triage and build runs and chain the next steps.
    * Returns counts of runs chained.
+   *
+   * For build → merge, each build run must individually opt in via
+   * autoMergeOnSuccess: true in its action config.
    */
   async function chainAll(): Promise<{ triageChained: number; buildChained: number }> {
     let triageChained = 0;
@@ -120,7 +172,7 @@ export function createWorkflowChainService(prisma: PrismaClient) {
       if (result) triageChained++;
     }
 
-    // Chain build → merge
+    // Chain build → merge (gated per-run by autoMergeOnSuccess)
     const buildRuns = await prisma.workflowRun.findMany({
       where: {
         workflowType: 'build',

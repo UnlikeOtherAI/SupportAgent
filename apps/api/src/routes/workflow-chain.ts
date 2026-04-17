@@ -31,8 +31,9 @@ export async function workflowChainRoutes(app: FastifyInstance) {
   });
 
   // POST /v1/workflow-chain/trigger-merge/:runId — chain build → merge for a specific run
+  // Bypasses the autoMergeOnSuccess gate — this is an explicit operator action.
   app.post<{ Params: { runId: string } }>('/trigger-merge/:runId', async (request) => {
-    const result = await chain.chainBuildToMerge(request.params.runId);
+    const result = await chain.chainBuildToMerge(request.params.runId, { force: true });
     if (!result) {
       return { status: 'skipped', message: 'Run not eligible for chaining (no PR reference?)' };
     }

@@ -6,7 +6,14 @@ import {
   type GitHubIssueSummary,
   type GitHubPrComment,
 } from '@support-agent/github-cli';
-import { matchesPrCommentTrigger } from './trigger-matchers.js';
+import {
+  matchesPrCommentTrigger,
+  matchesIssueOpenedTrigger,
+  matchesIssueLabeledTrigger,
+  type CompiledScenario,
+} from './trigger-matchers.js';
+
+export type { CompiledScenario };
 
 export interface PollingScenarioTarget {
   connectorId: string;
@@ -17,29 +24,6 @@ export interface PollingScenarioTarget {
   pollingIntervalSeconds: number;
   repositoryMappingId: string;
   repositoryUrl: string;
-}
-
-export interface CompiledScenario {
-  scenarioId: string;
-  scenarioKey: string;
-  displayName: string;
-  workflowType: 'triage' | 'build' | 'merge' | 'review';
-  connectorIds: string[];
-  trigger: {
-    kind: string;
-    label: string;
-    config: Record<string, unknown>;
-  };
-  action: {
-    kind: string;
-    label: string;
-    config: Record<string, unknown>;
-  } | null;
-  outputs: Array<{
-    kind: string;
-    label: string;
-    config: Record<string, unknown>;
-  }>;
 }
 
 export interface PollingStats {
@@ -95,18 +79,6 @@ async function apiPost<T>(
 function scenarioAppliesToConnector(scenario: CompiledScenario, connectorId: string) {
   if (scenario.connectorIds.length === 0) return true;
   return scenario.connectorIds.includes(connectorId);
-}
-
-function matchesIssueOpenedTrigger(scenario: CompiledScenario) {
-  return scenario.trigger.kind === 'github.issue.opened';
-}
-
-function matchesIssueLabeledTrigger(scenario: CompiledScenario, label: string) {
-  if (scenario.trigger.kind !== 'github.issue.labeled') return false;
-  const expected = typeof scenario.trigger.config.labelName === 'string'
-    ? scenario.trigger.config.labelName.trim().toLowerCase()
-    : '';
-  return expected !== '' && expected === label.trim().toLowerCase();
 }
 
 function matchesPrOpenedTrigger(scenario: CompiledScenario) {
