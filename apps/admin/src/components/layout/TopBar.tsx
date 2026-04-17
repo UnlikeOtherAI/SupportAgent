@@ -4,9 +4,12 @@ import { SearchIcon, BellIcon } from '@/components/icons/NavIcons'
 const routeLabels: Record<string, string> = {
   '/dashboard': 'Dashboard',
   '/runs': 'Jobs',
+  '/apps': 'Apps',
   '/connectors': 'Connectors',
   '/repositories': 'Repositories',
   '/routing': 'Routing',
+  '/workflows': 'Workflows',
+  '/designer': 'Designer',
   '/scenarios': 'Scenarios',
   '/channels': 'Channels',
   '/providers': 'Providers',
