@@ -110,6 +110,8 @@ export async function handleTriageJob(job: WorkerJob, api: WorkerApiClient): Pro
     return;
   }
 
+  // ── 5–9. Post-clone flow — cleanup is guaranteed by finally ──────────
+  try {
   // ── 5. Run triage analysis with max (MiniMax m2.7) ─────────────────
   await api.postProgress(jobId, 'investigation', 'Running AI triage analysis');
   await api.postLog(jobId, 'stdout', `[triage] Running max m2.7 triage analysis`);
@@ -238,9 +240,6 @@ Do not emit any other headings, preamble, or trailing commentary. Do not wrap th
         { stage: 'findings', status: 'failed' },
       ],
     });
-    if (workDir) {
-      await cleanupWorkDir(workDir);
-    }
     return;
   }
 
@@ -269,9 +268,10 @@ Do not emit any other headings, preamble, or trailing commentary. Do not wrap th
     ],
   });
 
-  // Cleanup
-  if (workDir) {
-    await cleanupWorkDir(workDir);
-    await api.postLog(jobId, 'stdout', `[triage] Cleaned up working directory`);
+  } finally {
+    if (workDir) {
+      await cleanupWorkDir(workDir);
+      await api.postLog(jobId, 'stdout', `[triage] Cleaned up working directory`);
+    }
   }
 }

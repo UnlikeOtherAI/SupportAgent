@@ -181,6 +181,21 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
       await api.postLog(jobId, 'stdout', `[build] Created branch: ${branchName}`);
     } catch (err) {
       await api.postLog(jobId, 'stderr', `[build] Failed to create branch: ${err}`);
+      await cleanupWorkDir(workDir!);
+      await api.submitReport(jobId, {
+        workflowRunId,
+        workflowType: 'build',
+        status: 'failed',
+        summary: `Branch creation failed — cannot push safely: ${err}`,
+        stageResults: [
+          { stage: 'auth', status: 'passed' },
+          { stage: 'repository_setup', status: 'passed' },
+          { stage: 'implementation', status: 'passed' },
+          { stage: 'commit', status: 'failed' },
+          { stage: 'pr_create', status: 'skipped' },
+        ],
+      });
+      return;
     }
 
     await api.postProgress(jobId, 'commit', 'Committing changes');
