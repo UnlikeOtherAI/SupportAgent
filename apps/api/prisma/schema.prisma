@@ -18,6 +18,7 @@ enum WorkflowType {
   triage
   build
   merge
+  review
 }
 
 enum WorkflowRunStatus {

@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { connectorsApi } from '@/api/connectors'
 import {
   scenariosApi,
   type WorkflowDesignerConnection,
@@ -75,6 +76,15 @@ function WorkflowDesignerWorkspace({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
     () => initialWorkflow?.designerGraph.nodes[0]?.id ?? null,
   )
+  const [allowedConnectors, setAllowedConnectors] = useState<string[]>(
+    () => initialWorkflow?.allowedConnectors ?? [],
+  )
+
+  const connectorsQuery = useQuery({
+    queryKey: ['connectors', 'designer'],
+    queryFn: () => connectorsApi.list({ limit: 100 }),
+  })
+  const connectorOptions = connectorsQuery.data?.items ?? []
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId),
@@ -88,6 +98,7 @@ function WorkflowDesignerWorkspace({
         key: isNewWorkflow ? buildScenarioKey(workflowName) : initialWorkflow?.key,
         workflowType,
         enabled: initialWorkflow?.enabled ?? true,
+        allowedConnectors,
         designerGraph: { nodes, connections },
       }
 
@@ -149,6 +160,22 @@ function WorkflowDesignerWorkspace({
               <option value="triage">triage</option>
               <option value="build">build</option>
               <option value="merge">merge</option>
+              <option value="review">review</option>
+            </select>
+            <select
+              aria-label="Connector binding"
+              className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-medium text-[#433349] outline-none focus:border-[#7445c7] focus:ring-1 focus:ring-[#7445c7]"
+              onChange={(event) => {
+                setAllowedConnectors(event.target.value ? [event.target.value] : [])
+              }}
+              value={allowedConnectors[0] ?? ''}
+            >
+              <option value="">No connector bound</option>
+              {connectorOptions.map((connector) => (
+                <option key={connector.id} value={connector.id}>
+                  {connector.name} ({connector.platformType.displayName})
+                </option>
+              ))}
             </select>
           </div>
         </div>

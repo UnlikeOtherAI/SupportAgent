@@ -11,7 +11,10 @@ import {
   cleanupWorkDir,
   parseGitHubRef,
 } from '../lib/gh-cli.js';
-import { buildTriageDiscoveryComment } from '../lib/triage-discovery-comment.js';
+import {
+  buildTriageDiscoveryComment,
+  parseTriageReport,
+} from '../lib/triage-discovery-comment.js';
 
 const execAsync = promisify(exec);
 
@@ -119,28 +122,38 @@ Issue Body:
 ${issue.body ?? '(no description)'}
 Labels: ${issue.labels.join(', ')}
 
-Your task:
-1. Read the relevant source files to understand the codebase
-2. Identify the root cause of this issue
-3. Determine which files need to be changed
-4. Estimate complexity (low/medium/high)
-5. Suggest a fix approach
+Read relevant source files to understand the codebase before writing. Cite file paths and line numbers.
 
-Be specific and technical. Cite file paths and line numbers where possible.
+Your output MUST be a single markdown document containing exactly the following 9 sections in this order, with the exact headings shown:
 
-Output your analysis in this format:
-## Root Cause
-[Your analysis]
+### Summary
+One short paragraph naming the error, where it surfaced, and how it was captured.
 
-## Affected Files
-- file1.ts (specific lines/functions)
-- file2.ts (specific lines/functions)
+### Root Cause
+The specific code path with a quoted code snippet (file + line range) and the chain of conditions that cause it.
 
-## Fix Approach
-[Step by step]
+### Replication Steps
+A numbered list a developer can follow to reproduce.
 
-## Complexity
-[low/medium/high]`;
+### Suggested Fix
+One or more numbered remediations with code examples. Distinguish the primary fix from defensive guards.
+
+### Severity
+One of: Low | Medium | High | Critical. Follow with a one-line justification on the same line, e.g. "High — prevents POS from rendering".
+
+### Confidence
+One of: Low | Medium | High. Follow with the main reason for uncertainty on the same line.
+
+### Affected Files
+Bullet list of file paths the fix should touch or where relevant context lives.
+
+### Logs Excerpt
+The real log or telemetry extract used for the investigation, fenced as a code block. If none is available, write "None available.".
+
+### Sources
+Bullet list of every file or artifact you read during the investigation.
+
+Do not emit any other headings, preamble, or trailing commentary. Do not wrap the whole output in a code fence.`;
 
   let triageResult = '';
   try {
@@ -157,66 +170,34 @@ Output your analysis in this format:
   await api.postLog(jobId, 'stdout', `[triage] Triage analysis:\n${triageResult.slice(0, 2000)}`);
   await api.postProgress(jobId, 'investigation', 'Analysis complete');
 
-  // ── 6. Generate findings ───────────────────────────────────────────
-  await api.postProgress(jobId, 'findings', 'Generating findings');
+  // ── 6. Parse the 9-section report into structured findings ─────────
+  await api.postProgress(jobId, 'findings', 'Parsing triage report');
 
-  const findingsPrompt = `Based on this triage analysis for issue #${issue.number} in ${owner}/${repo}:
+  const parsed = parseTriageReport(triageResult);
+  const confidenceVal = parsed.confidenceNumeric;
 
-Issue: ${issue.title}
-${issue.body ?? ''}
-
-Analysis:
-${triageResult}
-
-Extract the key findings and format as a concise summary suitable for a developer to act on. Include:
-- Root cause (1-2 sentences)
-- Key files affected (bullet list)
-- Recommended fix (1-2 sentences)
-- Confidence level (0-1)
-
-Return JSON with: root_cause, suspect_files (array), recommended_fix, confidence`;
-
-  let findingsJson = '{}';
-  try {
-    const { stdout } = await execAsync(
-      `max -p "${findingsPrompt.replace(/"/g, '\\"')}" --json`,
-      { timeout: 60_000, cwd: workDir! },
-    );
-    // Try to extract JSON from output
-    const jsonMatch = stdout.match(/\{[\s\S]*\}/);
-    findingsJson = jsonMatch ? jsonMatch[0] : JSON.stringify({ root_cause: triageResult.slice(0, 500), confidence: 0.5 });
-  } catch {
-    findingsJson = JSON.stringify({
-      root_cause: triageResult.slice(0, 500),
-      suspect_files: [],
-      recommended_fix: 'Review triage analysis above',
-      confidence: 0.5,
-    });
-  }
-
-  let findings: any;
-  try {
-    findings = JSON.parse(findingsJson);
-  } catch {
-    findings = { root_cause: triageResult.slice(0, 500), confidence: 0.5 };
-  }
-
-  await api.postLog(jobId, 'stdout', `[triage] Findings: ${JSON.stringify(findings)}`);
+  await api.postLog(
+    jobId,
+    'stdout',
+    `[triage] Parsed sections: severity=${parsed.severity ?? 'n/a'} confidence=${parsed.confidenceLabel ?? 'n/a'} files=${parsed.affectedFiles.length}`,
+  );
 
   // ── 7. Submit findings to API ───────────────────────────────────────
-  const confidenceVal = typeof findings.confidence === 'number'
-    ? findings.confidence
-    : 0.5;
-
   const findingPayload = {
-    summary: `Triage for #${issue.number}: ${issue.title}`,
-    rootCauseHypothesis: findings.root_cause ?? triageResult.slice(0, 500),
+    summary: parsed.summary
+      ? `Triage for #${issue.number}: ${parsed.summary.slice(0, 200)}`
+      : `Triage for #${issue.number}: ${issue.title}`,
+    rootCauseHypothesis: parsed.rootCause || triageResult.slice(0, 500),
     confidence: confidenceVal,
     reproductionStatus: 'not_started',
-    affectedAreas: { files: findings.suspect_files ?? [] },
-    evidenceRefs: { triage_output: triageResult.slice(0, 5000) },
-    recommendedNextAction: findings.recommended_fix ?? 'Review analysis and implement fix',
-    suspectFiles: findings.suspect_files ?? [],
+    affectedAreas: { files: parsed.affectedFiles },
+    evidenceRefs: {
+      triage_report: triageResult.slice(0, 8000),
+      severity: parsed.severity ?? null,
+      confidence_label: parsed.confidenceLabel ?? null,
+    },
+    recommendedNextAction: parsed.suggestedFix || 'Review analysis and implement fix',
+    suspectFiles: parsed.affectedFiles,
   };
 
   try {
@@ -239,12 +220,7 @@ Return JSON with: root_cause, suspect_files (array), recommended_fix, confidence
       owner,
       repo,
       issueNum,
-      buildTriageDiscoveryComment({
-        confidence: confidenceVal,
-        recommendedFix: findings.recommended_fix ?? 'Review analysis and implement fix',
-        rootCause: findings.root_cause ?? triageResult.slice(0, 500),
-        suspectFiles: findings.suspect_files ?? [],
-      }),
+      buildTriageDiscoveryComment({ report: triageResult }),
     );
     await api.postLog(jobId, 'stdout', `[triage] Posted discovery comment on issue #${issueNum}`);
   } catch (err) {
@@ -268,7 +244,8 @@ Return JSON with: root_cause, suspect_files (array), recommended_fix, confidence
     return;
   }
 
-  const labels = ['triaged', findings.complexity ?? 'complexity-medium'];
+  const severityLabel = parsed.severity ? `severity-${parsed.severity.toLowerCase()}` : 'severity-unknown';
+  const labels = ['triaged', severityLabel];
   try {
     await ghAddIssueLabels(owner, repo, issueNum, labels);
   } catch (err) {

@@ -10,7 +10,7 @@
  * All operations go through the API HTTP endpoints — no direct Prisma access.
  */
 import { parseEnv } from '@support-agent/config';
-import { pollTriageTargets } from './lib/polling-triage.js';
+import { pollScenarioTargets } from './lib/polling-scenarios.js';
 
 const POLL_INTERVAL_MS = 15_000; // 15 seconds
 const CHAIN_INTERVAL_MS = 30_000;
@@ -111,20 +111,25 @@ async function main() {
   async function pollNext() {
     await ensureToken();
     try {
-      const result = await pollTriageTargets({
+      const result = await pollScenarioTargets({
         apiBaseUrl: env.API_BASE_URL,
         lastPolledAtByTarget,
         log: (message) => { console.log(message); },
         token,
       });
 
-      if (result.targetsChecked > 0 || result.created > 0 || result.duplicate > 0) {
+      if (
+        result.targetsChecked > 0 ||
+        result.created > 0 ||
+        result.duplicate > 0 ||
+        result.eventsEmitted > 0
+      ) {
         console.log(
-          `[polling] checked=${result.targetsChecked} created=${result.created} duplicate=${result.duplicate} skipped=${result.skipped}`,
+          `[polling] checked=${result.targetsChecked} events=${result.eventsEmitted} created=${result.created} duplicate=${result.duplicate}`,
         );
       }
     } catch (err) {
-      console.warn('[polling] triage scan error:', err);
+      console.warn('[polling] scenario scan error:', err);
     }
   }
 

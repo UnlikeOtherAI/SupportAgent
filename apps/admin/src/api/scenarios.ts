@@ -5,7 +5,7 @@ export interface WorkflowScenario {
   id: string
   key: string
   displayName: string
-  workflowType: 'triage' | 'build' | 'merge'
+  workflowType: 'triage' | 'build' | 'merge' | 'review'
   enabled: boolean
   triggerPolicyCount: number
   executionProfileId: string | null

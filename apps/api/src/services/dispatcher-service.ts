@@ -8,6 +8,51 @@ class NoProviderAvailableError extends Error {
   }
 }
 
+interface ScenarioContext {
+  scenarioId: string | null;
+  scenarioKey: string | null;
+  actionConfig: Record<string, unknown>;
+  outputConfigs: Array<{ kind: string; config: Record<string, unknown> }>;
+}
+
+function readDesignerStepConfig(rawConfig: unknown) {
+  if (!rawConfig || typeof rawConfig !== 'object' || Array.isArray(rawConfig)) return null;
+  const record = rawConfig as Record<string, unknown>;
+  const designer = record.designer;
+  if (!designer || typeof designer !== 'object' || Array.isArray(designer)) return null;
+  const designerRecord = designer as Record<string, unknown>;
+  const sourceKey = typeof designerRecord.sourceKey === 'string' ? designerRecord.sourceKey : null;
+  if (!sourceKey) return null;
+  const runtimeConfig: Record<string, unknown> = { ...record };
+  delete runtimeConfig.designer;
+  return { sourceKey, runtimeConfig };
+}
+
+function extractScenarioContext(
+  scenario: { id: string; key: string; steps: { stepType: string; config: unknown; stepOrder: number }[] } | null,
+): ScenarioContext {
+  if (!scenario) {
+    return { scenarioId: null, scenarioKey: null, actionConfig: {}, outputConfigs: [] };
+  }
+
+  const orderedSteps = [...scenario.steps].sort((left, right) => left.stepOrder - right.stepOrder);
+  const actionStep = orderedSteps.find((step) => step.stepType === 'action');
+  const outputSteps = orderedSteps.filter((step) => step.stepType === 'output');
+
+  const actionInfo = actionStep ? readDesignerStepConfig(actionStep.config) : null;
+  const outputs = outputSteps
+    .map((step) => readDesignerStepConfig(step.config))
+    .filter((info): info is { sourceKey: string; runtimeConfig: Record<string, unknown> } => info !== null)
+    .map((info) => ({ kind: info.sourceKey, config: info.runtimeConfig }));
+
+  return {
+    scenarioId: scenario.id,
+    scenarioKey: scenario.key,
+    actionConfig: actionInfo?.runtimeConfig ?? {},
+    outputConfigs: outputs,
+  };
+}
+
 export function createDispatcherService(
   prisma: PrismaClient,
   providers: ExecutionProvider[],
@@ -53,11 +98,16 @@ export function createDispatcherService(
             include: {
               repositoryMapping: true,
               workItem: { include: { repositoryMapping: true } },
+              workflowScenario: {
+                include: { steps: true, bindings: true },
+              },
             },
           });
           if (!run) {
             throw Object.assign(new Error('Claimed run not found'), { statusCode: 404 });
           }
+
+          const scenarioContext = extractScenarioContext(run.workflowScenario);
 
           const provider = await selectProvider(run.workflowType);
           if (!provider) {
@@ -104,6 +154,10 @@ export function createDispatcherService(
             timeoutSeconds: 3600,
             providerHints: {
               workItemId: run.workItemId,
+              scenarioId: scenarioContext.scenarioId,
+              scenarioKey: scenarioContext.scenarioKey,
+              actionConfig: scenarioContext.actionConfig,
+              outputConfigs: scenarioContext.outputConfigs,
               // Pass issue/PR context based on workflow type
               ...(run.workflowType === 'triage' && {
                 issueRef,
@@ -113,10 +167,17 @@ export function createDispatcherService(
                 workItemId: run.workItemId,
                 parentTriageRunId: run.parentWorkflowRunId,
                 issueRef,
+                issueNumber: run.workItem.workItemKind === 'issue'
+                  ? parseInt(run.workItem.externalItemId)
+                  : undefined,
               }),
               ...(run.workflowType === 'merge' && {
                 parentBuildRunId: run.parentWorkflowRunId,
                 prRef: run.providerExecutionRef ?? '',
+              }),
+              ...(run.workflowType === 'review' && {
+                prNumber: run.workItem.reviewTargetNumber ?? undefined,
+                prRef: run.workItem.externalUrl ?? issueRef,
               }),
             },
           };

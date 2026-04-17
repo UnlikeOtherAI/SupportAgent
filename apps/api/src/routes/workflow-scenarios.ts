@@ -1,8 +1,9 @@
 import { Prisma } from '@prisma/client';
 import { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { createScenarioMatcher } from '../services/scenario-matcher.js';
 
-const WorkflowType = z.enum(['triage', 'build', 'merge']);
+const WorkflowType = z.enum(['triage', 'build', 'merge', 'review']);
 const DesignerNodeType = z.enum(['trigger', 'action', 'output']);
 
 const DesignerGraphNode = z.object({
@@ -176,9 +177,20 @@ function createDesignerSteps(designerGraph: z.infer<typeof DesignerGraph>) {
   });
 }
 
+const MatchableQuery = z.object({
+  connectorId: z.string().uuid().optional(),
+});
+
 export async function workflowScenarioRoutes(app: FastifyInstance) {
+  const matcher = createScenarioMatcher(app.prisma);
+
   app.addHook('onRequest', async (request) => {
     await request.authenticate();
+  });
+
+  app.get('/matchable', async (request) => {
+    const query = MatchableQuery.parse(request.query ?? {});
+    return matcher.listMatchable(request.user.tenantId, { connectorId: query.connectorId });
   });
 
   app.get('/', async (request) => {

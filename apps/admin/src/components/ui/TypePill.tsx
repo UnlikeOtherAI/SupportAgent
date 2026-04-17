@@ -1,4 +1,4 @@
-type WorkflowType = 'triage' | 'build' | 'merge'
+type WorkflowType = 'triage' | 'build' | 'merge' | 'review'
 
 interface TypePillProps {
   type: WorkflowType
@@ -8,6 +8,7 @@ const styles: Record<WorkflowType, string> = {
   triage: 'bg-type-triage-bg text-type-triage-fg',
   build:  'bg-type-build-bg text-type-build-fg',
   merge:  'bg-type-merge-bg text-type-merge-fg',
+  review: 'bg-indigo-100 text-indigo-800',
 }
 
 export function TypePill({ type }: TypePillProps) {

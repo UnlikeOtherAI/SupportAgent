@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { getNodeConfigSchema, type DesignerFieldSchema } from './workflow-designer-config-schemas'
 import { nodeThemes } from './workflow-designer-options'
 import type { DesignerNode } from './workflow-designer-types'
 
@@ -48,8 +49,13 @@ function WorkflowDesignerInspectorContent({
   onUpdateNode,
 }: WorkflowDesignerInspectorContentProps) {
   const theme = nodeThemes[node.type]
-  const [configDraft, setConfigDraft] = useState(() => JSON.stringify(node.config, null, 2))
-  const [configError, setConfigError] = useState<string | null>(null)
+  const schema = useMemo(() => getNodeConfigSchema(node), [node])
+  const [showRawConfig, setShowRawConfig] = useState(false)
+
+  const updateConfigField = (key: string, value: unknown) => {
+    const nextConfig = { ...node.config, [key]: value }
+    onUpdateNode({ ...node, config: nextConfig })
+  }
 
   return (
     <aside className="flex h-full w-80 shrink-0 flex-col border-l border-black/8 bg-[#fbf8ff]">
@@ -77,31 +83,44 @@ function WorkflowDesignerInspectorContent({
           value={node.label}
         />
 
-        <label className="mt-4 block text-xs font-medium text-[#7b6b83]" htmlFor="designer-node-config">
-          Configuration JSON
-        </label>
-        <textarea
-          className={`${inputClassName} mt-1.5 min-h-48 font-mono text-xs`}
-          id="designer-node-config"
-          onChange={(event) => {
-            const nextValue = event.target.value
-            setConfigDraft(nextValue)
-            try {
-              const parsed = JSON.parse(nextValue) as unknown
-              if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                setConfigError(null)
-                onUpdateNode({ ...node, config: parsed as Record<string, unknown> })
-                return
-              }
-              setConfigError('Config must be a JSON object.')
-            } catch {
-              setConfigError('Invalid JSON. Fix it before saving.')
-            }
+        {schema && schema.fields.length > 0 && (
+          <div className="mt-4 space-y-4">
+            {schema.fields.map((field) => (
+              <DesignerConfigField
+                field={field}
+                key={field.key}
+                onChange={(value) => {
+                  updateConfigField(field.key, value)
+                }}
+                value={node.config[field.key]}
+              />
+            ))}
+          </div>
+        )}
+
+        {(!schema || schema.fields.length === 0) && (
+          <p className="mt-4 rounded-lg border border-dashed border-black/10 bg-white/70 px-3 py-2 text-xs text-[#7b6b83]">
+            This block has no tunable fields.
+          </p>
+        )}
+
+        <button
+          className="mt-4 text-xs font-medium text-[#7445c7] hover:underline"
+          onClick={() => {
+            setShowRawConfig((current) => !current)
           }}
-          value={configDraft}
-        />
-        {configError && (
-          <p className="mt-2 text-xs font-medium text-red-600">{configError}</p>
+          type="button"
+        >
+          {showRawConfig ? 'Hide raw JSON' : 'Show raw JSON'}
+        </button>
+
+        {showRawConfig && (
+          <RawConfigEditor
+            config={node.config}
+            onChange={(nextConfig) => {
+              onUpdateNode({ ...node, config: nextConfig })
+            }}
+          />
         )}
       </div>
 
@@ -117,5 +136,104 @@ function WorkflowDesignerInspectorContent({
         </button>
       </div>
     </aside>
+  )
+}
+
+interface DesignerConfigFieldProps {
+  field: DesignerFieldSchema
+  onChange: (value: unknown) => void
+  value: unknown
+}
+
+function DesignerConfigField({ field, onChange, value }: DesignerConfigFieldProps) {
+  const currentValue = value ?? field.defaultValue ?? ''
+  const fieldId = `designer-field-${field.key}`
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-[#7b6b83]" htmlFor={fieldId}>
+        {field.label}
+      </label>
+      {field.kind === 'select' && field.options ? (
+        <select
+          className={`${inputClassName} mt-1.5`}
+          id={fieldId}
+          onChange={(event) => {
+            onChange(event.target.value)
+          }}
+          value={String(currentValue)}
+        >
+          {field.options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ) : field.kind === 'number' ? (
+        <input
+          className={`${inputClassName} mt-1.5`}
+          id={fieldId}
+          onChange={(event) => {
+            const parsed = Number(event.target.value)
+            onChange(Number.isFinite(parsed) ? parsed : event.target.value)
+          }}
+          type="number"
+          value={String(currentValue)}
+        />
+      ) : (
+        <input
+          className={`${inputClassName} mt-1.5`}
+          id={fieldId}
+          onChange={(event) => {
+            onChange(event.target.value)
+          }}
+          placeholder={field.placeholder}
+          type="text"
+          value={String(currentValue)}
+        />
+      )}
+      {field.description && (
+        <p className="mt-1 text-[11px] text-[#8b7a93]">{field.description}</p>
+      )}
+    </div>
+  )
+}
+
+interface RawConfigEditorProps {
+  config: Record<string, unknown>
+  onChange: (config: Record<string, unknown>) => void
+}
+
+function RawConfigEditor({ config, onChange }: RawConfigEditorProps) {
+  const [draft, setDraft] = useState(() => JSON.stringify(config, null, 2))
+  const [error, setError] = useState<string | null>(null)
+
+  return (
+    <div className="mt-3">
+      <label className="block text-xs font-medium text-[#7b6b83]" htmlFor="designer-node-config">
+        Configuration JSON
+      </label>
+      <textarea
+        className={`${inputClassName} mt-1.5 min-h-40 font-mono text-xs`}
+        id="designer-node-config"
+        onChange={(event) => {
+          const nextValue = event.target.value
+          setDraft(nextValue)
+          try {
+            const parsed = JSON.parse(nextValue) as unknown
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+              setError(null)
+              onChange(parsed as Record<string, unknown>)
+              return
+            }
+            setError('Config must be a JSON object.')
+          } catch {
+            setError('Invalid JSON. Fix it before saving.')
+          }
+        }}
+        value={draft}
+      />
+      {error && <p className="mt-2 text-xs font-medium text-red-600">{error}</p>}
+    </div>
   )
 }

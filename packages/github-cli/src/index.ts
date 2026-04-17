@@ -435,11 +435,48 @@ export async function ghAddPRComment(
 export async function ghListOpenPRs(
   owner: string,
   repo: string,
-): Promise<Array<{ base: string; head: string; number: number; state: string; title: string }>> {
+): Promise<Array<{ base: string; body: string | null; head: string; number: number; state: string; title: string; updatedAt: string; url: string }>> {
   const out = await run(
-    `gh pr list --repo ${owner}/${repo} --state open --json number,title,state,headRefName,baseRefName`,
+    `gh pr list --repo ${owner}/${repo} --state open --json number,title,body,state,headRefName,baseRefName,url,updatedAt`,
   );
-  return JSON.parse(out);
+  const prs = JSON.parse(out) as Array<any>;
+  return prs.map((pr) => ({
+    number: pr.number,
+    title: pr.title,
+    body: pr.body ?? null,
+    state: pr.state,
+    base: pr.baseRefName,
+    head: pr.headRefName,
+    url: pr.url,
+    updatedAt: pr.updatedAt,
+  }));
+}
+
+export interface GitHubPrComment {
+  author: string;
+  body: string;
+  createdAt: string;
+  id: string;
+  url?: string;
+}
+
+export async function ghListPrComments(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<GitHubPrComment[]> {
+  const out = await run(
+    `gh pr view ${prNumber} --repo ${owner}/${repo} --json comments`,
+  );
+  const data = JSON.parse(out) as { comments?: Array<any> };
+  const comments = data.comments ?? [];
+  return comments.map((comment, index) => ({
+    id: String(comment.id ?? `${prNumber}-${index}`),
+    author: comment.author?.login ?? 'unknown',
+    body: comment.body ?? '',
+    createdAt: comment.createdAt ?? new Date().toISOString(),
+    url: comment.url,
+  }));
 }
 
 export async function ghAddIssueComment(

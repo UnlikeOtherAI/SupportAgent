@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { type WorkerJob } from '@support-agent/contracts';
 import { type WorkerApiClient } from '../lib/api-client.js';
 import {
+  ghAddIssueComment,
   ghCheckAuth,
   ghCloneRepo,
   ghCreateBranch,
@@ -196,7 +197,17 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
     // Create PR
     await api.postProgress(jobId, 'pr_create', 'Creating pull request');
     try {
-      const prBody = `## AI Fix — Issue #${issueNum}
+      const actionConfig = ((job as any).providerHints?.actionConfig ?? {}) as Record<string, unknown>;
+      const issueLinkMode = actionConfig.issueLinkMode === 'mentions' ? 'mentions' : 'fixes';
+      const issueLinkLine = issueNum > 0
+        ? issueLinkMode === 'fixes'
+          ? `Fixes #${issueNum}`
+          : `Relates to #${issueNum}`
+        : '';
+
+      const prBody = `${issueLinkLine}
+
+## AI Fix — Issue #${issueNum}
 
 **Issue:** ${issueTitle}
 
@@ -218,6 +229,24 @@ ${implementationSummary.slice(0, 1000)}
       prUrl = result.url;
       await api.postLog(jobId, 'stdout', `[build] PR created: ${prUrl}`);
       await api.postProgress(jobId, 'pr_create', `PR opened: ${prUrl}`);
+
+      if (issueNum > 0) {
+        try {
+          await ghAddIssueComment(
+            owner,
+            repo,
+            issueNum,
+            `<!-- supportagent:pr-link -->\n🚀 Draft PR opened: ${prUrl}\n\n${issueLinkLine ? `PR body references this issue with \`${issueLinkLine}\`.` : ''}`,
+          );
+          await api.postLog(jobId, 'stdout', `[build] Posted PR link on issue #${issueNum}`);
+        } catch (commentErr) {
+          await api.postLog(
+            jobId,
+            'stderr',
+            `[build] Could not post PR link back on issue: ${commentErr}`,
+          );
+        }
+      }
     } catch (err) {
       await api.postLog(jobId, 'stderr', `[build] PR creation failed: ${err}`);
       await api.postProgress(jobId, 'pr_create', `PR creation failed: ${err}`);

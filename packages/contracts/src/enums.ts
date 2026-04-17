@@ -1,7 +1,12 @@
 import { z } from 'zod';
 
-export const WorkflowType = z.enum(['triage', 'build', 'merge']);
+export const WorkflowType = z.enum(['triage', 'build', 'merge', 'review']);
 export type WorkflowType = z.infer<typeof WorkflowType>;
+
+export const ReviewStage = z.enum([
+  'context_fetch', 'repository_setup', 'diff_read', 'analysis', 'comment_post',
+]);
+export type ReviewStage = z.infer<typeof ReviewStage>;
 
 export const WorkflowRunStatus = z.enum([
   'queued', 'blocked', 'dispatched', 'running',

@@ -37,10 +37,10 @@ export const triggerItems: DesignerPaletteItem[] = [
   },
   {
     key: 'github.issue.labeled',
-    label: 'GitHub label added',
-    description: 'Start when a label such as triage, build, or ai-ready appears.',
+    label: 'GitHub issue labeled',
+    description: 'Start when a specific label is applied to an issue.',
     type: 'trigger',
-    config: { event: 'github.issue.labeled' },
+    config: { event: 'github.issue.labeled', labelName: 'needs-triage' },
   },
   {
     key: 'github.pull_request.opened',
@@ -48,6 +48,17 @@ export const triggerItems: DesignerPaletteItem[] = [
     description: 'Start review or validation for incoming pull requests.',
     type: 'trigger',
     config: { event: 'github.pull_request.opened' },
+  },
+  {
+    key: 'github.pull_request.comment',
+    label: 'PR comment keyword',
+    description: 'Start when a PR comment mentions a configured keyword (e.g. /sa review).',
+    type: 'trigger',
+    config: {
+      event: 'github.pull_request.comment',
+      keyword: '/sa review',
+      botName: 'SupportAgent',
+    },
   },
   {
     key: 'schedule.interval',
@@ -78,7 +89,14 @@ export const actionItems: DesignerPaletteItem[] = [
     label: 'Build PR candidate',
     description: 'Create a build workflow run for code changes.',
     type: 'action',
-    config: { workflowType: 'build' },
+    config: { workflowType: 'build', issueLinkMode: 'fixes' },
+  },
+  {
+    key: 'workflow.review',
+    label: 'Review PR',
+    description: 'Clone the PR branch, read the diff, and generate a review.',
+    type: 'action',
+    config: { workflowType: 'review' },
   },
   {
     key: 'approval.request',
@@ -92,17 +110,24 @@ export const actionItems: DesignerPaletteItem[] = [
 export const outputItems: DesignerPaletteItem[] = [
   {
     key: 'github.issue.comment',
-    label: 'GitHub comment',
-    description: 'Post findings or status back to a GitHub issue.',
+    label: 'GitHub issue comment',
+    description: 'Post findings, PR link, or review back to a GitHub issue.',
     type: 'output',
-    config: { destinationType: 'github.issue.comment' },
+    config: { destinationType: 'github.issue.comment', template: 'findings' },
+  },
+  {
+    key: 'github.pr.comment',
+    label: 'GitHub PR comment',
+    description: 'Post review notes back onto a GitHub pull request.',
+    type: 'output',
+    config: { destinationType: 'github.pr.comment', template: 'review' },
   },
   {
     key: 'github.issue.label',
     label: 'Apply GitHub label',
     description: 'Set triaged, complexity, or handoff labels.',
     type: 'output',
-    config: { destinationType: 'github.issue.label' },
+    config: { destinationType: 'github.issue.label', labels: 'triaged' },
   },
   {
     key: 'linear.issue.create',
