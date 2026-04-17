@@ -47,34 +47,79 @@ Practical consequences for this plan:
 
 ### Output contract
 
-Every spawn must write a JSON file matching this base shape:
+Every spawn writes a JSON file matching the `SkillRunResult` envelope. The envelope cleanly separates **what to deliver** (`delivery[]`), **structured findings** for the API (`findings`), **a human-readable rollup** for the run record (`reportSummary`), **loop control** (`loop`), and **artifacts** (`artifacts`).
 
 ```ts
-{
-  body: string;                    // required — what the connector posts back
-  labels?: string[];               // optional — connector applies if present
-  state_change?: 'close' | 'reopen' | 'merge' | 'request_changes' | 'approve';
-  pr?: PrSpec;                     // optional — declares a PR to open; see PR mechanics
-  done?: boolean;                  // loop control — see Loop semantics
-  next_iteration_focus?: string;   // loop control — see Loop semantics
-  extras?: Record<string, unknown>; // skill-defined open zone, ignored by connector
-}
+type SkillRunResult = {
+  // Concrete delivery operations the connector enacts on its source.
+  // Multiple entries allowed for skills that legitimately produce
+  // multiple atomic actions (e.g. summary comment + label change).
+  delivery: DeliveryOp[];
+
+  // Structured fields persisted via the findings API. Optional; only
+  // skills whose role is to produce findings populate this.
+  findings?: StructuredFindings;
+
+  // One-paragraph human summary stored on the workflow run for
+  // admin-UI listing pages. Always plain text, no markdown.
+  reportSummary?: string;
+
+  // Loop control. Required when this stage is the leaf of a loop.
+  loop?: { done: boolean; next_iteration_focus?: string };
+
+  // Skill-defined open zone, never inspected by the connector.
+  extras?: Record<string, unknown>;
+
+  // Optional file references the runtime uploads to artifact storage.
+  artifacts?: Array<{ path: string; kind: string; description?: string }>;
+};
+
+type DeliveryOp =
+  | { kind: 'comment';  body: string }                                 // post a thread comment
+  | { kind: 'labels';   add?: string[]; remove?: string[] }            // mutate labels
+  | { kind: 'state';    change: 'close' | 'reopen' | 'merge' | 'request_changes' | 'approve' }
+  | { kind: 'pr';       spec: PrSpec };                                // open a PR (see PR mechanics)
+
+// Per-skill schema. The skill's output.schema.json declares the exact shape;
+// the API ingestion layer normalises it into the canonical findings record.
+type StructuredFindings = {
+  summary?: string;
+  rootCause?: string;
+  reproductionSteps?: string;
+  proposedFix?: string;
+  affectedAreas?: string[];
+  severity?: 'low' | 'medium' | 'high' | 'critical';
+  confidence?: 'low' | 'medium' | 'high';
+  // Open zone for skill-specific structured data the findings API stores verbatim.
+  custom?: Record<string, unknown>;
+};
 ```
 
-Skills can extend `extras` with their own fields. The connector only acts on the typed fields. `body` is the only field that must be present on the final output that gets delivered.
+Each `DeliveryOp` is independently routable (see _Connector delivery_ below). The connector ignores anything it doesn't recognize. `body` content is plain markdown — no skill-side rendering of GitHub-specific syntax (e.g. `gh`-only suggestion blocks).
 
 ### Connector delivery
 
-The connector that ingested the trigger also owns delivery. For GitHub:
+**Source connector ≠ delivery connector.** The connector that ingested the trigger does not necessarily own every output. The runtime resolves a `deliveryTarget` per `DeliveryOp` based on its `kind`:
 
-- `body` → `gh issue comment` or `gh pr comment` (whichever matches the trigger source).
-- `labels` → `gh issue edit --add-label` (or PR equivalent).
-- `state_change: merge` → `gh pr merge --squash`.
-- `state_change: close|reopen` → `gh issue close|reopen`.
-- `state_change: request_changes|approve` → `gh pr review`.
-- `pr` → branch + commit + push + `gh pr create` (see _PR mechanics_).
+| `kind` | Delivery target |
+|---|---|
+| `comment` | The **source connector** — same thread the trigger came from (issue comment, PR comment, Linear comment, Slack thread). |
+| `labels` | The **source connector** when the source supports labels; otherwise dropped with a `delivery_skipped` audit entry. |
+| `state` | The **source connector** if the state change applies to the source object; for `merge`, route to the **code-host connector** owning the PR's repository (which may differ when the trigger came from an issue and the PR was opened mid-run). |
+| `pr` | Always the **code-host connector** for the workflow run's `targetRepo`, never the source connector. |
 
-Future Slack, Linear, etc. connectors implement the same delivery interface in source-appropriate ways. The skill never knows which source it came from.
+For v1 the source and code-host connectors are both GitHub in every shipped scenario, so the routing collapses to one connector. The split is in place so a Linear-triggered scenario that opens a GitHub PR delivers the comment to Linear and the PR to GitHub. Skills remain source-agnostic — they emit `DeliveryOp[]` and the runtime resolves targets.
+
+GitHub connector translation:
+
+- `comment` → `gh issue comment` or `gh pr comment` (matched against the source thread).
+- `labels` → `gh issue edit --add-label / --remove-label` (or PR equivalent).
+- `state.change: merge` → `gh pr merge --squash` against the **code-host** target.
+- `state.change: close|reopen` → `gh issue close|reopen` against the source.
+- `state.change: request_changes|approve` → `gh pr review` against the source PR.
+- `pr` → branch + commit + push + `gh pr create` against the code-host target (see _PR mechanics_).
+
+Future Slack, Linear, etc. connectors implement the same `DeliveryOp` interface. The skill never knows which source it came from.
 
 ### PR mechanics
 
@@ -95,7 +140,7 @@ type PrSpec = {
 
 1. Create `pr.branch` from the workdir's current HEAD.
 2. Stage all changes in the workdir (`git add -A`), then commit with `pr.commit_message` (or `pr.title` if absent).
-3. Author = the connector's bot identity (configured per connector). When the trigger carries an originating user, append a `Co-Authored-By: <user> <email>` trailer.
+3. Author = the connector's bot identity (configured per connector). Append a `Co-Authored-By: <user> <email>` trailer **only** when the trigger carries an originating user **and** that user is not the bot identity itself. Otherwise omit the trailer (no self-attribution on schedule triggers, label triggers, or bot-replied threads).
 4. Push the branch to the origin remote.
 5. `gh pr create --title --body --base [--draft]`.
 6. Record the PR URL on the workflow run; if the trigger came from an issue, also post a comment on that issue linking to the PR (this is just a follow-up `body` delivery).
@@ -229,7 +274,7 @@ preamble: |
   You are running inside SupportAgent. Cite file:line.
 loop:
   max_iterations: 10
-  until_done: true                 # consolidator's `done: true` stops the loop
+  until_done: true                 # consolidator's `loop.done: true` stops the loop
 stages:
   - id: workers
     parallel:
@@ -269,8 +314,22 @@ stages:
 
 - A stage's `parallel[]` must declare at least one entry.
 - Two-tier today: stages form a single chain (`workers → consolidator`). Arbitrary DAG is out of scope; chain anything more complex by linking scenarios.
-- Loops require a final stage that emits `done: boolean`; if `until_done: true` and `done` is missing, the run fails fast on the first iteration.
-- Loop iteration N's prompt for the workers stage receives the previous iteration's `consolidator.next_iteration_focus` (when set), giving the loop a natural narrative carryover.
+- Loops require a final stage whose JSON Schema includes `loop.done` as a **required boolean field**. The runner validates this at executor parse time, not at run time. If `until_done: true` and the leaf stage's schema does not declare `loop.done` as required, the executor is rejected during validation.
+- When `until_done: true`, `guardrails.loop_safety.min_iteration_change` defaults to `true` (override to `false` only with explicit operator justification in the executor's `description`). This is a cheap defense against an LLM emitting `done: true` while making no actual progress.
+- Loop iteration N's prompt for the workers stage receives the previous iteration's `consolidator.loop.next_iteration_focus` (when set), giving the loop a natural narrative carryover.
+
+### `inputs_from` rendering grammar
+
+Every stage that consumes upstream outputs runs the same deterministic algorithm:
+
+1. **Resolve scope per source.** Plain list form (`inputs_from: [workers]`) is shorthand for `{workers: this_iteration}`. Object form (`{workers: this_iteration, consolidator: previous_iteration}`) selects per-source.
+2. **`this_iteration`** returns the outputs of the named stage produced in the current loop iteration. In iteration 1 of any loop, `this_iteration` is the only valid scope (there is no prior iteration). `previous_iteration` in iteration 1 returns an empty list — never an error.
+3. **`previous_iteration`** returns the **complete** outputs of every stage that ran in iteration N-1 from the named stage forward. So `consolidator: previous_iteration` returns iteration N-1's `consolidator.spawn_outputs`, **not** iteration N-1's worker outputs (those are referenced separately as `workers: previous_iteration` if needed).
+4. **Recursive executors** (`{executor: 'foo'}` spawn shape) are treated as a single output for `inputs_from` purposes — the leaf stage's output of the inner executor. Nested stages are not exposed.
+5. **Rendering order in `{{prompt}}`:** sources are emitted in the order they appear in the `inputs_from` block. Within one source, spawn outputs are concatenated in spawn-index order (the runtime assigns a stable 0..N-1 index per spawn). The runtime does not re-order or deduplicate.
+6. **Carryover from loop control.** If iteration N-1's leaf-stage output included `loop.next_iteration_focus`, the runner appends `# Focus for this iteration\n{focus}` after the rendered `inputs_from` block. This is the only implicit injection — everything else must be explicitly named.
+
+The runner records the rendered prompt per spawn for audit so an operator can debug "why did stage X see Y?" without rerunning.
 
 ### Picking `loop.max_iterations`
 
@@ -327,7 +386,7 @@ Each loop iteration produces:
   iteration: number;
   stages: {
     [stageId: string]: {
-      spawn_outputs: ParsedSkillOutput[];   // one per parallel spawn
+      spawn_outputs: SkillRunResult[];      // one per parallel spawn
     };
   };
 }
@@ -344,7 +403,21 @@ The connector delivers **every output produced by a leaf stage** — a leaf stag
 - **Fan-out + consolidator** → one delivery (the consolidator's output; upstream worker outputs are absorbed and never posted).
 - **Looping** → the final iteration's leaf-stage output(s) are delivered; intermediate iterations are recorded but not posted.
 
-Each delivery is a `{body, labels?, state_change?, pr?}` payload (see _Output contract_) translated by the connector into source-appropriate operations. For GitHub: each delivery becomes one comment on the originating issue or PR, plus optional label/state changes, plus an optional PR opened from the workdir.
+Each delivery is a `SkillRunResult` translated by the connector into source-appropriate operations via its `delivery[]` ops. For GitHub: each `comment` op becomes one comment on the originating issue or PR; `labels`/`state` ops mutate the source object; `pr` ops open a PR from the workdir.
+
+**Multi-leaf safety rule.** When a stage has N > 1 leaf outputs (the no-consolidator case), only `kind: comment` and `kind: labels` ops are honoured — every other op kind is **rejected at parse time** during executor validation. Mutating ops (`state.change: merge|close|reopen|approve|request_changes`, `pr`) require a single consolidator that emits exactly one decision. The runner enforces this by checking the executor's leaf stages: a leaf stage with `count > 1` (or with multiple `parallel[]` entries summing to > 1) may declare only the comment+labels op kinds in its skill's output schema. Without this rule, two parallel reviewers could both decide "approve" and "request_changes" for the same PR with non-deterministic ordering.
+
+### Fan-out failure cascade
+
+When a stage's `fan_out_min_success_rate` is not met:
+
+1. All in-flight spawns in that stage receive SIGTERM.
+2. The stage produces no outputs (succeeded spawns are recorded for audit but discarded as inputs).
+3. Downstream stages with `after:` on this stage do not run.
+4. **In a non-loop executor:** the run terminates with `status=failed` and `blocked_reason=fan_out_below_threshold`.
+5. **In a loop:** if at least one prior iteration produced `loop.done: true`, that iteration's leaf-stage outputs are delivered as the final result and the run is marked `succeeded`. Otherwise the most recent iteration whose leaf stage completed cleanly is delivered (advisory `degraded_after: iteration N` recorded). If iteration 1 fails the rate, no delivery happens and the run is `failed`.
+
+`done: true` from any prior iteration sticks for the duration of the run; a later iteration cannot retract it. This matches operator intent: once the consolidator agreed the work was done, subsequent flakiness should not invalidate that judgement.
 
 ## Guardrails
 
@@ -356,7 +429,7 @@ guardrails:
   fan_out_min_success_rate: 0.6          # require ≥60% of parallel spawns succeed
   consolidator_max_retries: 2            # retry the consolidator on parse/exec failure
   loop_safety:
-    min_iteration_change: false          # if true, abort when an iteration produces output identical to the previous one
+    min_iteration_change: true           # when until_done: true, defaults true. Aborts when iteration N output equals iteration N-1.
 ```
 
 ### No self-retrigger
@@ -373,7 +446,7 @@ For stages with N parallel spawns where N > 1, `fan_out_min_success_rate` (0.0�
 
 ### Loop safety
 
-Beyond `loop.max_iterations`, `loop_safety.min_iteration_change: true` aborts the loop when iteration N's leaf-stage output is byte-identical to iteration N-1's. Cheap insurance against the model emitting `done: false` while making no actual progress — a real failure mode under context exhaustion. Default `false`.
+Beyond `loop.max_iterations`, `loop_safety.min_iteration_change: true` aborts the loop when iteration N's leaf-stage output is byte-identical to iteration N-1's. Cheap insurance against the model emitting `loop.done: false` while making no actual progress — a real failure mode under context exhaustion. Defaults to `true` whenever `until_done: true`; default `false` for fixed-iteration loops.
 
 ## Trigger allowlist
 
@@ -388,11 +461,18 @@ trigger_allowlist:
   default: deny                             # deny | allow (default: allow)
 ```
 
+**Actor identity is established once, at the connector edge.** The connector that ingested the trigger is the only authority on "who fired this." It writes a verified `AutomationEvent.actor` field (login + numeric id from the platform's authenticated webhook payload, never from comment body parsing or display name). Allowlist matching reads from that field, never from anywhere else. Spoofing a comment author by editing the body is therefore impossible — the platform-supplied id is what counts.
+
 Resolution order on an inbound event:
 
 1. If `trigger_allowlist` is absent on the scenario → allow (current behaviour preserved).
-2. If the actor matches any explicit `users` or `teams` entry → allow.
-3. Otherwise apply `default` (allow or deny).
+2. If `AutomationEvent.actor.login` (or the numeric id, for stability across renames) matches any explicit `users` entry → allow.
+3. If the actor's resolved team set intersects the scenario's `teams` entry → allow.
+4. Otherwise apply `default` (allow or deny).
+
+**Team resolution.** Team handles use the GitHub team slug format (`@org/team-slug`, never display names). When a scenario references a team, the connector calls `gh api orgs/{org}/teams/{team-slug}/members` using the bot identity's authenticated client and caches the membership list with a 5-minute TTL keyed by `(org, team-slug)`. Resolution failures (404, 403, network error) are **fail-closed**: the run is marked `blocked` with `blocked_reason: team_resolution_failed`, with the failed team handle in the audit. The scenario does not silently fall through to `default: deny`.
+
+**v1 scope.** Only the GitHub connector implements `trigger_allowlist`. Other connectors validate the allowlist YAML at scenario save time but reject any non-GitHub `users`/`teams` entries until their connector ships allowlist support. The scenario YAML thereby remains source-typed (no ambiguous mixing of platforms).
 
 This is intentionally **not** a permissions system — there are no roles, no per-action grants, no admin gating. Anyone with admin access already configures everything; the allowlist exists only to keep stranger commenters from triggering automated actions on a public repo. Aligns with the user-stated principle: "whoever has access to the repo should be able to do that — we'd be overcomplicating with permissions at this stage."
 
@@ -400,14 +480,16 @@ This is intentionally **not** a permissions system — there are no roles, no pe
 
 When a scenario triggered from a comment ("@sa-bot review again, focus on auth") starts, the connector posts an immediate placeholder before the run begins, and replaces it with the final result on completion.
 
-State machine on the connector side, keyed by `(scenarioExecutionId, deliveryTarget)`:
+State machine on the connector side, keyed by the **`actionDeliveryAttemptId`** (one comment per attempt; cancelling and re-running spawns a new attempt with a new placeholder, never reuses a stale one).
 
 | Phase | Action |
 |---|---|
-| **Started** | Post `> SupportAgent is working on this — started <ts>. I'll update this comment when done.` Save the resulting comment id on the `action_delivery_attempt` row as `placeholderRef`. |
-| **Running** | Edit the placeholder comment in place at most once every 30s with the latest progress line (`> …running stage 'workers' (3/5 spawns done)`). |
-| **Done** | Edit the placeholder one last time, replacing its full body with the final `{body}` payload. The comment id is preserved so the GitHub thread stays anchored. |
+| **Started** | Post `> SupportAgent is working on this — started <ts>. I'll update this comment when done.` Save the resulting comment id on the `action_delivery_attempt` row as `placeholderRef`, with `placeholderRefStatus: live`. |
+| **Running** | Before each in-place edit (≤ once per 30s), `GET /repos/{owner}/{repo}/issues/comments/{id}` to verify the placeholder still exists. If 404/403/410, mark `placeholderRefStatus: stale`, post a new placeholder with a fresh id, and continue from there (audit event records both ids and the reason). If the verify call itself errors transiently, retry once then post a fresh comment rather than blocking the run. |
+| **Done** | Same precheck. If `placeholderRefStatus: live`, edit in place — comment id is preserved so the GitHub thread stays anchored. If `stale`, post a new comment with the final `body` (do not attempt to edit a ghost id). The audit record tracks every comment id the attempt produced. |
 | **Edit unsupported** | If the source connector cannot edit (rare; e.g. Linear comment edits restricted by permission), delete the placeholder and post a fresh comment with the final body. Audit records both ids. |
+
+A placeholder going stale is an **audit event, not a delivery failure** — the user gets the final result either way. The run is only marked failed if posting the new placeholder also fails.
 
 The same lifecycle applies to GitHub Projects status updates (the connector edits the project item's status field rather than posting a comment).
 
@@ -415,13 +497,19 @@ The skill author is unaware of any of this — the lifecycle lives entirely on t
 
 ## Cancel & stop
 
-Every active run gets a cancel control in the admin UI (run detail page → "Stop"). Cancel semantics:
+Every active run gets a cancel control in the admin UI (run detail page → "Stop"). Cancel is **two-phase** so the runner gets to make a clean decision instead of being torn down mid-write:
 
-- **In-flight stage** — runner sends SIGTERM to all subprocess spawns in the active stage; aborts pending `inline_llm` calls; marks the workflow run `canceled`.
-- **Looping run** — cancel between iterations is also supported and the canceled iteration's partial outputs are recorded but not delivered.
+1. **`cancel_requested`** — control plane sets the run to `cancel_requested` and (for remote runtimes) sends a `cancel` message over the WebSocket session. The runner observes this state at three checkpoints: before spawning the next stage, before starting the next loop iteration, and before each delivery op. Subprocesses already running are allowed to finish; pending `inline_llm` calls are aborted only if not yet sent.
+2. **`canceled`** — once the runner stops at the next checkpoint (or the user clicks "Force stop"), the run flips to `canceled` and SIGTERM is sent to any subprocess that is still alive. Force-stop is a separate UI action with a clear "may corrupt in-flight delivery" warning.
+
+Output preservation:
+
+- **Completed stages and completed loop iterations are kept.** Their outputs are recorded on the run.
+- **The in-flight stage's partial outputs are discarded** even if some spawns succeeded — the consolidator never ran, so there is no consensus to deliver.
+- **Loop with prior `loop.done: true`:** if any completed iteration emitted `loop.done: true`, that iteration's leaf output is delivered as the final result (the run is marked `canceled` but with `delivered_iteration: N` recorded). Otherwise no final delivery happens.
 - **Already-delivered output** — cancellation cannot un-post a comment that already went out. The connector posts a follow-up `> SupportAgent run canceled by <user>` comment so the thread isn't left ambiguous.
 
-Cancel is a control-plane operation. For remote runtimes, the control plane sends a `cancel` message over the existing WebSocket session; the runtime CLI is responsible for terminating local subprocesses. See `runtime-cli.md` registration/dispatch contract for the existing message envelope — `cancel` slots in alongside `dispatch` and `heartbeat`.
+For remote runtimes, the control plane sends `cancel_requested` over the existing WebSocket session; the runtime CLI is responsible for the checkpoint loop and for terminating local subprocesses on force-stop. See `runtime-cli.md` registration/dispatch contract for the existing message envelope — `cancel_requested` and `cancel_force` slot in alongside `dispatch` and `heartbeat`.
 
 ## Skill versioning & dependencies
 
@@ -432,6 +520,8 @@ Builtin rows (`source: BUILTIN`) follow the file in `packages/skills/builtin/<na
 User clones (`source: USER`) are never touched by the seed loop. They keep whatever body the operator saved, even if the upstream builtin moves on. The `parentSkillId` link makes it possible to surface "your clone is N edits behind the builtin" in the admin UI as advisory text only — there is no auto-merge.
 
 No semantic version field. Builtins update in place; clones are frozen at the moment of cloning. If an operator needs to track multiple variants, they clone again under a new name.
+
+**Schema-drift safety.** When an executor references a system skill, the executor parser records the skill's `output.schema.json` content hash in the executor's parsed AST. At dispatch time the runner compares this against the system skill that will actually load (the operator's clone, or the current builtin). If the hash differs, the run is **refused before spawning** with `blocked_reason: skill_schema_drift`, naming both the executor's expected hash and the loaded skill's actual hash. The admin UI surfaces this as a hard error on the cloned skill's detail page ("schema drift from builtin v…; re-clone or update the executor"). Optional, non-schema body edits do not trigger this — only the JSON schema sidecar is hashed for compatibility.
 
 ### Dependencies (between skills)
 
@@ -453,15 +543,20 @@ Prisma:
 ```prisma
 model Skill {
   id              String   @id @default(uuid())
-  name            String   @unique
+  tenantId        String?          // null for builtin rows; set for user clones in multi-tenant installs
+  name            String           // unique within (tenantId, source)
   role            SkillRole
   description     String
   body            String           // full SKILL.md body
   outputSchema    Json?            // parsed output.schema.json, if role=system
+  contentHash     String           // sha256 of body + outputSchema canonicalized — drives drift detection
+  schemaHash      String?          // sha256 of outputSchema only — referenced by executors for compatibility
   source          SkillSource      // 'builtin' | 'user'
   parentSkillId   String?          // set when a user clones a builtin
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  @@unique([tenantId, name, source])
 }
 
 enum SkillRole   { SYSTEM COMPLEMENTARY }
@@ -469,20 +564,26 @@ enum SkillSource { BUILTIN USER }
 
 model Executor {
   id              String   @id @default(uuid())
-  key             String   @unique
+  tenantId        String?
+  key             String           // unique within (tenantId, source)
   description     String
   yaml            String           // full YAML, source of truth for the runner
   parsed          Json             // pre-parsed for admin UI rendering
+  contentHash     String           // sha256 of yaml — used as a stable revision id at dispatch time
   source          ExecutorSource
   parentExecutorId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  @@unique([tenantId, key, source])
 }
 
 enum ExecutorSource { BUILTIN USER }
 ```
 
-On boot, the API upserts every file under `packages/skills/builtin/` and `packages/executors/builtin/` into rows with `source: BUILTIN`. Hash the file contents to detect changes; only overwrite builtin rows. User rows (clones) are never touched by the seed loop.
+On boot, the API upserts every file under `packages/skills/builtin/` and `packages/executors/builtin/` into rows with `source: BUILTIN, tenantId: null`. Hash the file contents to detect changes; only overwrite builtin rows. User rows (clones) are never touched by the seed loop.
+
+**Revision pinning at dispatch time.** When a workflow run is created, the API resolves the executor and all skills the executor references, then **freezes the resolved set** by writing the resolved `(executorId, contentHash)` and the per-skill `(skillId, contentHash)` pairs onto the run record (`workflow_runs.resolvedExecutorRevision`, `workflow_runs.resolvedSkillRevisions: Json`). The runner — local or remote — never reads "the latest" mutable rows; it only loads exactly the rows pinned on the run. An operator editing a skill mid-flight does not affect a run already in flight; the next run picks up the new revision. This makes runs reproducible and removes a class of "but it worked when I clicked Run" bugs.
 
 The admin UI:
 
@@ -520,15 +621,17 @@ The Workflow Designer's action node inspector adds an executor dropdown (sourced
 
 ## Migration plan
 
-The three existing handlers become three built-in scenarios + skills + executors.
+The three existing handlers become three built-in scenarios + skills + executors. **`workflowType` collapses to a single value (`triage`)** at the dispatch envelope level — `merge` and `review` were never separate workflow types in the new model, just different scenarios pointed at different executors.
 
 | Today | After |
 |---|---|
-| `handleTriageJob` | Scenario "GitHub Issue Triage" → executor `triage-default` (single stage, `max -p`) → system skill `triage-issue` (with `output.schema.json` matching today's `TriageOutputSchema`). |
-| `handleMergeJob` | Scenario "PR Merge Review" → executor `merge-default` → system skill `merge-reviewer`. |
-| `handlePrReviewJob` | Scenario "PR Review On Command" → executor `pr-review-default` → system skill `pr-reviewer`. |
+| `handleTriageJob` | Scenario "GitHub Issue Triage" → executor `triage-default` (single stage, `max -p`) → system skill `triage-issue` (with `output.schema.json` mirroring today's `TriageOutputSchema`). Dispatch `workflowType=triage`, `workItemKind=issue`. |
+| `handleMergeJob` | Scenario "PR Merge Review" → executor `merge-default` → system skill `merge-reviewer`. Dispatch `workflowType=triage`, `workItemKind=merge_target`. |
+| `handlePrReviewJob` | Scenario "PR Review On Command" → executor `pr-review-default` → system skill `pr-reviewer`. Dispatch `workflowType=triage`, `workItemKind=review_target`, with the originating review command attached as `triggerContext.reviewProfileId`. |
 
-The current 9-section triage rendering (`renderTriageReportMarkdown`) becomes the body of the `triage-issue` system skill — the LLM emits the structured fields, the connector renders markdown for the `body` field. (Open: render in skill or in connector? Recommend skill, so different connectors get the same canonical rendering.)
+This plan does **not** introduce or preserve a fourth top-level workflow type. The runner routes by `executorKey` only; `workflowType` exists solely as a coarse classifier on the run record (and is a candidate for removal in a follow-up cleanup once admin UI filters are updated).
+
+The current 9-section triage rendering (`renderTriageReportMarkdown`) splits as follows: the system skill emits **structured fields** (`StructuredFindings` in the output envelope), the connector calls the **findings API** with those fields, and the connector also renders the markdown comment body from the same fields using a thin per-connector renderer (so different connectors can adapt formatting — Slack mrkdwn vs GitHub markdown vs Linear markdown). The skill never knows the destination format.
 
 Once these three scenarios are seeded, the worker's three handlers are deleted and replaced with one `handleSkillJob`.
 
@@ -536,20 +639,23 @@ Once these three scenarios are seeded, the worker's three handlers are deleted a
 
 ### Phase A — Foundation
 
-- [ ] A.1 Add `Skill` and `Executor` Prisma models + migration.
+- [ ] A.1 Add `Skill` and `Executor` Prisma models (with `tenantId`, `contentHash`, `schemaHash`) + migration.
 - [ ] A.2 Build the file → DB seed loop (boot-time upsert, hash-based change detection).
-- [ ] A.3 Define the executor YAML JSON schema; build a parser + validator returning typed AST.
+- [ ] A.3 Define the executor YAML JSON schema; build a parser + validator returning typed AST. The AST records the resolved `system_skill.schemaHash` and `complementary[].contentHash` per stage so dispatch can pin them.
 - [ ] A.4 Define the skill frontmatter parser; build a loader that turns a `Skill` row into a `LoadedSkill` (frontmatter fields + body + parsed output schema if present).
-- [ ] A.5 Extract the base output schema (`OutputContractSchema`) into `packages/contracts`.
+- [ ] A.5 Extract the `SkillRunResult` envelope schema (with `DeliveryOp[]`, `StructuredFindings`, `loop`, `extras`, `artifacts`) into `packages/contracts`.
+- [ ] A.6 Update `WorkerJobSchema`: add `executorKey: string` and `resolvedSkills: Array<{name, contentHash, body, outputSchema?}>` (the inlined revisions). Keep `workflowType` as `'triage'` only — emit a Prisma migration that maps existing `merge` and `review` rows to `triage` and drops the unused enum values from the DB enum. Update `worker.ts` routing to `handleSkillJob` keyed by `executorKey`. No legacy fallback path — completed runs of the old types are read-only.
+- [ ] A.7 Add `workflow_runs.resolvedExecutorRevision` and `workflow_runs.resolvedSkillRevisions: Json` columns; the API populates them at run creation time.
 
 ### Phase B — Runner (in-process worker first; identical contract for remote runtime later)
 
-- [ ] B.1 Build the prompt composer: `executor.preamble + system_skill.body + complementary[].body + output contract block + inputs_from rendering + task prompt`.
-- [ ] B.2 Build the stage scheduler: spawn parallel groups, await `after:` deps, collect outputs, feed downstream stages. Honour `guardrails.fan_out_min_success_rate` and `guardrails.consolidator_max_retries`.
-- [ ] B.3 Build the loop wrapper: iterate stage scheduler until `done: true` or `max_iterations`. Honour `guardrails.loop_safety.min_iteration_change`. Persist iteration state.
-- [ ] B.4 Replace the three handlers with one `handleSkillJob(job, api)` that loads the executor by key, runs the pipeline, and returns the final output to the connector for delivery. Code path stays identical when this runs inside the remote runtime CLI later.
-- [ ] B.5 Connector delivery: implement the GitHub delivery surface (`body`, `labels`, `state_change`) reading the run's final output.
-- [ ] B.6 Implement the progress-comment lifecycle on the GitHub connector (placeholder → in-place edit → final). Throttle edits at 30s.
+- [ ] B.1 Build the prompt composer: `executor.preamble + system_skill.body + complementary[].body + output contract block + inputs_from rendering + task prompt`. Implement the deterministic `inputs_from` rendering algorithm (see _`inputs_from` rendering grammar_).
+- [ ] B.2 Build the stage scheduler: spawn parallel groups, await `after:` deps, collect `SkillRunResult` outputs, feed downstream stages. Honour `guardrails.fan_out_min_success_rate` and `guardrails.consolidator_max_retries`. Enforce the multi-leaf safety rule at parse time.
+- [ ] B.3 Build the loop wrapper: iterate stage scheduler until `loop.done: true` or `max_iterations`. Honour `guardrails.loop_safety.min_iteration_change` (default true when `until_done: true`). Persist iteration state. Implement the "prior `loop.done: true` sticks" rule for the fan-out failure cascade.
+- [ ] B.4 Implement the cancel checkpoint loop: check `run.status === 'cancel_requested'` before each stage spawn, before each loop iteration, and before each delivery op. On hit, stop cleanly and apply the output preservation rules from _Cancel & stop_.
+- [ ] B.5 Replace the three handlers with one `handleSkillJob(job, api)` that loads the dispatch's pinned `resolvedSkills` and `executor` (no DB read for revisions — they came in the dispatch), runs the pipeline, and hands the leaf outputs to the delivery resolver. Code path stays identical when this runs inside the remote runtime CLI later.
+- [ ] B.6 Build the delivery resolver that maps each `DeliveryOp` to its target connector (source vs code-host) per the routing table in _Connector delivery_, and the per-connector translators (GitHub first).
+- [ ] B.7 Implement the progress-comment lifecycle on the GitHub connector (placeholder → verify-then-edit → final, with stale-placeholder fallback). Throttle edits at 30s.
 
 ### Phase C — Built-ins
 
@@ -560,7 +666,7 @@ Once these three scenarios are seeded, the worker's three handlers are deleted a
 - [ ] C.5 Author `packages/skills/builtin/deep-reviewer/` (system skill for the cross-LLM worker pattern).
 - [ ] C.6 Author one or two complementary skills as proofs (`codebase-architecture`, `api-best-practices`).
 - [ ] C.7 Author `packages/executors/builtin/triage-default.yaml`, `merge-default.yaml`, `pr-review-default.yaml`, `cross-llm-review.yaml`, `zero-defect-review.yaml`.
-- [ ] C.8 Migrate existing scenarios to point at the new executor keys; delete the three legacy handlers.
+- [ ] C.8 Write a migration script that walks every `WorkflowScenarioStep` whose `stepType` matches a legacy handler, creates the corresponding executor row if needed, and writes `executorKey` + `taskPrompt` into `config`. Steps whose `config` contains hand-tuned fields (custom prompts, non-default CLI args, custom labels) are flagged with `migration_status: requires_manual_review` and surfaced as a banner in the admin UI; the script does not silently overwrite operator customisation. After migration completes (operator confirms in admin UI), delete the three legacy handlers.
 
 ### Phase D — Admin UI
 
@@ -578,34 +684,34 @@ Once these three scenarios are seeded, the worker's three handlers are deleted a
 
 The runtime CLI already exists as a contract (see [runtime-cli.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/runtime-cli.md), [llm/index.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/llm/index.md)). The skills+executors runner is what it executes once a job arrives. This phase wires the two together.
 
-- [ ] E.1 Extend the dispatch contract (`workflowType`, `executionProfile`, etc. — already present per `llm/index.md`) so it carries the resolved `executorKey` and the inlined skill bodies for that run. The runtime should not need to re-fetch every skill from the API per stage.
-- [ ] E.2 Implement skill-body fetch fallback: if the dispatch payload omits a referenced skill (e.g. complementary skill added mid-run), the runtime fetches it via `GET /v1/skills/:name` over HTTPS using the runtime API key.
-- [ ] E.3 Add a `cancel` message to the existing WebSocket session protocol; runtime CLI terminates active spawns on receipt.
-- [ ] E.4 Honour the model-access mode for `inline_llm` stages: `proxy` routes through the control-plane proxy, `tenant-provider` uses runtime-resident credentials. Same field already exists in worker config (`SUPPORT_AGENT_MODEL_ACCESS_MODE`).
-- [ ] E.5 Apply output visibility tier (`full` / `redacted` / `metadata_only`) on egress — both to the streamed log chunks and to the final `body` in the output contract.
-- [ ] E.6 Document the skills+executors model in `docs/llm/` so customer-side coding agents installing the runtime know what to expect. Most likely a new `docs/llm/skills-and-executors.md`.
+- [ ] E.1 Extend the dispatch contract so every dispatch carries the **fully resolved set**: `executorKey`, `executorRevisionHash`, the parsed YAML AST, and an inlined `resolvedSkills` array containing every system + complementary skill referenced by the executor (each with `name`, `contentHash`, `body`, optional `outputSchema`). The runtime never re-fetches a skill mid-run. Skills cannot be added "mid-run" because dispatch resolution happens once at run creation; admin edits during a run go to the next run, not this one (see _Revision pinning_).
+- [ ] E.2 Add a `cancel_requested` and `cancel_force` message pair to the existing WebSocket session protocol (see _Cancel & stop_); runtime CLI honours the checkpoint loop on `cancel_requested`, terminates spawns on `cancel_force`.
+- [ ] E.3 Honour the model-access mode for `inline_llm` stages: `proxy` routes through the control-plane proxy, `tenant-provider` uses runtime-resident credentials. **For v1, `inline_llm` is only available in `proxy` mode** — the prompt assembled by the runtime can include code excerpts from `inputs_from`, and routing those through `tenant-provider` would bypass the control-plane redaction tier. A future phase can lift this when the runtime applies redaction itself before the direct API call.
+- [ ] E.4 Apply output visibility tier (`full` / `redacted` / `metadata_only`) on egress — both to the streamed log chunks and to every `comment.body` in the output envelope.
+- [ ] E.5 Document the skills+executors model in `docs/llm/` so customer-side coding agents installing the runtime know what to expect. Most likely a new `docs/llm/skills-and-executors.md`.
 
 Phase E does not block Phase A–D shipping. The in-process worker satisfies hosted-SaaS use cases; remote runtime support layers on top once the contract exists.
 
 ## Resolved questions
 
-The following were open in the original draft; user direction in the 2026-04-17 review collapsed them.
+The following were open in the original draft; user direction in the 2026-04-17 review and the 2026-04-18 hardening pass collapsed them.
 
-1. **Bot identity per connector** — per-connector configurable, ship a single default for v1. Bot identity feeds the no-self-retrigger guardrail and the `Co-Authored-By` trailer on PRs.
-2. **Permissions model** — none. No roles, no per-action grants. The trigger allowlist (per scenario, GitHub nicknames) is the only actor gate. Whoever has admin access configures everything.
+1. **Bot identity per connector** — per-connector configurable, ship a single default for v1. Bot identity feeds the no-self-retrigger guardrail and the `Co-Authored-By` trailer on PRs. When the trigger has no originating user, **or** the originating user equals the bot identity, the trailer is omitted entirely; commit author is always the bot.
+2. **Permissions model** — none. No roles, no per-action grants. The trigger allowlist (per scenario, GitHub nicknames + team slugs) is the only actor gate. Whoever has admin access configures everything.
 3. **Concurrency / cost guardrails** — none in the platform. Operator decides what to spawn; the cost lesson is theirs to learn. The platform enforces only the YAML-declared `fan_out_min_success_rate` and `consolidator_max_retries`.
 4. **Skill dependency mechanism** — none in the skill format. Composition happens at the executor level via `system_skill` + `complementary[]`. Mirrors Claude's flat skill format.
-5. **Skill versioning** — builtins update in place via the seed loop; user clones are frozen at clone time. No version field.
-6. **In-flight cancel** — admin UI Stop button per run; SIGTERM to active spawns, abort pending `inline_llm` calls, leave a follow-up "canceled" comment on the source thread.
+5. **Skill versioning** — builtins update in place via the seed loop; user clones are frozen at clone time. No version field. Schema-drift safety enforced via `schemaHash` comparison at dispatch time.
+6. **In-flight cancel** — admin UI Stop button per run; two-phase (`cancel_requested` → `canceled` with optional force-stop). Completed iterations and `loop.done: true` results are preserved on cancel.
+7. **Markdown rendering location** — the system skill emits structured fields (`StructuredFindings`); the connector renders markdown for the `comment` op body using a per-connector renderer. The skill is source-agnostic; different connectors render the same fields differently when warranted.
+8. **`inline_llm` provider list for v1** — Anthropic only (we already use it elsewhere); only available in `proxy` mode for v1.
 
 ## Open questions (still)
 
-1. **Markdown rendering location** — the system skill emits structured fields and the connector renders the markdown `body`, or the system skill renders the markdown directly into `body`? Recommend the latter for source-portable rendering, but flag for review.
-2. **Loop expression overrides** — `until_done: true` reading the consolidator's `done` flag is the only stop signal. Worth supporting a YAML-level expression (`stop_when: extras.severity_remaining_max in ['none','low']`) for cases where operators don't want to trust the LLM's verdict, or push that policy into the consolidator skill itself? Current recommendation: skill-only for v1.
-3. **Schema declaration format** — JSON Schema in a sidecar file (proposed) vs Zod in TypeScript code (today). JSON Schema is editable in the admin UI without a redeploy and is a portable artifact; Zod is more idiomatic in this codebase. Recommend JSON Schema sidecar + runtime-converted-to-Zod via `zod-from-json-schema`.
-4. **Per-spawn cost / latency telemetry** — worth recording per-stage per-spawn duration and (where the executor exposes it) token usage? Not required for v1 but useful enough that it should be considered now to avoid schema churn.
-5. **`inline_llm` provider list for v1** — start with Anthropic only (we already use it elsewhere), or add OpenAI in the same pass? Recommend Anthropic-only for v1 to keep the platform-side LLM call surface small; add others as concrete need arises.
-6. **Progress comment update cadence** — every 30s is a guess. Tighten to 10s for short runs, loosen to 60s for long-running loops, or make it configurable per executor? Current recommendation: hardcode 30s for v1, revisit when telemetry exists.
+1. **Loop expression overrides** — `until_done: true` reading the consolidator's `loop.done` flag is the only stop signal. Worth supporting a YAML-level expression (`stop_when: extras.severity_remaining_max in ['none','low']`) for cases where operators don't want to trust the LLM's verdict, or push that policy into the consolidator skill itself? Current recommendation: skill-only for v1.
+2. **Schema declaration format** — JSON Schema in a sidecar file (proposed) vs Zod in TypeScript code (today). JSON Schema is editable in the admin UI without a redeploy and is a portable artifact; Zod is more idiomatic in this codebase. Recommend JSON Schema sidecar + runtime-converted-to-Zod via `zod-from-json-schema`.
+3. **Per-spawn cost / latency telemetry** — worth recording per-stage per-spawn duration and (where the executor exposes it) token usage? Not required for v1 but useful enough that it should be considered now to avoid schema churn.
+4. **Progress comment update cadence** — every 30s is a guess. Tighten to 10s for short runs, loosen to 60s for long-running loops, or make it configurable per executor? Current recommendation: hardcode 30s for v1, revisit when telemetry exists.
+5. **`workflowType` field removal** — Phase A.6 collapses the enum to `triage`. Whether to drop the column entirely (and its admin filters) is deferred — keeping the column lets us reintroduce a coarse classifier later without another migration.
 
 ## Non-goals
 
