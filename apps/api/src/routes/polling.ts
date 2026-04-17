@@ -96,6 +96,19 @@ const PollingEventBody = z.object({
       pr: PolledPrSchema,
       comment: PolledPrCommentSchema,
     }),
+    z.object({
+      kind: z.literal('github.pull_request.merged'),
+      connectorId: z.string().uuid(),
+      repositoryMappingId: z.string().uuid(),
+      pr: PolledPrSchema,
+    }),
+    z.object({
+      kind: z.literal('github.issue.closed_comment'),
+      connectorId: z.string().uuid(),
+      repositoryMappingId: z.string().uuid(),
+      issue: PolledIssueSchema,
+      comment: PolledPrCommentSchema,
+    }),
   ]),
 });
 

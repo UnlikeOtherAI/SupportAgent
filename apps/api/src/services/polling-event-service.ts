@@ -27,6 +27,19 @@ export type PollingEvent =
       repositoryMappingId: string;
       pr: PolledPrPayload;
       comment: PolledPrCommentPayload;
+    }
+  | {
+      kind: 'github.pull_request.merged';
+      connectorId: string;
+      repositoryMappingId: string;
+      pr: PolledPrPayload;
+    }
+  | {
+      kind: 'github.issue.closed_comment';
+      connectorId: string;
+      repositoryMappingId: string;
+      issue: PolledIssuePayload;
+      comment: PolledPrCommentPayload;
     };
 
 export interface PolledIssuePayload {
@@ -105,6 +118,12 @@ export function dedupeKeyForEvent(event: PollingEvent, scenarioId: string, repos
   }
   if (event.kind === 'github.pull_request.opened') {
     return `scn:${scenarioId}:${repositoryUrl}:pr-opened:${event.pr.number}`;
+  }
+  if (event.kind === 'github.pull_request.merged') {
+    return `scn:${scenarioId}:${repositoryUrl}:pr-merged:${event.pr.number}`;
+  }
+  if (event.kind === 'github.issue.closed_comment') {
+    return `scn:${scenarioId}:${repositoryUrl}:issue-closed-comment:${event.issue.number}:${event.comment.id}`;
   }
   return `scn:${scenarioId}:${repositoryUrl}:pr-comment:${event.pr.number}:${event.comment.id}`;
 }
@@ -206,7 +225,28 @@ function buildWorkItemData(input: {
 }) {
   const { event, dedupeKey, mapping, platformKey } = input;
 
-  if (event.kind === 'github.issue.opened' || event.kind === 'github.issue.labeled') {
+  if (
+    event.kind === 'github.issue.opened' ||
+    event.kind === 'github.issue.labeled' ||
+    event.kind === 'github.issue.closed_comment'
+  ) {
+    const issueComments =
+      event.kind === 'github.issue.closed_comment'
+        ? ([
+            {
+              author: event.comment.author,
+              body: event.comment.body,
+              commentId: event.comment.id,
+              createdAt: event.comment.createdAt,
+            },
+          ] as Prisma.InputJsonValue)
+        : (event.issue.comments.map((comment) => ({
+            author: comment.author,
+            body: comment.body,
+            commentId: comment.id,
+            createdAt: comment.createdAt,
+          })) as Prisma.InputJsonValue);
+
     return {
       connectorInstanceId: mapping.connectorId,
       platformType: platformKey,
@@ -216,12 +256,7 @@ function buildWorkItemData(input: {
       title: event.issue.title,
       body: event.issue.body ?? undefined,
       status: event.issue.state.toLowerCase(),
-      comments: event.issue.comments.map((comment) => ({
-        author: comment.author,
-        body: comment.body,
-        commentId: comment.id,
-        createdAt: comment.createdAt,
-      })) as Prisma.InputJsonValue,
+      comments: issueComments,
       dedupeKey,
       repositoryMappingId: mapping.id,
       repositoryRef: mapping.repositoryUrl,

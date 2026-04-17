@@ -1,8 +1,10 @@
 export type TriggerKind =
   | 'github.issue.opened'
   | 'github.issue.labeled'
+  | 'github.issue.closed_comment'
   | 'github.pull_request.opened'
   | 'github.pull_request.comment'
+  | 'github.pull_request.merged'
   | 'schedule.interval';
 
 export type ActionKind =

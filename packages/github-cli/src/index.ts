@@ -460,6 +460,50 @@ export async function ghListOpenPRs(
   }));
 }
 
+export async function ghListMergedPRs(
+  owner: string,
+  repo: string,
+  opts?: { limit?: number },
+): Promise<Array<{ base: string; body: string | null; head: string; number: number; state: string; title: string; updatedAt: string; url: string }>> {
+  const limit = opts?.limit ?? 30;
+  const out = await run(
+    `gh pr list --repo ${owner}/${repo} --state merged --json number,title,body,state,headRefName,baseRefName,url,updatedAt --limit ${limit}`,
+  );
+  const prs = JSON.parse(out) as Array<any>;
+  return prs.map((pr) => ({
+    number: pr.number,
+    title: pr.title,
+    body: pr.body ?? null,
+    state: pr.state,
+    base: pr.baseRefName,
+    head: pr.headRefName,
+    url: pr.url,
+    updatedAt: pr.updatedAt,
+  }));
+}
+
+export async function ghListClosedIssues(
+  owner: string,
+  repo: string,
+  opts?: { limit?: number },
+): Promise<GitHubIssueSummary[]> {
+  const limit = opts?.limit ?? 30;
+  const out = await run(
+    `gh issue list --repo ${owner}/${repo} --state closed --json number,title,body,state,labels,comments,url,updatedAt --limit ${limit}`,
+  );
+  const issues = JSON.parse(out) as Array<any>;
+  return issues.map((issue) => ({
+    number: issue.number,
+    title: issue.title,
+    body: issue.body ?? null,
+    state: issue.state,
+    labels: parseLabels(issue.labels),
+    comments: parseComments(issue.comments),
+    url: issue.url,
+    updatedAt: issue.updatedAt,
+  }));
+}
+
 export interface GitHubPrComment {
   author: string;
   body: string;

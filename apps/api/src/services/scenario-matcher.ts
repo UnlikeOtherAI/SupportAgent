@@ -101,6 +101,33 @@ function compileScenario(scenario: {
   };
 }
 
+/** Escape all regex meta-characters in a string for use in `new RegExp(...)`. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Returns true when a closed-issue comment event matches the scenario's
+ * `github.issue.closed_comment` trigger.
+ *
+ * If the trigger config contains a non-empty `keyword`, it must appear in the
+ * comment body as a word-boundary token (same boundary rules as the PR-comment
+ * matcher).  If no keyword is configured, any comment matches.
+ */
+function matchesClosedCommentTrigger(
+  scenario: CompiledScenario,
+  input: { body: string },
+): boolean {
+  const keyword =
+    typeof scenario.trigger.config.keyword === 'string'
+      ? scenario.trigger.config.keyword.trim()
+      : '';
+  if (keyword === '') return true;
+
+  const keywordRe = new RegExp(`(?<!\\w)${escapeRegExp(keyword)}(?!\\w)`);
+  return keywordRe.test(input.body);
+}
+
 export function createScenarioMatcher(prisma: PrismaClient) {
   return {
     async listMatchable(tenantId: string, options?: { connectorId?: string }) {
@@ -139,8 +166,10 @@ export function createScenarioMatcher(prisma: PrismaClient) {
       event:
         | { kind: 'github.issue.opened' }
         | { kind: 'github.issue.labeled'; label: string }
+        | { kind: 'github.issue.closed_comment'; body: string; author: string }
         | { kind: 'github.pull_request.opened' }
-        | { kind: 'github.pull_request.comment'; body: string; author: string },
+        | { kind: 'github.pull_request.comment'; body: string; author: string }
+        | { kind: 'github.pull_request.merged' },
     ): boolean {
       if (scenario.trigger.kind !== event.kind) return false;
 
@@ -156,6 +185,11 @@ export function createScenarioMatcher(prisma: PrismaClient) {
         return matchesPrCommentTrigger(scenario, { body: event.body, author: event.author });
       }
 
+      if (event.kind === 'github.issue.closed_comment') {
+        return matchesClosedCommentTrigger(scenario, { body: event.body });
+      }
+
+      // github.pull_request.merged and github.pull_request.opened: kind match alone is sufficient.
       return true;
     },
   };

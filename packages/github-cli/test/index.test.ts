@@ -64,6 +64,58 @@ describe('ghListAccessibleRepos', () => {
     ]);
   });
 
+  it('ghListMergedPRs runs the correct gh command', async () => {
+    execPromisifyMock.mockImplementation(async (command: string) => {
+      execMock(command);
+      return { stdout: JSON.stringify([]), stderr: '' };
+    });
+
+    const { ghListMergedPRs } = await import('../src/index.ts');
+    await ghListMergedPRs('rafiki270', 'max-test');
+
+    expect(execMock).toHaveBeenCalledTimes(1);
+    expect(execMock.mock.calls[0]?.[0]).toContain('gh pr list --repo rafiki270/max-test --state merged');
+    expect(execMock.mock.calls[0]?.[0]).toContain('--limit 30');
+  });
+
+  it('ghListMergedPRs respects a custom limit', async () => {
+    execPromisifyMock.mockImplementation(async (command: string) => {
+      execMock(command);
+      return { stdout: JSON.stringify([]), stderr: '' };
+    });
+
+    const { ghListMergedPRs } = await import('../src/index.ts');
+    await ghListMergedPRs('rafiki270', 'max-test', { limit: 10 });
+
+    expect(execMock.mock.calls[0]?.[0]).toContain('--limit 10');
+  });
+
+  it('ghListClosedIssues runs the correct gh command', async () => {
+    execPromisifyMock.mockImplementation(async (command: string) => {
+      execMock(command);
+      return { stdout: JSON.stringify([]), stderr: '' };
+    });
+
+    const { ghListClosedIssues } = await import('../src/index.ts');
+    await ghListClosedIssues('rafiki270', 'max-test');
+
+    expect(execMock).toHaveBeenCalledTimes(1);
+    expect(execMock.mock.calls[0]?.[0]).toContain('gh issue list --repo rafiki270/max-test --state closed');
+    expect(execMock.mock.calls[0]?.[0]).toContain('--limit 30');
+  });
+
+  it('ghListClosedIssues respects a custom limit', async () => {
+    execPromisifyMock.mockImplementation(async (command: string) => {
+      execMock(command);
+      return { stdout: JSON.stringify([]), stderr: '' };
+    });
+
+    const { ghListClosedIssues } = await import('../src/index.ts');
+    await ghListClosedIssues('rafiki270', 'max-test', { limit: 5 });
+
+    expect(execMock.mock.calls[0]?.[0]).toContain('--limit 5');
+  });
+
   it('defines severity-critical with the expected color', async () => {
     execPromisifyMock.mockImplementation(async (command: string) => {
       execMock(command);

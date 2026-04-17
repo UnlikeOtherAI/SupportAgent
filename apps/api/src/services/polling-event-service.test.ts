@@ -25,6 +25,80 @@ function makeLabeledEvent(
   };
 }
 
+function makeMergedPrEvent(prNumber: number): PollingEvent {
+  return {
+    kind: 'github.pull_request.merged',
+    connectorId: 'connector-1',
+    repositoryMappingId: 'mapping-1',
+    pr: {
+      number: prNumber,
+      title: 'My PR',
+      body: null,
+      state: 'merged',
+      url: `https://github.com/test/repo/pull/${prNumber}`,
+      updatedAt: '2024-01-15T10:00:00Z',
+    },
+  };
+}
+
+function makeClosedCommentEvent(issueNumber: number, commentId: string): PollingEvent {
+  return {
+    kind: 'github.issue.closed_comment',
+    connectorId: 'connector-1',
+    repositoryMappingId: 'mapping-1',
+    issue: {
+      number: issueNumber,
+      title: 'Closed issue',
+      body: null,
+      state: 'closed',
+      url: `https://github.com/test/repo/issues/${issueNumber}`,
+      labels: [],
+      comments: [],
+      updatedAt: '2024-01-15T10:00:00Z',
+    },
+    comment: {
+      id: commentId,
+      author: 'alice',
+      body: 'A comment on a closed issue',
+      createdAt: '2024-01-15T10:00:00Z',
+    },
+  };
+}
+
+describe('dedupeKeyForEvent — github.pull_request.merged', () => {
+  it('produces the same key for the same PR on two consecutive polls', () => {
+    const key1 = dedupeKeyForEvent(makeMergedPrEvent(7), SCENARIO_ID, REPO_URL);
+    const key2 = dedupeKeyForEvent(makeMergedPrEvent(7), SCENARIO_ID, REPO_URL);
+    expect(key1).toBe(key2);
+  });
+
+  it('produces different keys for different PR numbers', () => {
+    const key1 = dedupeKeyForEvent(makeMergedPrEvent(7), SCENARIO_ID, REPO_URL);
+    const key2 = dedupeKeyForEvent(makeMergedPrEvent(8), SCENARIO_ID, REPO_URL);
+    expect(key1).not.toBe(key2);
+  });
+});
+
+describe('dedupeKeyForEvent — github.issue.closed_comment', () => {
+  it('produces the same key for the same closed issue + comment twice', () => {
+    const key1 = dedupeKeyForEvent(makeClosedCommentEvent(10, 'cmt-1'), SCENARIO_ID, REPO_URL);
+    const key2 = dedupeKeyForEvent(makeClosedCommentEvent(10, 'cmt-1'), SCENARIO_ID, REPO_URL);
+    expect(key1).toBe(key2);
+  });
+
+  it('produces different keys for two distinct comments on the same closed issue', () => {
+    const key1 = dedupeKeyForEvent(makeClosedCommentEvent(10, 'cmt-1'), SCENARIO_ID, REPO_URL);
+    const key2 = dedupeKeyForEvent(makeClosedCommentEvent(10, 'cmt-2'), SCENARIO_ID, REPO_URL);
+    expect(key1).not.toBe(key2);
+  });
+
+  it('produces different keys for the same comment id on different issues', () => {
+    const key1 = dedupeKeyForEvent(makeClosedCommentEvent(10, 'cmt-1'), SCENARIO_ID, REPO_URL);
+    const key2 = dedupeKeyForEvent(makeClosedCommentEvent(11, 'cmt-1'), SCENARIO_ID, REPO_URL);
+    expect(key1).not.toBe(key2);
+  });
+});
+
 describe('dedupeKeyForEvent — github.issue.labeled', () => {
   it('produces the same key when updatedAt is identical (same event instance)', () => {
     const updatedAt = '2024-01-15T10:00:00Z';

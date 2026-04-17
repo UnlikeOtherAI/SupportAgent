@@ -1,6 +1,8 @@
 import {
   ghListOpenIssues,
+  ghListClosedIssues,
   ghListOpenPRs,
+  ghListMergedPRs,
   ghListPrComments,
   parseGitHubRef,
   type GitHubIssueSummary,
@@ -93,6 +95,10 @@ function anyScenarioWantsIssues(scenarios: CompiledScenario[]) {
   );
 }
 
+function anyScenarioWantsClosedIssues(scenarios: CompiledScenario[]) {
+  return scenarios.some((scenario) => scenario.trigger.kind === 'github.issue.closed_comment');
+}
+
 function anyScenarioWantsPrs(scenarios: CompiledScenario[]) {
   return scenarios.some(
     (scenario) =>
@@ -101,8 +107,27 @@ function anyScenarioWantsPrs(scenarios: CompiledScenario[]) {
   );
 }
 
+function anyScenarioWantsMergedPrs(scenarios: CompiledScenario[]) {
+  return scenarios.some((scenario) => scenario.trigger.kind === 'github.pull_request.merged');
+}
+
 function anyScenarioWantsPrComments(scenarios: CompiledScenario[]) {
   return scenarios.some((scenario) => scenario.trigger.kind === 'github.pull_request.comment');
+}
+
+function matchesMergedPrTrigger(scenario: CompiledScenario) {
+  return scenario.trigger.kind === 'github.pull_request.merged';
+}
+
+function matchesClosedCommentTrigger(scenario: CompiledScenario, commentBody: string) {
+  if (scenario.trigger.kind !== 'github.issue.closed_comment') return false;
+  const keyword =
+    typeof scenario.trigger.config.keyword === 'string'
+      ? scenario.trigger.config.keyword.trim()
+      : '';
+  if (keyword === '') return true;
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<!\\w)${escaped}(?!\\w)`).test(commentBody);
 }
 
 interface DispatchEventInput {
@@ -143,6 +168,7 @@ async function processIssuesForTarget(input: {
   target: PollingScenarioTarget;
   scenarios: CompiledScenario[];
   issues: GitHubIssueSummary[];
+  closedIssues: GitHubIssueSummary[];
   stats: PollingStats;
   log?: (message: string) => void;
 }) {
@@ -185,6 +211,36 @@ async function processIssuesForTarget(input: {
       }
     }
   }
+
+  for (const issue of input.closedIssues) {
+    for (const comment of issue.comments) {
+      for (const scenario of input.scenarios) {
+        if (!scenarioAppliesToConnector(scenario, input.target.connectorId)) continue;
+        if (!matchesClosedCommentTrigger(scenario, comment.body)) continue;
+
+        await dispatchScenarioEvent({
+          apiBaseUrl: input.apiBaseUrl,
+          token: input.token,
+          scenario,
+          event: {
+            kind: 'github.issue.closed_comment',
+            connectorId: input.target.connectorId,
+            repositoryMappingId: input.target.repositoryMappingId,
+            issue,
+            comment: {
+              id: comment.id,
+              author: comment.author,
+              body: comment.body,
+              createdAt: comment.createdAt,
+              url: comment.url,
+            },
+          },
+          stats: input.stats,
+          log: input.log,
+        });
+      }
+    }
+  }
 }
 
 async function processPrsForTarget(input: {
@@ -193,6 +249,7 @@ async function processPrsForTarget(input: {
   target: PollingScenarioTarget;
   scenarios: CompiledScenario[];
   prs: PrSummary[];
+  mergedPrs: PrSummary[];
   loadComments: (prNumber: number) => Promise<GitHubPrComment[]>;
   stats: PollingStats;
   log?: (message: string) => void;
@@ -268,6 +325,36 @@ async function processPrsForTarget(input: {
       }
     }
   }
+
+  for (const pr of input.mergedPrs) {
+    for (const scenario of input.scenarios) {
+      if (!scenarioAppliesToConnector(scenario, input.target.connectorId)) continue;
+      if (!matchesMergedPrTrigger(scenario)) continue;
+
+      await dispatchScenarioEvent({
+        apiBaseUrl: input.apiBaseUrl,
+        token: input.token,
+        scenario,
+        event: {
+          kind: 'github.pull_request.merged',
+          connectorId: input.target.connectorId,
+          repositoryMappingId: input.target.repositoryMappingId,
+          pr: {
+            number: pr.number,
+            state: pr.state,
+            title: pr.title,
+            body: pr.body,
+            updatedAt: pr.updatedAt,
+            url: pr.url,
+            baseRef: pr.base,
+            headRef: pr.head,
+          },
+        },
+        stats: input.stats,
+        log: input.log,
+      });
+    }
+  }
 }
 
 export async function pollScenarioTargets(input: {
@@ -275,14 +362,18 @@ export async function pollScenarioTargets(input: {
   token: string;
   lastPolledAtByTarget: Map<string, number>;
   ghListIssues?: (owner: string, repo: string, limit?: number) => Promise<GitHubIssueSummary[]>;
+  ghListClosedIssues?: (owner: string, repo: string, opts?: { limit?: number }) => Promise<GitHubIssueSummary[]>;
   ghListPrs?: (owner: string, repo: string) => Promise<PrSummary[]>;
+  ghListMergedPrs?: (owner: string, repo: string, opts?: { limit?: number }) => Promise<PrSummary[]>;
   ghListPrComments?: (owner: string, repo: string, prNumber: number) => Promise<GitHubPrComment[]>;
   now?: () => number;
   log?: (message: string) => void;
 }): Promise<PollingStats> {
   const now = input.now ?? Date.now;
   const listIssues = input.ghListIssues ?? ghListOpenIssues;
+  const listClosedIssues = input.ghListClosedIssues ?? ghListClosedIssues;
   const listPrs = input.ghListPrs ?? ghListOpenPRs;
+  const listMergedPrs = input.ghListMergedPrs ?? ghListMergedPRs;
   const listPrComments = input.ghListPrComments ?? ghListPrComments;
 
   const stats: PollingStats = {
@@ -321,27 +412,35 @@ export async function pollScenarioTargets(input: {
     input.lastPolledAtByTarget.set(targetKey, now());
     stats.targetsChecked++;
 
-    if (anyScenarioWantsIssues(scenariosForTarget)) {
-      const issues = await listIssues(owner, repo, 100);
+    if (anyScenarioWantsIssues(scenariosForTarget) || anyScenarioWantsClosedIssues(scenariosForTarget)) {
+      const [issues, closedIssues] = await Promise.all([
+        anyScenarioWantsIssues(scenariosForTarget) ? listIssues(owner, repo, 100) : Promise.resolve([] as GitHubIssueSummary[]),
+        anyScenarioWantsClosedIssues(scenariosForTarget) ? listClosedIssues(owner, repo, { limit: 30 }) : Promise.resolve([] as GitHubIssueSummary[]),
+      ]);
       await processIssuesForTarget({
         apiBaseUrl: input.apiBaseUrl,
         token: input.token,
         target,
         scenarios: scenariosForTarget,
         issues,
+        closedIssues,
         stats,
         log: input.log,
       });
     }
 
-    if (anyScenarioWantsPrs(scenariosForTarget)) {
-      const prs = await listPrs(owner, repo);
+    if (anyScenarioWantsPrs(scenariosForTarget) || anyScenarioWantsMergedPrs(scenariosForTarget)) {
+      const [prs, mergedPrs] = await Promise.all([
+        anyScenarioWantsPrs(scenariosForTarget) ? listPrs(owner, repo) : Promise.resolve([] as PrSummary[]),
+        anyScenarioWantsMergedPrs(scenariosForTarget) ? listMergedPrs(owner, repo, { limit: 30 }) : Promise.resolve([] as PrSummary[]),
+      ]);
       await processPrsForTarget({
         apiBaseUrl: input.apiBaseUrl,
         token: input.token,
         target,
         scenarios: scenariosForTarget,
         prs,
+        mergedPrs,
         loadComments: (prNumber) => listPrComments(owner, repo, prNumber),
         stats,
         log: input.log,
