@@ -42,4 +42,10 @@ describe('processJob', () => {
     const job = makeJob({ workflowType: 'merge' });
     await expect(processJob(job)).resolves.toBeUndefined();
   });
+
+  it('routes jobs with executorKey to the skill handler first', async () => {
+    const job = makeJob({ workflowType: 'triage', executorKey: 'triage-default' });
+
+    await expect(processJob(job)).rejects.toThrow('skill handler not implemented');
+  });
 });

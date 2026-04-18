@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { WorkflowType } from './enums.js';
 
+const ResolvedSkillManifestEntrySchema = z.object({
+  name: z.string(),
+  contentHash: z.string(),
+});
+
 export const WorkerJobSchema = z.object({
   jobId: z.string().uuid(),
   workflowRunId: z.string().uuid(),
@@ -26,6 +31,9 @@ export const WorkerJobSchema = z.object({
   providerHints: z.record(z.unknown()).optional(),
   runtimeCapabilities: z.array(z.string()).optional(),
   networkRequirements: z.array(z.string()).optional(),
+  executorKey: z.string().optional(),
+  executorRevisionHash: z.string().optional(),
+  resolvedSkillManifest: z.array(ResolvedSkillManifestEntrySchema).optional(),
 });
 
 export type WorkerJob = z.infer<typeof WorkerJobSchema>;
