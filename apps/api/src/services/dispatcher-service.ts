@@ -1,6 +1,7 @@
 import { type PrismaClient } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { type ExecutionProvider, type TriggerComment, type WorkerDispatchJob } from './execution-provider.js';
+import { createProgressCommentService } from './progress-comment-service.js';
 
 function readTriggerComment(raw: unknown): TriggerComment | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -78,6 +79,8 @@ export function createDispatcherService(
   providers: ExecutionProvider[],
   apiBaseUrl: string,
 ) {
+  const progressCommentService = createProgressCommentService(prisma);
+
   async function selectProvider(
     workflowType: string,
     executionProfileKey?: string,
@@ -278,6 +281,15 @@ export function createDispatcherService(
             providerExecutionRef: result.providerJobId,
           },
         });
+
+        try {
+          await progressCommentService.postPlaceholder(claimed.workflowRunId);
+        } catch (error) {
+          console.warn('[dispatcher] Failed to post progress placeholder', {
+            workflowRunId: claimed.workflowRunId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       } catch (err) {
         await prisma.workerDispatch.update({
           where: { id: claimed.dispatchId },

@@ -58,6 +58,12 @@ export interface GitHubIssueComment {
   url?: string;
 }
 
+export interface GitHubCommentReference {
+  body?: string;
+  id: string;
+  url: string;
+}
+
 export interface GitHubIssueSummary {
   body: string | null;
   comments: GitHubIssueComment[];
@@ -89,6 +95,20 @@ async function runQuiet(cmd: string, cwd?: string, timeoutMs = DEFAULT_TIMEOUT_M
   const options = cwd ? { cwd, timeout: timeoutMs } : { timeout: timeoutMs };
   const { stdout } = await execAsync(cmd, options);
   return stdout.trim();
+}
+
+async function withJsonBodyFile<T>(
+  prefix: string,
+  body: Record<string, unknown>,
+  callback: (file: string) => Promise<T>,
+): Promise<T> {
+  const file = path.join(os.tmpdir(), `${prefix}-${Date.now()}.json`);
+  await fs.writeFile(file, JSON.stringify(body), 'utf-8');
+  try {
+    return await callback(file);
+  } finally {
+    await fs.unlink(file).catch(() => undefined);
+  }
 }
 
 function parseLabels(labels: Array<string | { name?: string }> | undefined): string[] {
@@ -366,12 +386,13 @@ export async function ghCreatePR(
   body: string,
   headBranch: string,
   baseBranch = 'main',
+  options?: { draft?: boolean },
 ): Promise<{ number: number; url: string }> {
   const bodyFile = path.join(os.tmpdir(), `pr-body-${Date.now()}.txt`);
   await fs.writeFile(bodyFile, body, 'utf-8');
   try {
     const out = await runQuiet(
-      `gh pr create --repo ${owner}/${repo} --title "${title.replace(/"/g, '\\"')}" --body-file "${bodyFile}" --base ${baseBranch} --head ${headBranch}`,
+      `gh pr create --repo ${owner}/${repo} --title "${title.replace(/"/g, '\\"')}" --body-file "${bodyFile}" --base ${baseBranch} --head ${headBranch}${options?.draft ? ' --draft' : ''}`,
     );
     const url = out.startsWith('http')
       ? out
@@ -430,14 +451,18 @@ export async function ghAddPRComment(
   repo: string,
   prNumber: number,
   comment: string,
-): Promise<void> {
-  const bodyFile = path.join(os.tmpdir(), `pr-comment-${Date.now()}.txt`);
-  await fs.writeFile(bodyFile, comment, 'utf-8');
-  try {
-    await run(`gh pr comment ${prNumber} --repo ${owner}/${repo} --body-file "${bodyFile}"`);
-  } finally {
-    await fs.unlink(bodyFile).catch(() => undefined);
-  }
+): Promise<GitHubCommentReference> {
+  return withJsonBodyFile('pr-comment', { body: comment }, async (bodyFile) => {
+    const out = await run(
+      `gh api repos/${owner}/${repo}/issues/${prNumber}/comments --method POST --input "${bodyFile}"`,
+    );
+    const data = JSON.parse(out) as { body?: string; html_url: string; id: number | string };
+    return {
+      id: String(data.id),
+      url: data.html_url,
+      body: data.body,
+    };
+  });
 }
 
 export async function ghListOpenPRs(
@@ -536,14 +561,51 @@ export async function ghAddIssueComment(
   repo: string,
   issueNumber: number,
   comment: string,
-): Promise<void> {
-  const bodyFile = path.join(os.tmpdir(), `issue-comment-${Date.now()}.txt`);
-  await fs.writeFile(bodyFile, comment, 'utf-8');
-  try {
-    await run(`gh issue comment ${issueNumber} --repo ${owner}/${repo} --body-file "${bodyFile}"`);
-  } finally {
-    await fs.unlink(bodyFile).catch(() => undefined);
-  }
+): Promise<GitHubCommentReference> {
+  return withJsonBodyFile('issue-comment', { body: comment }, async (bodyFile) => {
+    const out = await run(
+      `gh api repos/${owner}/${repo}/issues/${issueNumber}/comments --method POST --input "${bodyFile}"`,
+    );
+    const data = JSON.parse(out) as { body?: string; html_url: string; id: number | string };
+    return {
+      id: String(data.id),
+      url: data.html_url,
+      body: data.body,
+    };
+  });
+}
+
+export async function ghGetComment(
+  owner: string,
+  repo: string,
+  commentId: string,
+): Promise<GitHubCommentReference> {
+  const out = await run(`gh api repos/${owner}/${repo}/issues/comments/${commentId}`);
+  const data = JSON.parse(out) as { body?: string; html_url: string; id: number | string };
+  return {
+    id: String(data.id),
+    url: data.html_url,
+    body: data.body,
+  };
+}
+
+export async function ghEditComment(
+  owner: string,
+  repo: string,
+  commentId: string,
+  body: string,
+): Promise<GitHubCommentReference> {
+  return withJsonBodyFile('comment-edit', { body }, async (bodyFile) => {
+    const out = await run(
+      `gh api repos/${owner}/${repo}/issues/comments/${commentId} --method PATCH --input "${bodyFile}"`,
+    );
+    const data = JSON.parse(out) as { body?: string; html_url: string; id: number | string };
+    return {
+      id: String(data.id),
+      url: data.html_url,
+      body: data.body,
+    };
+  });
 }
 
 export async function ghAddIssueLabels(
@@ -569,6 +631,61 @@ export async function ghAddIssueLabels(
 
   await run(
     `gh issue edit ${issueNumber} --repo ${owner}/${repo} --add-label "${labels.join(',')}"`,
+  );
+}
+
+export async function ghEditIssueLabels(
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  options: { add?: string[]; remove?: string[] },
+): Promise<void> {
+  if (options.add?.length) {
+    await ghAddIssueLabels(owner, repo, issueNumber, options.add);
+  }
+
+  if (options.remove?.length) {
+    await run(
+      `gh issue edit ${issueNumber} --repo ${owner}/${repo} --remove-label "${options.remove.join(',')}"`,
+    );
+  }
+}
+
+export async function ghCloseIssue(
+  owner: string,
+  repo: string,
+  issueNumber: number,
+): Promise<void> {
+  await run(`gh issue close ${issueNumber} --repo ${owner}/${repo}`);
+}
+
+export async function ghReopenIssue(
+  owner: string,
+  repo: string,
+  issueNumber: number,
+): Promise<void> {
+  await run(`gh issue reopen ${issueNumber} --repo ${owner}/${repo}`);
+}
+
+export async function ghApprovePR(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  body = 'SupportAgent approved this pull request.',
+): Promise<void> {
+  await run(
+    `gh pr review ${prNumber} --repo ${owner}/${repo} --approve --body "${body.replace(/"/g, '\\"')}"`,
+  );
+}
+
+export async function ghRequestChangesPR(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  body = 'SupportAgent requested changes.',
+): Promise<void> {
+  await run(
+    `gh pr review ${prNumber} --repo ${owner}/${repo} --request-changes --body "${body.replace(/"/g, '\\"')}"`,
   );
 }
 

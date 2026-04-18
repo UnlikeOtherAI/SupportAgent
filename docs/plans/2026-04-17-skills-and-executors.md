@@ -653,8 +653,8 @@ Once these three scenarios are seeded, the worker's three handlers are deleted a
 - [ ] B.3 Build the loop wrapper: iterate stage scheduler until `loop.done: true` or `max_iterations`. Honour `guardrails.loop_safety.min_iteration_change` (default true when `until_done: true`). Persist iteration state. Implement the "prior `loop.done: true` sticks" rule for the fan-out failure cascade.
 - [ ] B.4 Implement the cancel checkpoint loop: check `run.status === 'cancel_requested'` before each stage spawn and before each loop iteration. On hit, stop cleanly and apply the output preservation rules from _Cancel & stop_.
 - [ ] B.5 Replace the three handlers with one `handleSkillJob(job, api)` that resolves the dispatch's pinned executor + skill bodies via direct Prisma read by `(name, contentHash)`, runs the pipeline, and submits the leaf `SkillRunResult` set back to the API. The runtime stops there — delivery is API-owned (see _Connector delivery_). When this same code runs inside the remote runtime CLI later, the resolver swaps from Prisma read to authenticated HTTP fetch (Phase E.1) without changing the runner.
-- [ ] B.6 Build the API-side delivery resolver that maps each leaf `DeliveryOp` to its target connector (source vs code-host) per the routing table in _Connector delivery_, persists `action_outputs` and `action_delivery_attempts`, and invokes the per-connector translators (GitHub first).
-- [ ] B.7 Implement the progress-comment lifecycle on the GitHub connector (placeholder → verify-then-edit → final, with stale-placeholder fallback). Throttle edits at 30s.
+- [x] B.6 Build the API-side delivery resolver that maps each leaf `DeliveryOp` to its target connector (source vs code-host) per the routing table in _Connector delivery_, persists `action_outputs` and `action_delivery_attempts`, and invokes the per-connector translators (GitHub first).
+- [x] B.7 Implement the progress-comment lifecycle on the GitHub connector (placeholder → verify-then-edit → final, with stale-placeholder fallback). Throttle edits at 30s.
 
 ### Phase C — Built-ins
 

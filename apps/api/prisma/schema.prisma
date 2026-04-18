@@ -80,6 +80,13 @@ enum DeliveryStatus {
   skipped
 }
 
+enum ActionDeliveryStatus {
+  pending
+  succeeded
+  failed
+  skipped
+}
+
 enum ReviewDecision {
   approved
   rejected
@@ -135,35 +142,35 @@ model PlatformType {
 
 // 2. Connector
 model Connector {
-  id                    String             @id @default(uuid())
-  tenantId              String
-  platformTypeId        String
-  name                  String
-  direction             ConnectorDirection
-  configuredIntakeMode  IntakeMode
-  effectiveIntakeMode   IntakeMode
-  isEnabled             Boolean            @default(true)
-  webhookSecret         String?
+  id                     String             @id @default(uuid())
+  tenantId               String
+  platformTypeId         String
+  name                   String
+  direction              ConnectorDirection
+  configuredIntakeMode   IntakeMode
+  effectiveIntakeMode    IntakeMode
+  isEnabled              Boolean            @default(true)
+  webhookSecret          String?
   pollingIntervalSeconds Int?
-  apiBaseUrl            String?
-  capabilities          Json?
-  taxonomyConfig        Json?
+  apiBaseUrl             String?
+  capabilities           Json?
+  taxonomyConfig         Json?
   imageDescriptionPolicy String?
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
 
-  platformType           PlatformType              @relation(fields: [platformTypeId], references: [id])
-  endpoints              ConnectorEndpoint[]
-  connectorCapabilities  ConnectorCapability[]
-  taxonomyCaches         ConnectorTaxonomyCache[]
-  scopeMappings          ConnectorScopeMapping[]
-  connectionSecrets      ConnectionSecret[]
-  repositoryMappings     RepositoryMapping[]
-  routingRules           RoutingRule[]
-  outboundDestinations   OutboundDestination[]
-  commentThreads         ConnectorCommentThread[]
-  inboundWorkItems       InboundWorkItem[]
-  scenarioBindings       WorkflowScenarioBinding[]
+  platformType          PlatformType              @relation(fields: [platformTypeId], references: [id])
+  endpoints             ConnectorEndpoint[]
+  connectorCapabilities ConnectorCapability[]
+  taxonomyCaches        ConnectorTaxonomyCache[]
+  scopeMappings         ConnectorScopeMapping[]
+  connectionSecrets     ConnectionSecret[]
+  repositoryMappings    RepositoryMapping[]
+  routingRules          RoutingRule[]
+  outboundDestinations  OutboundDestination[]
+  commentThreads        ConnectorCommentThread[]
+  inboundWorkItems      InboundWorkItem[]
+  scenarioBindings      WorkflowScenarioBinding[]
 
   @@index([tenantId])
   @@index([platformTypeId])
@@ -253,27 +260,27 @@ model ConnectionSecret {
 
 // 8. RepositoryMapping
 model RepositoryMapping {
-  id                       String   @id @default(uuid())
-  tenantId                 String
-  connectorId              String
-  repositoryUrl            String
-  defaultBranch            String   @default("main")
-  executionProfileId       String?
-  orchestrationProfileId   String?
-  reviewProfileId          String?
-  dependencyPolicy         Json?
-  notificationBindings     Json?
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  id                     String   @id @default(uuid())
+  tenantId               String
+  connectorId            String
+  repositoryUrl          String
+  defaultBranch          String   @default("main")
+  executionProfileId     String?
+  orchestrationProfileId String?
+  reviewProfileId        String?
+  dependencyPolicy       Json?
+  notificationBindings   Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
-  connector                Connector          @relation(fields: [connectorId], references: [id])
-  executionProfile         ExecutionProfile?  @relation(fields: [executionProfileId], references: [id])
-  routingRules             RoutingRule[]
-  inboundWorkItems         InboundWorkItem[]
-  workflowRuns             WorkflowRun[]
-  featureDeliveryRuns      FeatureDeliveryRun[]
-  scenarioBindings         WorkflowScenarioBinding[]
-  eventSubscriptions       RepositoryEventSubscription[]
+  connector           Connector                     @relation(fields: [connectorId], references: [id])
+  executionProfile    ExecutionProfile?             @relation(fields: [executionProfileId], references: [id])
+  routingRules        RoutingRule[]
+  inboundWorkItems    InboundWorkItem[]
+  workflowRuns        WorkflowRun[]
+  featureDeliveryRuns FeatureDeliveryRun[]
+  scenarioBindings    WorkflowScenarioBinding[]
+  eventSubscriptions  RepositoryEventSubscription[]
 
   @@index([tenantId])
   @@index([connectorId])
@@ -292,7 +299,7 @@ model RoutingRule {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  connector         Connector?        @relation(fields: [connectorId], references: [id])
+  connector         Connector?         @relation(fields: [connectorId], references: [id])
   repositoryMapping RepositoryMapping? @relation(fields: [repositoryMappingId], references: [id])
   targets           RoutingTarget[]
 
@@ -304,14 +311,14 @@ model RoutingRule {
 
 // 10. RoutingTarget
 model RoutingTarget {
-  id                      String   @id @default(uuid())
-  routingRuleId           String
-  outboundDestinationId   String
-  isActive                Boolean  @default(true)
-  createdAt               DateTime @default(now())
+  id                    String   @id @default(uuid())
+  routingRuleId         String
+  outboundDestinationId String
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
 
-  routingRule          RoutingRule          @relation(fields: [routingRuleId], references: [id])
-  outboundDestination  OutboundDestination  @relation(fields: [outboundDestinationId], references: [id])
+  routingRule         RoutingRule         @relation(fields: [routingRuleId], references: [id])
+  outboundDestination OutboundDestination @relation(fields: [outboundDestinationId], references: [id])
 
   @@index([routingRuleId])
   @@index([outboundDestinationId])
@@ -387,8 +394,8 @@ model WorkflowScenario {
   createdAt              DateTime     @default(now())
   updatedAt              DateTime     @updatedAt
 
-  triggerPolicy    TriggerPolicy?    @relation(fields: [triggerPolicyId], references: [id])
-  executionProfile ExecutionProfile? @relation(fields: [executionProfileId], references: [id])
+  triggerPolicy    TriggerPolicy?            @relation(fields: [triggerPolicyId], references: [id])
+  executionProfile ExecutionProfile?         @relation(fields: [executionProfileId], references: [id])
   bindings         WorkflowScenarioBinding[]
   steps            WorkflowScenarioStep[]
   workflowRuns     WorkflowRun[]
@@ -436,42 +443,42 @@ model WorkflowScenarioStep {
 
 // 17. InboundWorkItem
 model InboundWorkItem {
-  id                   String       @id @default(uuid())
-  connectorInstanceId  String
-  platformType         String
-  workItemKind         WorkItemKind
-  externalItemId       String
-  externalUrl          String?
-  title                String
-  body                 String?      @db.Text
-  priority             String?
-  severity             String?
-  status               String?
-  taxonomy             Json?
-  attachments          Json?
-  comments             Json?
-  dependencyRefs       Json?
-  sourcePayloadRef     String?
-  repositoryMappingId  String?
-  dedupeKey            String?
-  repositoryRef        String?
-  baseRef              String?
-  headRef              String?
-  commitRange          String?
-  diffRef              String?
-  reviewTargetType     String?
-  reviewTargetNumber   Int?
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
+  id                  String       @id @default(uuid())
+  connectorInstanceId String
+  platformType        String
+  workItemKind        WorkItemKind
+  externalItemId      String
+  externalUrl         String?
+  title               String
+  body                String?      @db.Text
+  priority            String?
+  severity            String?
+  status              String?
+  taxonomy            Json?
+  attachments         Json?
+  comments            Json?
+  dependencyRefs      Json?
+  sourcePayloadRef    String?
+  repositoryMappingId String?
+  dedupeKey           String?
+  repositoryRef       String?
+  baseRef             String?
+  headRef             String?
+  commitRange         String?
+  diffRef             String?
+  reviewTargetType    String?
+  reviewTargetNumber  Int?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
 
-  connector         Connector          @relation(fields: [connectorInstanceId], references: [id])
-  repositoryMapping RepositoryMapping? @relation(fields: [repositoryMappingId], references: [id])
-  workflowRuns      WorkflowRun[]
-  commentThreads    ConnectorCommentThread[]
-  dependenciesFrom  WorkItemDependency[]  @relation("DependencySource")
-  dependenciesTo    WorkItemDependency[]  @relation("DependencyTarget")
-  dependencySnapshots  DependencySnapshot[]
-  dependencyOverrides  DependencyOverride[]
+  connector                Connector                 @relation(fields: [connectorInstanceId], references: [id])
+  repositoryMapping        RepositoryMapping?        @relation(fields: [repositoryMappingId], references: [id])
+  workflowRuns             WorkflowRun[]
+  commentThreads           ConnectorCommentThread[]
+  dependenciesFrom         WorkItemDependency[]      @relation("DependencySource")
+  dependenciesTo           WorkItemDependency[]      @relation("DependencyTarget")
+  dependencySnapshots      DependencySnapshot[]
+  dependencyOverrides      DependencyOverride[]
   featureDeliveryWorkItems FeatureDeliveryWorkItem[]
 
   @@index([connectorInstanceId])
@@ -500,23 +507,27 @@ model WorkflowRun {
   acceptedDispatchAttempt  String?
   resolvedExecutorRevision String?
   resolvedSkillRevisions   Json?
+  progressCommentId        String?
+  lastProgressEditAt       DateTime?
   createdAt                DateTime          @default(now())
   startedAt                DateTime?
   completedAt              DateTime?
   updatedAt                DateTime          @updatedAt
 
-  workItem            InboundWorkItem     @relation(fields: [workItemId], references: [id])
-  repositoryMapping   RepositoryMapping   @relation(fields: [repositoryMappingId], references: [id])
-  executionProfile    ExecutionProfile?   @relation(fields: [executionProfileId], references: [id])
-  workflowScenario    WorkflowScenario?   @relation(fields: [workflowScenarioId], references: [id])
-  parentWorkflowRun   WorkflowRun?        @relation("WorkflowRunChildren", fields: [parentWorkflowRunId], references: [id])
-  childWorkflowRuns   WorkflowRun[]       @relation("WorkflowRunChildren")
-  logEvents           WorkflowLogEvent[]
-  findings            Finding[]
-  deliveryAttempts    OutboundDeliveryAttempt[]
-  dispatches          WorkerDispatch[]
-  reviews             WorkflowRunReview[]
-  conversationThreads ConversationThread[]
+  workItem               InboundWorkItem           @relation(fields: [workItemId], references: [id])
+  repositoryMapping      RepositoryMapping         @relation(fields: [repositoryMappingId], references: [id])
+  executionProfile       ExecutionProfile?         @relation(fields: [executionProfileId], references: [id])
+  workflowScenario       WorkflowScenario?         @relation(fields: [workflowScenarioId], references: [id])
+  parentWorkflowRun      WorkflowRun?              @relation("WorkflowRunChildren", fields: [parentWorkflowRunId], references: [id])
+  childWorkflowRuns      WorkflowRun[]             @relation("WorkflowRunChildren")
+  logEvents              WorkflowLogEvent[]
+  findings               Finding[]
+  deliveryAttempts       OutboundDeliveryAttempt[]
+  actionOutputs          ActionOutput[]
+  actionDeliveryAttempts ActionDeliveryAttempt[]
+  dispatches             WorkerDispatch[]
+  reviews                WorkflowRunReview[]
+  conversationThreads    ConversationThread[]
 
   @@index([tenantId])
   @@index([workItemId])
@@ -563,8 +574,8 @@ model Finding {
   designNotes           String?  @db.Text
   createdAt             DateTime @default(now())
 
-  workflowRun       WorkflowRun               @relation(fields: [workflowRunId], references: [id])
-  deliveryAttempts  OutboundDeliveryAttempt[]
+  workflowRun      WorkflowRun               @relation(fields: [workflowRunId], references: [id])
+  deliveryAttempts OutboundDeliveryAttempt[]
 
   @@index([workflowRunId])
   @@map("findings")
@@ -582,7 +593,7 @@ model OutboundDestination {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  connector        Connector?              @relation(fields: [connectorId], references: [id])
+  connector        Connector?                @relation(fields: [connectorId], references: [id])
   routingTargets   RoutingTarget[]
   deliveryAttempts OutboundDeliveryAttempt[]
 
@@ -593,16 +604,16 @@ model OutboundDestination {
 
 // 22. OutboundDeliveryAttempt
 model OutboundDeliveryAttempt {
-  id                      String         @id @default(uuid())
-  outboundDestinationId   String
-  workflowRunId           String
-  findingId               String?
-  status                  DeliveryStatus @default(pending)
-  payload                 Json?
-  response                Json?
-  errorMessage            String?
-  attemptNumber           Int            @default(1)
-  createdAt               DateTime       @default(now())
+  id                    String         @id @default(uuid())
+  outboundDestinationId String
+  workflowRunId         String
+  findingId             String?
+  status                DeliveryStatus @default(pending)
+  payload               Json?
+  response              Json?
+  errorMessage          String?
+  attemptNumber         Int            @default(1)
+  createdAt             DateTime       @default(now())
 
   outboundDestination OutboundDestination @relation(fields: [outboundDestinationId], references: [id])
   workflowRun         WorkflowRun         @relation(fields: [workflowRunId], references: [id])
@@ -614,7 +625,57 @@ model OutboundDeliveryAttempt {
   @@map("outbound_delivery_attempts")
 }
 
-// 23. ExecutionProfile
+// 23. ActionOutput
+model ActionOutput {
+  id              String           @id @default(uuid())
+  tenantId        String
+  workflowRunId   String
+  outputType      String
+  payload         Json
+  summary         String?          @db.Text
+  visibilityLevel OutputVisibility @default(full)
+  payloadRef      String?
+  redactionReason String?
+  createdAt       DateTime         @default(now())
+
+  workflowRun      WorkflowRun             @relation(fields: [workflowRunId], references: [id])
+  deliveryAttempts ActionDeliveryAttempt[]
+
+  @@index([tenantId])
+  @@index([workflowRunId])
+  @@index([outputType])
+  @@map("action_outputs")
+}
+
+// 24. ActionDeliveryAttempt
+model ActionDeliveryAttempt {
+  id                   String               @id @default(uuid())
+  tenantId             String
+  workflowRunId        String
+  actionOutputId       String
+  destinationType      String
+  destinationId        String?
+  status               ActionDeliveryStatus @default(pending)
+  attemptNumber        Int                  @default(1)
+  externalRef          String?
+  placeholderRef       String?
+  placeholderRefStatus String?
+  response             Json?
+  error                String?
+  createdAt            DateTime             @default(now())
+  completedAt          DateTime?
+
+  workflowRun  WorkflowRun  @relation(fields: [workflowRunId], references: [id])
+  actionOutput ActionOutput @relation(fields: [actionOutputId], references: [id])
+
+  @@index([tenantId])
+  @@index([workflowRunId])
+  @@index([actionOutputId])
+  @@index([status])
+  @@map("action_delivery_attempts")
+}
+
+// 25. ExecutionProfile
 model ExecutionProfile {
   id                  String   @id @default(uuid())
   tenantId            String
@@ -689,7 +750,7 @@ model ExecutionProviderHost {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  provider   ExecutionProvider       @relation(fields: [providerId], references: [id])
+  provider   ExecutionProvider      @relation(fields: [providerId], references: [id])
   sessions   ExecutionHostSession[]
   dispatches WorkerDispatch[]
 
@@ -699,14 +760,14 @@ model ExecutionProviderHost {
 
 // 27. ExecutionHostSession
 model ExecutionHostSession {
-  id                String    @id @default(uuid())
-  hostId            String
-  sessionToken      String
-  connectedAt       DateTime  @default(now())
-  disconnectedAt    DateTime?
-  lastHeartbeatAt   DateTime?
-  isActive          Boolean   @default(true)
-  metadata          Json?
+  id              String    @id @default(uuid())
+  hostId          String
+  sessionToken    String
+  connectedAt     DateTime  @default(now())
+  disconnectedAt  DateTime?
+  lastHeartbeatAt DateTime?
+  isActive        Boolean   @default(true)
+  metadata        Json?
 
   host ExecutionProviderHost @relation(fields: [hostId], references: [id])
 
@@ -765,9 +826,9 @@ model WorkerDispatch {
   startedAt            DateTime?
   completedAt          DateTime?
 
-  workflowRun       WorkflowRun           @relation(fields: [workflowRunId], references: [id])
-  executionProvider ExecutionProvider      @relation(fields: [executionProviderId], references: [id])
-  host              ExecutionProviderHost? @relation(fields: [hostId], references: [id])
+  workflowRun       WorkflowRun                 @relation(fields: [workflowRunId], references: [id])
+  executionProvider ExecutionProvider           @relation(fields: [executionProviderId], references: [id])
+  host              ExecutionProviderHost?      @relation(fields: [hostId], references: [id])
   checkpoints       DispatchAttemptCheckpoint[]
 
   @@index([workflowRunId])
@@ -777,13 +838,13 @@ model WorkerDispatch {
 }
 
 model DispatchAttemptCheckpoint {
-  id                String       @id @default(uuid())
+  id                String   @id @default(uuid())
   dispatchAttemptId String
   kind              String
   iteration         Int?
   stageId           String?
   payload           Json
-  createdAt         DateTime     @default(now())
+  createdAt         DateTime @default(now())
 
   dispatchAttempt WorkerDispatch @relation(fields: [dispatchAttemptId], references: [id])
 
@@ -844,11 +905,11 @@ model Executor {
 
 // 32. OrchestrationProfileVersion
 model OrchestrationProfileVersion {
-  id                      String   @id @default(uuid())
-  orchestrationProfileId  String
-  version                 Int
-  config                  Json
-  createdAt               DateTime @default(now())
+  id                     String   @id @default(uuid())
+  orchestrationProfileId String
+  version                Int
+  config                 Json
+  createdAt              DateTime @default(now())
 
   orchestrationProfile OrchestrationProfile @relation(fields: [orchestrationProfileId], references: [id])
 
@@ -872,22 +933,22 @@ model PromptManifest {
 
 // 34. ReviewProfile
 model ReviewProfile {
-  id                 String   @id @default(uuid())
-  tenantId           String
-  key                String
-  displayName        String
-  reviewGoal         String?
-  maxRounds          Int      @default(3)
-  passThreshold      Float?
-  requiresSecondModel Boolean @default(false)
-  requiredArtifacts  Json?
-  outputSchema       Json?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                  String   @id @default(uuid())
+  tenantId            String
+  key                 String
+  displayName         String
+  reviewGoal          String?
+  maxRounds           Int      @default(3)
+  passThreshold       Float?
+  requiresSecondModel Boolean  @default(false)
+  requiredArtifacts   Json?
+  outputSchema        Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  versions     ReviewProfileVersion[]
-  promptSets   ReviewPromptSet[]
-  reviews      WorkflowRunReview[]
+  versions   ReviewProfileVersion[]
+  promptSets ReviewPromptSet[]
+  reviews    WorkflowRunReview[]
 
   @@index([tenantId])
   @@map("review_profiles")
@@ -924,19 +985,19 @@ model ReviewPromptSet {
 
 // 37. WorkflowRunReview
 model WorkflowRunReview {
-  id                    String          @id @default(uuid())
-  workflowRunId         String
-  reviewProfileId       String
-  profileVersion        Int
-  decision              ReviewDecision?
-  operatorOverride      Boolean         @default(false)
+  id                     String          @id @default(uuid())
+  workflowRunId          String
+  reviewProfileId        String
+  profileVersion         Int
+  decision               ReviewDecision?
+  operatorOverride       Boolean         @default(false)
   operatorOverrideReason String?
-  startedAt             DateTime?
-  completedAt           DateTime?
-  createdAt             DateTime        @default(now())
+  startedAt              DateTime?
+  completedAt            DateTime?
+  createdAt              DateTime        @default(now())
 
-  workflowRun   WorkflowRun   @relation(fields: [workflowRunId], references: [id])
-  reviewProfile ReviewProfile @relation(fields: [reviewProfileId], references: [id])
+  workflowRun   WorkflowRun         @relation(fields: [workflowRunId], references: [id])
+  reviewProfile ReviewProfile       @relation(fields: [reviewProfileId], references: [id])
   roundOutputs  ReviewRoundOutput[]
   evaluations   ReviewEvaluation[]
   comments      ReviewComment[]
@@ -948,14 +1009,14 @@ model WorkflowRunReview {
 
 // 38. ReviewRoundOutput
 model ReviewRoundOutput {
-  id                    String          @id @default(uuid())
-  workflowRunReviewId   String
-  roundNumber           Int
-  input                 Json?
-  output                Json?
-  findings              Json?
-  decision              ReviewDecision?
-  createdAt             DateTime        @default(now())
+  id                  String          @id @default(uuid())
+  workflowRunReviewId String
+  roundNumber         Int
+  input               Json?
+  output              Json?
+  findings            Json?
+  decision            ReviewDecision?
+  createdAt           DateTime        @default(now())
 
   workflowRunReview WorkflowRunReview @relation(fields: [workflowRunReviewId], references: [id])
 
@@ -965,11 +1026,11 @@ model ReviewRoundOutput {
 
 // 39. ReviewEvaluation
 model ReviewEvaluation {
-  id                    String   @id @default(uuid())
-  workflowRunReviewId   String
-  evaluationType        String
-  result                Json?
-  createdAt             DateTime @default(now())
+  id                  String   @id @default(uuid())
+  workflowRunReviewId String
+  evaluationType      String
+  result              Json?
+  createdAt           DateTime @default(now())
 
   workflowRunReview WorkflowRunReview @relation(fields: [workflowRunReviewId], references: [id])
 
@@ -979,12 +1040,12 @@ model ReviewEvaluation {
 
 // 40. ReviewComment
 model ReviewComment {
-  id                    String   @id @default(uuid())
-  workflowRunReviewId   String
-  roundNumber           Int?
-  author                String
-  body                  String   @db.Text
-  createdAt             DateTime @default(now())
+  id                  String   @id @default(uuid())
+  workflowRunReviewId String
+  roundNumber         Int?
+  author              String
+  body                String   @db.Text
+  createdAt           DateTime @default(now())
 
   workflowRunReview WorkflowRunReview @relation(fields: [workflowRunReviewId], references: [id])
 
@@ -994,15 +1055,15 @@ model ReviewComment {
 
 // 41. WorkItemDependency
 model WorkItemDependency {
-  id                   String    @id @default(uuid())
-  workItemId           String
-  dependsOnWorkItemId  String
-  dependencyType       String
-  isResolved           Boolean   @default(false)
-  resolvedAt           DateTime?
-  createdAt            DateTime  @default(now())
+  id                  String    @id @default(uuid())
+  workItemId          String
+  dependsOnWorkItemId String
+  dependencyType      String
+  isResolved          Boolean   @default(false)
+  resolvedAt          DateTime?
+  createdAt           DateTime  @default(now())
 
-  workItem         InboundWorkItem @relation("DependencySource", fields: [workItemId], references: [id])
+  workItem          InboundWorkItem @relation("DependencySource", fields: [workItemId], references: [id])
   dependsOnWorkItem InboundWorkItem @relation("DependencyTarget", fields: [dependsOnWorkItemId], references: [id])
 
   @@index([workItemId])
@@ -1076,13 +1137,13 @@ model FeatureDeliveryRun {
 
 // 46. FeatureDeliveryWorkItem
 model FeatureDeliveryWorkItem {
-  id                    String   @id @default(uuid())
-  featureDeliveryRunId  String
-  workItemId            String
-  order                 Int
-  status                String
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                   String   @id @default(uuid())
+  featureDeliveryRunId String
+  workItemId           String
+  order                Int
+  status               String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   featureDeliveryRun FeatureDeliveryRun @relation(fields: [featureDeliveryRunId], references: [id])
   workItem           InboundWorkItem    @relation(fields: [workItemId], references: [id])
@@ -1094,12 +1155,12 @@ model FeatureDeliveryWorkItem {
 
 // 47. FeatureDeliveryBatch
 model FeatureDeliveryBatch {
-  id                    String    @id @default(uuid())
-  featureDeliveryRunId  String
-  batchNumber           Int
-  status                String
-  createdAt             DateTime  @default(now())
-  completedAt           DateTime?
+  id                   String    @id @default(uuid())
+  featureDeliveryRunId String
+  batchNumber          Int
+  status               String
+  createdAt            DateTime  @default(now())
+  completedAt          DateTime?
 
   featureDeliveryRun FeatureDeliveryRun @relation(fields: [featureDeliveryRunId], references: [id])
 
@@ -1109,12 +1170,12 @@ model FeatureDeliveryBatch {
 
 // 48. FeatureDeliveryAsset
 model FeatureDeliveryAsset {
-  id                    String   @id @default(uuid())
-  featureDeliveryRunId  String
-  assetType             String
-  url                   String
-  description           String?
-  createdAt             DateTime @default(now())
+  id                   String   @id @default(uuid())
+  featureDeliveryRunId String
+  assetType            String
+  url                  String
+  description          String?
+  createdAt            DateTime @default(now())
 
   featureDeliveryRun FeatureDeliveryRun @relation(fields: [featureDeliveryRunId], references: [id])
 
@@ -1131,8 +1192,8 @@ model ConnectorCommentThread {
   lastSyncedAt     DateTime?
   createdAt        DateTime  @default(now())
 
-  connector Connector        @relation(fields: [connectorId], references: [id])
-  workItem  InboundWorkItem? @relation(fields: [workItemId], references: [id])
+  connector Connector                 @relation(fields: [connectorId], references: [id])
+  workItem  InboundWorkItem?          @relation(fields: [workItemId], references: [id])
   messages  ConnectorCommentMessage[]
 
   @@index([connectorId])
@@ -1194,7 +1255,7 @@ model CommunicationChannel {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  channelType   CommunicationChannelType       @relation(fields: [channelTypeId], references: [id])
+  channelType   CommunicationChannelType         @relation(fields: [channelTypeId], references: [id])
   pairings      CommunicationChannelPairing[]
   memberships   CommunicationChannelMembership[]
   policies      CommunicationChannelPolicy[]
@@ -1208,12 +1269,12 @@ model CommunicationChannel {
 
 // 54. CommunicationChannelPairing
 model CommunicationChannelPairing {
-  id                       String   @id @default(uuid())
-  channelId                String
-  scopeType                String
-  scopeId                  String
-  externalConversationId   String
-  createdAt                DateTime @default(now())
+  id                     String   @id @default(uuid())
+  channelId              String
+  scopeType              String
+  scopeId                String
+  externalConversationId String
+  createdAt              DateTime @default(now())
 
   channel CommunicationChannel @relation(fields: [channelId], references: [id])
 
@@ -1259,9 +1320,9 @@ model ConversationThread {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  channel       CommunicationChannel       @relation(fields: [channelId], references: [id])
-  workflowRun   WorkflowRun?               @relation(fields: [workflowRunId], references: [id])
-  messages      ConversationMessage[]
+  channel        CommunicationChannel        @relation(fields: [channelId], references: [id])
+  workflowRun    WorkflowRun?                @relation(fields: [workflowRunId], references: [id])
+  messages       ConversationMessage[]
   actionRequests ConversationActionRequest[]
 
   @@index([channelId])
@@ -1369,15 +1430,15 @@ model ServiceIntegration {
 
 // 64. IntegrationSessionLink
 model IntegrationSessionLink {
-  id                     String    @id @default(uuid())
-  serviceIntegrationId   String
-  upstreamSessionId      String
-  internalSessionId      String
-  userId                 String?
-  tenantId               String?
-  scopes                 Json?
-  createdAt              DateTime  @default(now())
-  expiresAt              DateTime?
+  id                   String    @id @default(uuid())
+  serviceIntegrationId String
+  upstreamSessionId    String
+  internalSessionId    String
+  userId               String?
+  tenantId             String?
+  scopes               Json?
+  createdAt            DateTime  @default(now())
+  expiresAt            DateTime?
 
   serviceIntegration ServiceIntegration @relation(fields: [serviceIntegrationId], references: [id])
 
