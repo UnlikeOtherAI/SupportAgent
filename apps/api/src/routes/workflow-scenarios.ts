@@ -27,6 +27,12 @@ const DesignerGraph = z.object({
   connections: z.array(DesignerGraphConnection),
 });
 
+const TriggerAllowlistSchema = z.object({
+  users: z.array(z.string().min(1).max(255)).default([]),
+  teams: z.array(z.string().min(1).max(255)).default([]),
+  defaultPolicy: z.enum(['allow', 'deny']).default('allow'),
+});
+
 const ScenarioBody = z.object({
   key: z.string().min(1).max(255).optional(),
   displayName: z.string().min(1).max(255).optional(),
@@ -38,6 +44,7 @@ const ScenarioBody = z.object({
   allowedConnectors: z.array(z.string().uuid()).optional(),
   notificationPolicy: z.string().nullable().optional(),
   distributionTarget: z.string().nullable().optional(),
+  triggerAllowlist: TriggerAllowlistSchema.nullable().optional(),
   designerGraph: DesignerGraph.optional(),
 });
 
@@ -59,6 +66,17 @@ function readStringConfig(value: unknown, key: string) {
   return typeof candidate === 'string' ? candidate : null;
 }
 
+function readScenarioConfig(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return { ...value as Record<string, unknown> };
+}
+
+function readTriggerAllowlist(value: unknown) {
+  const config = readScenarioConfig(value);
+  const parsed = TriggerAllowlistSchema.safeParse(config.triggerAllowlist);
+  return parsed.success ? parsed.data : null;
+}
+
 function mapScenario(scenario: WorkflowScenarioWithBindings) {
   const designerGraph = readDesignerGraph(scenario.steps);
 
@@ -77,6 +95,7 @@ function mapScenario(scenario: WorkflowScenarioWithBindings) {
       .filter((connectorId): connectorId is string => !!connectorId),
     notificationPolicy: readStringConfig(scenario.notificationConfig, 'policy'),
     distributionTarget: readStringConfig(scenario.distributionConfig, 'target'),
+    triggerAllowlist: readTriggerAllowlist(scenario.config),
     designerGraph,
   };
 }
@@ -90,6 +109,33 @@ function updateJsonStringConfig(value: string | null | undefined, key: string) {
   if (value === undefined) return undefined;
   if (value === null || value.trim() === '') return Prisma.JsonNull;
   return { [key]: value } as Prisma.InputJsonValue;
+}
+
+function createScenarioConfig(
+  triggerAllowlist: z.infer<typeof TriggerAllowlistSchema> | null | undefined,
+) {
+  if (!triggerAllowlist) return undefined;
+  return {
+    triggerAllowlist,
+  } satisfies Prisma.InputJsonObject;
+}
+
+function updateScenarioConfig(
+  existingValue: unknown,
+  triggerAllowlist: z.infer<typeof TriggerAllowlistSchema> | null | undefined,
+) {
+  if (triggerAllowlist === undefined) return undefined;
+
+  const nextConfig = readScenarioConfig(existingValue);
+  if (triggerAllowlist === null) {
+    delete nextConfig.triggerAllowlist;
+  } else {
+    nextConfig.triggerAllowlist = triggerAllowlist;
+  }
+
+  return Object.keys(nextConfig).length === 0
+    ? Prisma.JsonNull
+    : nextConfig as Prisma.InputJsonValue;
 }
 
 function readDesignerConfig(value: unknown) {
@@ -230,6 +276,7 @@ export async function workflowScenarioRoutes(app: FastifyInstance) {
         reviewProfileId: body.reviewProfileId ?? undefined,
         notificationConfig: createJsonStringConfig(body.notificationPolicy, 'policy'),
         distributionConfig: createJsonStringConfig(body.distributionTarget, 'target'),
+        config: createScenarioConfig(body.triggerAllowlist),
         bindings: {
           create: (body.allowedConnectors ?? []).map((connectorId, index) => ({
             connectorId,
@@ -306,6 +353,9 @@ export async function workflowScenarioRoutes(app: FastifyInstance) {
             : {}),
           ...(body.distributionTarget !== undefined
             ? { distributionConfig: updateJsonStringConfig(body.distributionTarget, 'target') }
+            : {}),
+          ...(body.triggerAllowlist !== undefined
+            ? { config: updateScenarioConfig(existing.config, body.triggerAllowlist) }
             : {}),
         },
         include: { bindings: true, steps: true },

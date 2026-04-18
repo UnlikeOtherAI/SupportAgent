@@ -33,6 +33,10 @@ const TransitionBody = z.object({
   acceptedDispatchAttempt: z.string().uuid().optional(),
 });
 
+const CancelQuery = z.object({
+  force: z.coerce.number().int().optional(),
+});
+
 export async function workflowRunRoutes(app: FastifyInstance) {
   const repo = createWorkflowRunRepository(app.prisma);
   const service = createWorkflowRunService(repo, app.prisma);
@@ -76,7 +80,8 @@ export async function workflowRunRoutes(app: FastifyInstance) {
 
   // Cancel run
   app.post<{ Params: { runId: string } }>('/:runId/cancel', async (request) => {
-    return service.cancelRun(request.params.runId, request.user.tenantId);
+    const query = CancelQuery.parse(request.query ?? {});
+    return service.cancelRun(request.params.runId, request.user.tenantId, query.force === 1);
   });
 
   // Retry run

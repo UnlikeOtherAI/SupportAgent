@@ -33,14 +33,21 @@ const typeTabs = [
 
 const badgeVariant: Record<WorkflowRun['status'], 'running' | 'succeeded' | 'failed' | 'queued'> = {
   queued: 'queued',
+  blocked: 'queued',
+  dispatched: 'running',
   running: 'running',
+  cancel_requested: 'failed',
+  awaiting_review: 'running',
+  awaiting_human: 'queued',
   succeeded: 'succeeded',
   failed: 'failed',
-  cancelled: 'failed',
+  canceled: 'failed',
+  lost: 'failed',
 }
 
 function formatStatus(status: WorkflowRun['status']) {
-  return status.charAt(0).toUpperCase() + status.slice(1)
+  const normalized = status.replace(/_/g, ' ')
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1)
 }
 
 const columns: Column<WorkflowRun>[] = [

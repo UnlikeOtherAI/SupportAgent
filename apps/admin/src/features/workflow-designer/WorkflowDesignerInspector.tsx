@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { executorsApi } from '@/api/executors'
 import { getNodeConfigSchema, type DesignerFieldSchema } from './workflow-designer-config-schemas'
 import { nodeThemes } from './workflow-designer-options'
 import type { DesignerNode } from './workflow-designer-types'
@@ -48,6 +50,10 @@ function WorkflowDesignerInspectorContent({
   onDeleteNode,
   onUpdateNode,
 }: WorkflowDesignerInspectorContentProps) {
+  const { data: executors = [] } = useQuery({
+    queryKey: ['executors', 'designer-inspector'],
+    queryFn: () => executorsApi.list(),
+  })
   const theme = nodeThemes[node.type]
   const schema = useMemo(() => getNodeConfigSchema(node), [node])
   const [showRawConfig, setShowRawConfig] = useState(false)
@@ -87,6 +93,10 @@ function WorkflowDesignerInspectorContent({
           <div className="mt-4 space-y-4">
             {schema.fields.map((field) => (
               <DesignerConfigField
+                executorOptions={executors.map((executor) => ({
+                  value: executor.key,
+                  label: executor.key,
+                }))}
                 field={field}
                 key={field.key}
                 onChange={(value) => {
@@ -140,21 +150,25 @@ function WorkflowDesignerInspectorContent({
 }
 
 interface DesignerConfigFieldProps {
+  executorOptions: Array<{ value: string; label: string }>
   field: DesignerFieldSchema
   onChange: (value: unknown) => void
   value: unknown
 }
 
-function DesignerConfigField({ field, onChange, value }: DesignerConfigFieldProps) {
+function DesignerConfigField({ executorOptions, field, onChange, value }: DesignerConfigFieldProps) {
   const currentValue = value ?? field.defaultValue ?? ''
   const fieldId = `designer-field-${field.key}`
+  const selectOptions = field.key === 'executorKey'
+    ? [{ value: '', label: 'Select an executor' }, ...executorOptions]
+    : field.options
 
   return (
     <div>
       <label className="block text-xs font-medium text-[#7b6b83]" htmlFor={fieldId}>
         {field.label}
       </label>
-      {field.kind === 'select' && field.options ? (
+      {field.kind === 'select' && selectOptions ? (
         <select
           className={`${inputClassName} mt-1.5`}
           id={fieldId}
@@ -163,7 +177,7 @@ function DesignerConfigField({ field, onChange, value }: DesignerConfigFieldProp
           }}
           value={String(currentValue)}
         >
-          {field.options.map((option) => (
+          {selectOptions.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
@@ -178,6 +192,16 @@ function DesignerConfigField({ field, onChange, value }: DesignerConfigFieldProp
             onChange(Number.isFinite(parsed) ? parsed : event.target.value)
           }}
           type="number"
+          value={String(currentValue)}
+        />
+      ) : field.kind === 'textarea' ? (
+        <textarea
+          className={`${inputClassName} mt-1.5 min-h-28 resize-y`}
+          id={fieldId}
+          onChange={(event) => {
+            onChange(event.target.value)
+          }}
+          placeholder={field.placeholder}
           value={String(currentValue)}
         />
       ) : (

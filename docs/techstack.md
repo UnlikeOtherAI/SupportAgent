@@ -192,6 +192,8 @@ The admin app must provide:
 
 - live jobs dashboard
 - workflow run detail view
+- checkpoint-derived loop convergence timeline on workflow run detail
+- two-phase run stop controls (`cancel_requested` then optional force-stop)
 - realtime progress updates
 - full available log viewer for each run, subject to output-visibility policy
 - build workflow controls
@@ -199,8 +201,12 @@ The admin app must provide:
 - build review status
 - channel notification and conversation pairing controls inside Configuration
 - repository review run visibility
+- skills library pages with builtin/user clone visibility
+- executor library pages with YAML editing and role-aware skill binding
 - per-connector trigger configuration for triage, build, and merge starts
 - workflow scenario management through a visual trigger-action-output designer
+- action-node executor and task-prompt binding inside the workflow designer
+- scenario trigger allowlist editing for GitHub users, teams, and default allow/deny policy
 - connector-specific install flows that can switch between OAuth, PAT, and local `gh` setup without falling back to generic secret fields
 - a polling setup panel for local-`gh` GitHub connectors with owner filter, repository dropdown, and interval controls
 

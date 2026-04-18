@@ -1,6 +1,6 @@
 import type { DesignerNode } from './workflow-designer-types'
 
-export type DesignerFieldKind = 'text' | 'select' | 'number'
+export type DesignerFieldKind = 'text' | 'select' | 'number' | 'textarea'
 
 export interface DesignerFieldSchema {
   key: string
@@ -61,9 +61,38 @@ const schemasBySourceKey: Record<string, DesignerNodeConfigSchema> = {
       },
     ],
   },
-  'workflow.triage': { fields: [] },
+  'workflow.triage': {
+    fields: [
+      {
+        key: 'executorKey',
+        label: 'Executor',
+        kind: 'select',
+        description: 'Choose which executor should handle this action node.',
+      },
+      {
+        key: 'taskPrompt',
+        label: 'Task prompt',
+        kind: 'textarea',
+        description: 'Instruction prompt passed into the executor for this action.',
+        placeholder: 'Investigate the issue and return a structured triage result.',
+      },
+    ],
+  },
   'workflow.build': {
     fields: [
+      {
+        key: 'executorKey',
+        label: 'Executor',
+        kind: 'select',
+        description: 'Choose which executor should handle this action node.',
+      },
+      {
+        key: 'taskPrompt',
+        label: 'Task prompt',
+        kind: 'textarea',
+        description: 'Instruction prompt passed into the executor for this action.',
+        placeholder: 'Build a pull request candidate based on the trigger context.',
+      },
       {
         key: 'issueLinkMode',
         label: 'Issue link mode',
@@ -77,9 +106,57 @@ const schemasBySourceKey: Record<string, DesignerNodeConfigSchema> = {
       },
     ],
   },
-  'workflow.review': { fields: [] },
-  'agent.respond': { fields: [] },
-  'approval.request': { fields: [] },
+  'workflow.review': {
+    fields: [
+      {
+        key: 'executorKey',
+        label: 'Executor',
+        kind: 'select',
+        description: 'Choose which executor should handle this action node.',
+      },
+      {
+        key: 'taskPrompt',
+        label: 'Task prompt',
+        kind: 'textarea',
+        description: 'Instruction prompt passed into the executor for this action.',
+        placeholder: 'Review the pull request for correctness and risk.',
+      },
+    ],
+  },
+  'agent.respond': {
+    fields: [
+      {
+        key: 'executorKey',
+        label: 'Executor',
+        kind: 'select',
+        description: 'Choose which executor should handle this action node.',
+      },
+      {
+        key: 'taskPrompt',
+        label: 'Task prompt',
+        kind: 'textarea',
+        description: 'Instruction prompt passed into the executor for this action.',
+        placeholder: 'Draft a reply that is safe to send back to the source thread.',
+      },
+    ],
+  },
+  'approval.request': {
+    fields: [
+      {
+        key: 'executorKey',
+        label: 'Executor',
+        kind: 'select',
+        description: 'Choose which executor should handle this action node.',
+      },
+      {
+        key: 'taskPrompt',
+        label: 'Task prompt',
+        kind: 'textarea',
+        description: 'Instruction prompt passed into the executor for this action.',
+        placeholder: 'Summarize what needs approval and why it is blocked.',
+      },
+    ],
+  },
   'github.issue.comment': {
     fields: [
       {

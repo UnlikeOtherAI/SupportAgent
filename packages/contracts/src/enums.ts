@@ -9,7 +9,7 @@ export const ReviewStage = z.enum([
 export type ReviewStage = z.infer<typeof ReviewStage>;
 
 export const WorkflowRunStatus = z.enum([
-  'queued', 'blocked', 'dispatched', 'running',
+  'queued', 'blocked', 'dispatched', 'running', 'cancel_requested',
   'awaiting_review', 'awaiting_human',
   'succeeded', 'failed', 'canceled', 'lost',
 ]);

@@ -4,10 +4,25 @@ import { normalizePaginatedResponse, type PaginatedResponse } from './paginated-
 export interface WorkflowRun {
   id: string
   workflowType: 'triage' | 'build' | 'merge'
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
-  startedAt: string
+  status:
+    | 'queued'
+    | 'blocked'
+    | 'dispatched'
+    | 'running'
+    | 'cancel_requested'
+    | 'awaiting_review'
+    | 'awaiting_human'
+    | 'succeeded'
+    | 'failed'
+    | 'canceled'
+    | 'lost'
+  startedAt: string | null
+  completedAt?: string | null
+  updatedAt: string
   duration: string | null
   workItemId: string | null
+  currentStage?: string | null
+  cancelForceRequestedAt?: string | null
   workItem?: { title: string; externalUrl: string; repositoryRef: string }
   repositoryMapping?: { repositoryUrl: string; connector?: { name: string } }
   connectorName?: string
@@ -33,6 +48,16 @@ export interface Finding {
   description: string
 }
 
+export interface RunCheckpoint {
+  id: string
+  dispatchAttemptId: string
+  kind: 'stage_complete' | 'iteration_complete'
+  iteration: number | null
+  stageId: string | null
+  payload: Array<Record<string, unknown>>
+  createdAt: string
+}
+
 export const runsApi = {
   list: (params?: { page?: number; limit?: number; type?: string; status?: string }) => {
     const page = params?.page ?? 1
@@ -48,10 +73,12 @@ export const runsApi = {
       .then((response) => normalizePaginatedResponse(response, limit, page))
   },
   get: (id: string) => api.get<WorkflowRunDetail>(`/v1/runs/${id}`),
+  getCheckpoints: (id: string) => api.get<RunCheckpoint[]>(`/v1/workflow-runs/${id}/checkpoints`),
   getLogs: (id: string, after?: string) => {
     const qs = after ? `?after=${after}` : ''
     return api.get<{ logs: LogEvent[] }>(`/v1/runs/${id}/logs${qs}`)
   },
   getFindings: (id: string) => api.get<{ findings: Finding[] }>(`/v1/runs/${id}/findings`),
-  cancel: (id: string) => api.post<undefined>(`/v1/runs/${id}/cancel`),
+  cancel: (id: string, force = false) =>
+    api.post<WorkflowRun>(`/v1/workflow-runs/${id}/cancel${force ? '?force=1' : ''}`),
 }

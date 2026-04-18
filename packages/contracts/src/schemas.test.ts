@@ -46,7 +46,7 @@ describe('WorkflowType', () => {
 describe('WorkflowRunStatus', () => {
   it('accepts all valid statuses', () => {
     const statuses = [
-      'queued', 'blocked', 'dispatched', 'running',
+      'queued', 'blocked', 'dispatched', 'running', 'cancel_requested',
       'awaiting_review', 'awaiting_human',
       'succeeded', 'failed', 'canceled', 'lost',
     ];

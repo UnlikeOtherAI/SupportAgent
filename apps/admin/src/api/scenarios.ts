@@ -14,7 +14,14 @@ export interface WorkflowScenario {
   allowedConnectors: string[]
   notificationPolicy: string | null
   distributionTarget: string | null
+  triggerAllowlist: WorkflowTriggerAllowlist | null
   designerGraph: WorkflowDesignerGraph
+}
+
+export interface WorkflowTriggerAllowlist {
+  users: string[]
+  teams: string[]
+  defaultPolicy: 'allow' | 'deny'
 }
 
 export type WorkflowDesignerNodeType = 'trigger' | 'action' | 'output'

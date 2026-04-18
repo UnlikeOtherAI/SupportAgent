@@ -7,7 +7,9 @@ import { authPlugin } from './plugins/auth.js';
 import { workerAuthPlugin } from './plugins/worker-auth.js';
 import { healthRoutes } from './routes/health.js';
 import { connectorRoutes } from './routes/connectors.js';
+import { executorRoutes } from './routes/executors.js';
 import { platformTypeRoutes } from './routes/platform-types.js';
+import { skillRoutes } from './routes/skills.js';
 import { workflowRunRoutes } from './routes/workflow-runs.js';
 import { repositoryMappingRoutes } from './routes/repository-mappings.js';
 import { workerApiRoutes } from './routes/worker-api.js';
@@ -27,6 +29,7 @@ import { pollingRoutes } from './routes/polling.js';
 import { reviewProfileRoutes } from './routes/review-profiles.js';
 import { workflowScenarioRoutes } from './routes/workflow-scenarios.js';
 import { workflowRunProgressCommentRoutes } from './routes/workflow-run-progress-comments.js';
+import { workflowRunControlRoutes } from './routes/workflow-run-controls.js';
 import { dispatchAttemptCheckpointRoutes } from './routes/dispatch-attempt-checkpoints.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -57,6 +60,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(healthRoutes, { prefix: '/health' });
   await app.register(authRoutes, { prefix: '/v1/auth' });
   await app.register(connectorRoutes, { prefix: '/v1/connectors' });
+  await app.register(executorRoutes, { prefix: '/v1/executors' });
+  await app.register(skillRoutes, { prefix: '/v1/skills' });
   await app.register(connectorOAuthRoutes, { prefix: '/v1/connector-oauth' });
   await app.register(platformTypeRoutes, { prefix: '/v1/platform-types' });
   await app.register(workflowRunRoutes, { prefix: '/v1/runs' });
@@ -68,6 +73,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(reviewProfileRoutes, { prefix: '/v1/review-profiles' });
   await app.register(workflowScenarioRoutes, { prefix: '/v1/workflow-scenarios' });
   await app.register(workflowRunProgressCommentRoutes, { prefix: '/v1/workflow-runs' });
+  await app.register(workflowRunControlRoutes, { prefix: '/v1/workflow-runs' });
   await app.register(
     async function workerScope(instance) {
       instance.addContentTypeParser(

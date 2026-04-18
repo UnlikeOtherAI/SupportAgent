@@ -75,35 +75,56 @@ export const actionItems: DesignerPaletteItem[] = [
     label: 'Run triage',
     description: 'Create a bounded triage workflow run.',
     type: 'action',
-    config: { workflowType: 'triage' },
+    config: {
+      workflowType: 'triage',
+      executorKey: 'triage-default',
+      taskPrompt: 'Investigate the issue described by the trigger and return a structured triage result.',
+    },
   },
   {
     key: 'agent.respond',
     label: 'Agent response',
     description: 'Let an agent draft a support or operator response.',
     type: 'action',
-    config: { action: 'agent.respond' },
+    config: {
+      action: 'agent.respond',
+      executorKey: 'triage-default',
+      taskPrompt: 'Draft a response that uses the trigger context and prior outputs.',
+    },
   },
   {
     key: 'workflow.build',
     label: 'Build PR candidate',
     description: 'Create a build workflow run for code changes.',
     type: 'action',
-    config: { workflowType: 'build', issueLinkMode: 'fixes' },
+    config: {
+      workflowType: 'build',
+      issueLinkMode: 'fixes',
+      executorKey: 'triage-default',
+      taskPrompt: 'Implement the requested change and prepare the result for PR delivery.',
+    },
   },
   {
     key: 'workflow.review',
     label: 'Review PR',
     description: 'Clone the PR branch, read the diff, and generate a review.',
     type: 'action',
-    config: { workflowType: 'review' },
+    config: {
+      workflowType: 'review',
+      executorKey: 'pr-review-default',
+      taskPrompt: 'Review the pull request described by the trigger for correctness and risk.',
+    },
   },
   {
     key: 'approval.request',
     label: 'Request approval',
     description: 'Pause for approval before customer-visible or risky work.',
     type: 'action',
-    config: { action: 'approval.request' },
+    config: {
+      action: 'approval.request',
+      executorKey: 'triage-default',
+      taskPrompt: 'Summarize what needs approval and what work is blocked pending that approval.',
+    },
   },
 ]
 

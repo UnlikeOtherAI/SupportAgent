@@ -76,6 +76,10 @@ describe('Workflow Run API', () => {
   afterAll(async () => {
     try {
       await app.prisma.$executeRawUnsafe(
+        `DELETE FROM dispatch_attempt_checkpoints WHERE "dispatchAttemptId" IN (SELECT id FROM worker_dispatches WHERE "workflowRunId" IN (SELECT id FROM workflow_runs WHERE "tenantId" = $1))`,
+        TEST_TENANT_ID,
+      );
+      await app.prisma.$executeRawUnsafe(
         `DELETE FROM workflow_log_events WHERE "workflowRunId" IN (SELECT id FROM workflow_runs WHERE "tenantId" = $1)`,
         TEST_TENANT_ID,
       );
@@ -229,11 +233,109 @@ describe('Workflow Run API', () => {
 
     const res = await app.inject({
       method: 'POST',
-      url: `/v1/runs/${run.id}/cancel`,
+      url: `/v1/workflow-runs/${run.id}/cancel`,
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().status).toBe('cancel_requested');
+  });
+
+  it('POST /v1/workflow-runs/:id/cancel?force=1 stamps cancelForceRequestedAt', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/runs',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        workflowType: 'triage',
+        workItemId,
+        repositoryMappingId: repoMappingId,
+      },
+    });
+    const run = createRes.json();
+
+    await app.inject({
+      method: 'POST',
+      url: `/v1/workflow-runs/${run.id}/cancel`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/workflow-runs/${run.id}/cancel?force=1`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe('cancel_requested');
+    expect(res.json().cancelForceRequestedAt).toBeTruthy();
+  });
+
+  it('GET /v1/workflow-runs/:id/checkpoints returns the run checkpoint rows', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/runs',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        workflowType: 'triage',
+        workItemId,
+        repositoryMappingId: repoMappingId,
+      },
+    });
+    const run = createRes.json();
+
+    const provider = await app.prisma.executionProvider.create({
+      data: {
+        tenantId: TEST_TENANT_ID,
+        providerType: 'local-host',
+        name: `Checkpoint Provider ${run.id}`,
+        connectionMode: 'direct',
+        maxConcurrency: 1,
+      },
+    });
+
+    const dispatch = await app.prisma.workerDispatch.create({
+      data: {
+        workflowRunId: run.id,
+        executionProviderId: provider.id,
+        workerSharedSecret: `checkpoint-secret-${run.id}`,
+        jobPayload: {},
+        status: 'running',
+      },
+    });
+
+    await app.prisma.dispatchAttemptCheckpoint.createMany({
+      data: [
+        {
+          dispatchAttemptId: dispatch.id,
+          kind: 'stage_complete',
+          iteration: 1,
+          stageId: 'investigate',
+          payload: [],
+        },
+        {
+          dispatchAttemptId: dispatch.id,
+          kind: 'iteration_complete',
+          iteration: 1,
+          stageId: null,
+          payload: [{ reportSummary: 'Iteration finished', loop: { done: false } }],
+        },
+      ],
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/workflow-runs/${run.id}/checkpoints`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toHaveLength(2);
+    expect(res.json()[0]).toMatchObject({
+      dispatchAttemptId: dispatch.id,
+      kind: 'stage_complete',
+      iteration: 1,
+      stageId: 'investigate',
+    });
   });
 
   it('POST /v1/runs/:id/retry retries a failed run and increments attemptNumber', async () => {

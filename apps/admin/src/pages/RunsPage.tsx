@@ -14,7 +14,7 @@ import { Pagination } from '@/components/ui/Pagination'
 import { TypePill } from '@/components/ui/TypePill'
 
 type RunTypeFilter = 'all' | WorkflowRun['workflowType']
-type RunStatusFilter = 'all' | 'running' | 'succeeded' | 'failed' | 'queued'
+type RunStatusFilter = 'all' | 'running' | 'succeeded' | 'failed' | 'queued' | 'cancel_requested'
 
 const typeTabs = [
   { label: 'All', value: 'all' },
@@ -29,14 +29,21 @@ const statusTabs = [
   { label: 'Succeeded', value: 'succeeded' },
   { label: 'Failed', value: 'failed' },
   { label: 'Queued', value: 'queued' },
+  { label: 'Cancel Requested', value: 'cancel_requested' },
 ]
 
 const statusVariant: Record<WorkflowRun['status'], 'running' | 'succeeded' | 'failed' | 'queued'> = {
   queued: 'queued',
+  blocked: 'queued',
+  dispatched: 'running',
   running: 'running',
+  cancel_requested: 'failed',
+  awaiting_review: 'running',
+  awaiting_human: 'queued',
   succeeded: 'succeeded',
   failed: 'failed',
-  cancelled: 'failed',
+  canceled: 'failed',
+  lost: 'failed',
 }
 
 const columns: Column<WorkflowRun>[] = [

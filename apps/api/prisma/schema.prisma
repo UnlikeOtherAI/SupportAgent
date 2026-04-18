@@ -26,6 +26,7 @@ enum WorkflowRunStatus {
   blocked
   dispatched
   running
+  cancel_requested
   awaiting_review
   awaiting_human
   succeeded
@@ -382,6 +383,7 @@ model WorkflowScenario {
   workflowType           WorkflowType
   isEnabled              Boolean      @default(true)
   triggerPolicyId        String?
+  config                 Json?
   dependencyPolicyConfig Json?
   executionProfileId     String?
   orchestrationProfileId String?
@@ -509,6 +511,7 @@ model WorkflowRun {
   resolvedSkillRevisions   Json?
   progressCommentId        String?
   lastProgressEditAt       DateTime?
+  cancelForceRequestedAt   DateTime?
   createdAt                DateTime          @default(now())
   startedAt                DateTime?
   completedAt              DateTime?

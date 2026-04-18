@@ -14,6 +14,9 @@ The API must keep the connector platform catalog available from the shared regis
 The first Apps page is a registry-backed install surface over connector and communication-channel records; it does not require a separate `apps` table.
 Communication-channel setup belongs under the admin Configuration area with connectors, repositories, and routing targets. Runtime conversation history should be shown as run, channel, delivery, or audit context rather than as a separate top-level Communication section.
 Workflow setup should expose a visual designer under Configuration so operators can create saved workflows by connecting incoming triggers, middle actions, and outputs on a canvas. The saved workflow should be listed after leaving the designer and should map to the same workflow scenario model used by automation.
+Action nodes in that designer should bind a concrete executor key and task prompt so scenarios can route into the skills-and-executors runtime without hardcoded worker handlers.
+Scenario detail should expose a trigger allowlist for GitHub actors so operators can default a scenario to allow-all or deny-unless-listed with explicit user and team entries.
+Workflow run detail should expose checkpoint-backed loop convergence history and a two-phase stop control so operators can request cancel first and escalate to force-stop only when the worker does not stop cleanly.
 
 Reference scenario: [use-cases.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/use-cases.md)
 Reference configurable scenario model: [workflow-scenarios.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/workflow-scenarios.md)

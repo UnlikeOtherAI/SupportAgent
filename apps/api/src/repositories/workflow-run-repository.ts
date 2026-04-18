@@ -47,6 +47,18 @@ export function createWorkflowRunRepository(prisma: PrismaClient) {
       });
     },
 
+    async listCheckpoints(id: string, tenantId: string) {
+      return prisma.dispatchAttemptCheckpoint.findMany({
+        where: {
+          dispatchAttempt: {
+            workflowRunId: id,
+            workflowRun: { tenantId },
+          },
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      });
+    },
+
     async create(data: Prisma.WorkflowRunCreateInput) {
       return prisma.workflowRun.create({ data });
     },
@@ -89,6 +101,34 @@ export function createWorkflowRunRepository(prisma: PrismaClient) {
 
     async updateStage(id: string, stage: string) {
       return prisma.workflowRun.update({ where: { id }, data: { currentStage: stage } });
+    },
+
+    async requestCancel(id: string, expectedStatuses: string[]) {
+      const updated = await prisma.workflowRun.updateMany({
+        where: {
+          id,
+          status: { in: expectedStatuses as any },
+        },
+        data: {
+          status: 'cancel_requested',
+        },
+      });
+
+      return updated.count > 0 ? prisma.workflowRun.findUnique({ where: { id } }) : null;
+    },
+
+    async requestForceCancel(id: string, expectedStatuses: string[], requestedAt: Date) {
+      const updated = await prisma.workflowRun.updateMany({
+        where: {
+          id,
+          status: { in: expectedStatuses as any },
+        },
+        data: {
+          cancelForceRequestedAt: requestedAt,
+        },
+      });
+
+      return updated.count > 0 ? prisma.workflowRun.findUnique({ where: { id } }) : null;
     },
   };
 }
