@@ -87,6 +87,21 @@ enum ReviewDecision {
   inconclusive
 }
 
+enum SkillRole {
+  SYSTEM
+  COMPLEMENTARY
+}
+
+enum SkillSource {
+  BUILTIN
+  USER
+}
+
+enum ExecutorSource {
+  BUILTIN
+  USER
+}
+
 enum AuditAction {
   created
   updated
@@ -483,6 +498,8 @@ model WorkflowRun {
   blockedReason            String?
   providerExecutionRef     String?
   acceptedDispatchAttempt  String?
+  resolvedExecutorRevision String?
+  resolvedSkillRevisions   Json?
   createdAt                DateTime          @default(now())
   startedAt                DateTime?
   completedAt              DateTime?
@@ -751,11 +768,27 @@ model WorkerDispatch {
   workflowRun       WorkflowRun           @relation(fields: [workflowRunId], references: [id])
   executionProvider ExecutionProvider      @relation(fields: [executionProviderId], references: [id])
   host              ExecutionProviderHost? @relation(fields: [hostId], references: [id])
+  checkpoints       DispatchAttemptCheckpoint[]
 
   @@index([workflowRunId])
   @@index([executionProviderId])
   @@index([hostId])
   @@map("worker_dispatches")
+}
+
+model DispatchAttemptCheckpoint {
+  id                String       @id @default(uuid())
+  dispatchAttemptId String
+  kind              String
+  iteration         Int?
+  stageId           String?
+  payload           Json
+  createdAt         DateTime     @default(now())
+
+  dispatchAttempt WorkerDispatch @relation(fields: [dispatchAttemptId], references: [id])
+
+  @@index([dispatchAttemptId, kind])
+  @@map("dispatch_attempt_checkpoints")
 }
 
 // 31. OrchestrationProfile
@@ -774,6 +807,39 @@ model OrchestrationProfile {
 
   @@index([tenantId])
   @@map("orchestration_profiles")
+}
+
+model Skill {
+  id            String      @id @default(uuid())
+  tenantId      String?
+  name          String
+  role          SkillRole
+  description   String
+  body          String
+  outputSchema  Json?
+  contentHash   String
+  source        SkillSource
+  parentSkillId String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([tenantId, name, source])
+}
+
+model Executor {
+  id               String         @id @default(uuid())
+  tenantId         String?
+  key              String
+  description      String
+  yaml             String
+  parsed           Json
+  contentHash      String
+  source           ExecutorSource
+  parentExecutorId String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@unique([tenantId, key, source])
 }
 
 // 32. OrchestrationProfileVersion

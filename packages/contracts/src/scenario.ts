@@ -31,6 +31,7 @@ export interface CompiledScenario {
   scenarioId: string;
   scenarioKey: string;
   displayName: string;
+  // TODO(skills-executors-migration): Remove 'review' here when the separate review-scenario migration is implemented.
   workflowType: 'triage' | 'build' | 'merge' | 'review';
   connectorIds: string[];
   trigger: CompiledStep<TriggerKind>;

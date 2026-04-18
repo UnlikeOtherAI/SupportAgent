@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
-export const WorkflowType = z.enum(['triage', 'build', 'merge', 'review']);
+// TODO(skills-executors-migration): Review workflow callers still exist in API/admin/worker code.
+// Keep this enum pinned to the plan's top-level types until the separate review-flow migration lands.
+export const WorkflowType = z.enum(['triage', 'build', 'merge']);
 export type WorkflowType = z.infer<typeof WorkflowType>;
 
 export const ReviewStage = z.enum([
