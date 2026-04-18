@@ -1,5 +1,6 @@
 import { type PrismaClient } from '@prisma/client';
 import { type WorkflowRunRepository } from '../repositories/workflow-run-repository.js';
+import { type DispatchCancelBroadcaster } from './dispatch-cancel-broadcaster.js';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
   queued: ['blocked', 'dispatched', 'cancel_requested', 'canceled'],
@@ -37,7 +38,9 @@ function assertValidTransition(from: string, to: string) {
 export function createWorkflowRunService(
   repo: WorkflowRunRepository,
   prisma: PrismaClient,
+  cancelBroadcaster?: DispatchCancelBroadcaster,
 ) {
+  const broadcaster = cancelBroadcaster;
   return {
     async listRuns(filters: Parameters<typeof repo.list>[0]) {
       return repo.list(filters);
@@ -152,8 +155,12 @@ export function createWorkflowRunService(
             statusCode: 409,
           });
         }
+        await broadcaster?.broadcastRunCancel({ workflowRunId: id, force: true });
         if (forced.status !== 'cancel_requested') {
           const requested = await repo.requestCancel(id, [...CANCELABLE_STATUSES]);
+          if (requested) {
+            await broadcaster?.broadcastRunCancel({ workflowRunId: id, force: false });
+          }
           return requested ?? forced;
         }
         return forced;
@@ -169,6 +176,8 @@ export function createWorkflowRunService(
           statusCode: 409,
         });
       }
+
+      await broadcaster?.broadcastRunCancel({ workflowRunId: id, force: false });
 
       return canceled;
     },

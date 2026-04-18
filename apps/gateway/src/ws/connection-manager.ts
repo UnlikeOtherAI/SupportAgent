@@ -132,6 +132,22 @@ export class ConnectionManager {
     return n;
   }
 
+  sendCancelRequested(dispatchAttemptId: string, workflowRunId: string): boolean {
+    return this.sendControlMessage(dispatchAttemptId, {
+      type: 'cancel_requested',
+      dispatchAttemptId,
+      workflowRunId,
+    });
+  }
+
+  sendCancelForce(dispatchAttemptId: string, workflowRunId: string): boolean {
+    return this.sendControlMessage(dispatchAttemptId, {
+      type: 'cancel_force',
+      dispatchAttemptId,
+      workflowRunId,
+    });
+  }
+
   private findIdleWorker(): ConnectedWorker | null {
     for (const worker of this.workers.values()) {
       if (!worker.busy && worker.ws.readyState === worker.ws.OPEN) {
@@ -145,6 +161,20 @@ export class ConnectionManager {
     worker.busy = true;
     worker.currentJobId = job.jobId;
     worker.ws.send(JSON.stringify({ type: 'dispatch', job }));
+  }
+
+  private sendControlMessage(
+    dispatchAttemptId: string,
+    payload: Record<string, unknown>,
+  ): boolean {
+    for (const worker of this.workers.values()) {
+      if (worker.currentJobId === dispatchAttemptId && worker.ws.readyState === worker.ws.OPEN) {
+        worker.ws.send(JSON.stringify(payload));
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private tryDispatchPending(): void {

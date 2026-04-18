@@ -1,6 +1,10 @@
 import WebSocket from 'ws';
 import { randomUUID } from 'crypto';
-import { type WorkerJob } from '@support-agent/contracts';
+import {
+  GatewayMessage,
+  type WorkerJob,
+} from '@support-agent/contracts';
+import { requestDispatchCancel } from '../lib/dispatch-control.js';
 import { type JobTransport } from './transport.js';
 
 export function createWebSocketTransport(
@@ -32,15 +36,25 @@ export function createWebSocketTransport(
     });
 
     ws.on('message', async (data) => {
-      let msg: { type: string; [k: string]: unknown };
+      let msg: GatewayMessage;
       try {
-        msg = JSON.parse(data.toString());
+        msg = GatewayMessage.parse(JSON.parse(data.toString()));
       } catch {
         return;
       }
 
       if (msg.type === 'ping') {
         ws?.send(JSON.stringify({ type: 'pong' }));
+        return;
+      }
+
+      if (msg.type === 'cancel_requested') {
+        requestDispatchCancel(msg.dispatchAttemptId, 'requested');
+        return;
+      }
+
+      if (msg.type === 'cancel_force') {
+        requestDispatchCancel(msg.dispatchAttemptId, 'force');
         return;
       }
 

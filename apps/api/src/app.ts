@@ -31,6 +31,7 @@ import { workflowScenarioRoutes } from './routes/workflow-scenarios.js';
 import { workflowRunProgressCommentRoutes } from './routes/workflow-run-progress-comments.js';
 import { workflowRunControlRoutes } from './routes/workflow-run-controls.js';
 import { dispatchAttemptCheckpointRoutes } from './routes/dispatch-attempt-checkpoints.js';
+import { workerFetchRoutes } from './routes/worker-fetches.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
@@ -90,6 +91,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(settingsRoutes, { prefix: '/v1/settings' });
   await app.register(dispatcherRoutes, { prefix: '/v1/dispatcher' });
   await app.register(dispatchAttemptCheckpointRoutes, { prefix: '/v1/dispatch-attempts' });
+  await app.register(workerFetchRoutes, { prefix: '/v1' });
   await app.register(workflowChainRoutes, { prefix: '/v1/workflow-chain' });
   await app.register(pollingRoutes, { prefix: '/v1/polling' });
 

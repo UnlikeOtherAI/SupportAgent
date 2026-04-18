@@ -1,9 +1,6 @@
 import { exec } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
-import { promisify } from 'node:util';
 import type { Executor, ExecutorRunInput, ExecutorRunResult } from './types.js';
-
-const execAsync = promisify(exec);
 
 interface CliExecutorOptions {
   key: string;
@@ -15,9 +12,24 @@ export function createCliExecutor(options: CliExecutorOptions): Executor {
     key: options.key,
 
     async run(input: ExecutorRunInput): Promise<ExecutorRunResult> {
-      const { stdout } = await execAsync(options.buildCommand(input), {
-        timeout: input.timeoutMs,
-        cwd: input.cwd,
+      const stdout = await new Promise<string>((resolve, reject) => {
+        const child = exec(
+          options.buildCommand(input),
+          {
+            timeout: input.timeoutMs,
+            cwd: input.cwd,
+          },
+          (error, childStdout) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+
+            resolve(childStdout);
+          },
+        );
+
+        input.onSpawn?.(child);
       });
 
       let outputContent = '';

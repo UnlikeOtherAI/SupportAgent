@@ -40,6 +40,10 @@ function buildOutputSummary(op: DeliveryOp) {
   }
 }
 
+function readDeliveryVisibility(op: DeliveryOp): 'public' | 'internal' {
+  return op.visibility ?? 'public';
+}
+
 function applyPreviousValues(op: DeliveryOp, previousValues: Record<string, string>): DeliveryOp {
   if (op.kind !== 'comment') {
     return op;
@@ -202,16 +206,22 @@ export function createDeliveryResolverService(prisma: PrismaClient) {
         for (const rawOp of leafOutput.delivery) {
           const op = applyPreviousValues(rawOp, previousValues);
           const connectorTarget = resolveConnectorTarget(op, run);
+          const visibility = readDeliveryVisibility(op);
           const actionOutput = await prisma.actionOutput.create({
             data: {
               tenantId: run.tenantId,
               workflowRunId: run.id,
               outputType: op.kind,
+              deliveryStatus: visibility === 'internal' ? 'suppressed_internal' : 'pending',
               payload: op as unknown as object,
               summary: buildOutputSummary(op),
             },
           });
           persisted += 1;
+
+          if (visibility === 'internal') {
+            continue;
+          }
 
           const attempt = await prisma.actionDeliveryAttempt.create({
             data: {
@@ -234,6 +244,10 @@ export function createDeliveryResolverService(prisma: PrismaClient) {
                 completedAt: new Date(),
               },
             });
+            await prisma.actionOutput.update({
+              where: { id: actionOutput.id },
+              data: { deliveryStatus: 'failed' },
+            });
             continue;
           }
 
@@ -245,6 +259,10 @@ export function createDeliveryResolverService(prisma: PrismaClient) {
                 externalRef: run.progressCommentId,
                 completedAt: new Date(),
               },
+            });
+            await prisma.actionOutput.update({
+              where: { id: actionOutput.id },
+              data: { deliveryStatus: 'sent' },
             });
             firstCommentHandledByProgressComment = false;
             dispatched += 1;
@@ -266,6 +284,10 @@ export function createDeliveryResolverService(prisma: PrismaClient) {
                 completedAt: new Date(),
               },
             });
+            await prisma.actionOutput.update({
+              where: { id: actionOutput.id },
+              data: { deliveryStatus: 'sent' },
+            });
             dispatched += 1;
           } catch (error) {
             await prisma.actionDeliveryAttempt.update({
@@ -275,6 +297,10 @@ export function createDeliveryResolverService(prisma: PrismaClient) {
                 error: error instanceof Error ? error.message : String(error),
                 completedAt: new Date(),
               },
+            });
+            await prisma.actionOutput.update({
+              where: { id: actionOutput.id },
+              data: { deliveryStatus: 'failed' },
             });
           }
         }

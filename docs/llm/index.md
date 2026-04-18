@@ -26,6 +26,7 @@ Use these companion machine-facing documents:
 - [worker-gateway-setup.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/llm/worker-gateway-setup.md)
 - [hosting-considerations.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/llm/hosting-considerations.md)
 - [api-key-management.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/llm/api-key-management.md)
+- [skills-and-executors.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/llm/skills-and-executors.md)
 - [review-loops.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/review-loops.md)
 - [local-orchestrator.md](/System/Volumes/Data/.internal/projects/Projects/SupportAgent/docs/local-orchestrator.md)
 

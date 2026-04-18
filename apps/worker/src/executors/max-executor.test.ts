@@ -12,7 +12,8 @@ vi.mock('node:child_process', () => ({
   exec: vi.fn((command: string, options: any, callback: any) => {
     lastCommand = command;
     lastOptions = options ?? {};
-    callback(null, { stdout: nextStdout });
+    callback(null, nextStdout, '');
+    return { pid: 1234, once: vi.fn() };
   }),
 }));
 

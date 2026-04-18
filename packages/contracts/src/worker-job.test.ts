@@ -25,6 +25,17 @@ describe('WorkerJobSchema executor metadata', () => {
           { name: 'triage-issue', contentHash: 'hash-1' },
           { name: 'codebase-architecture', contentHash: 'hash-2' },
         ],
+        executorFetch: {
+          url: 'https://api.example.com/v1/executors/triage-default/by-hash/rev-123',
+          contentHash: 'rev-123',
+        },
+        skillFetches: [
+          {
+            name: 'triage-issue',
+            contentHash: 'hash-1',
+            url: 'https://api.example.com/v1/skills/triage-issue/by-hash/hash-1',
+          },
+        ],
       }),
     );
 
@@ -34,6 +45,17 @@ describe('WorkerJobSchema executor metadata', () => {
       { name: 'triage-issue', contentHash: 'hash-1' },
       { name: 'codebase-architecture', contentHash: 'hash-2' },
     ]);
+    expect(result.executorFetch).toEqual({
+      url: 'https://api.example.com/v1/executors/triage-default/by-hash/rev-123',
+      contentHash: 'rev-123',
+    });
+    expect(result.skillFetches).toEqual([
+      {
+        name: 'triage-issue',
+        contentHash: 'hash-1',
+        url: 'https://api.example.com/v1/skills/triage-issue/by-hash/hash-1',
+      },
+    ]);
   });
 
   it('leaves executor metadata undefined when omitted', () => {
@@ -42,5 +64,7 @@ describe('WorkerJobSchema executor metadata', () => {
     expect(result.executorKey).toBeUndefined();
     expect(result.executorRevisionHash).toBeUndefined();
     expect(result.resolvedSkillManifest).toBeUndefined();
+    expect(result.executorFetch).toBeUndefined();
+    expect(result.skillFetches).toBeUndefined();
   });
 });

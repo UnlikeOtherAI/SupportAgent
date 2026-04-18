@@ -6,6 +6,17 @@ const ResolvedSkillManifestEntrySchema = z.object({
   contentHash: z.string(),
 });
 
+const ExecutorFetchSchema = z.object({
+  url: z.string().url(),
+  contentHash: z.string(),
+});
+
+const SkillFetchSchema = z.object({
+  name: z.string(),
+  contentHash: z.string(),
+  url: z.string().url(),
+});
+
 export const WorkerJobSchema = z.object({
   jobId: z.string().uuid(),
   workflowRunId: z.string().uuid(),
@@ -34,6 +45,8 @@ export const WorkerJobSchema = z.object({
   executorKey: z.string().optional(),
   executorRevisionHash: z.string().optional(),
   resolvedSkillManifest: z.array(ResolvedSkillManifestEntrySchema).optional(),
+  executorFetch: ExecutorFetchSchema.optional(),
+  skillFetches: z.array(SkillFetchSchema).optional(),
 });
 
 export type WorkerJob = z.infer<typeof WorkerJobSchema>;

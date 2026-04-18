@@ -1,5 +1,6 @@
-import { type PrismaClient } from '@prisma/client';
+import { ExecutorSource, SkillSource, type PrismaClient } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
+import { parseExecutorYaml } from '@support-agent/executors-runtime';
 import { type ExecutionProvider, type TriggerComment, type WorkerDispatchJob } from './execution-provider.js';
 import { createProgressCommentService } from './progress-comment-service.js';
 
@@ -34,6 +35,17 @@ interface ScenarioContext {
   scenarioKey: string | null;
   actionConfig: Record<string, unknown>;
   outputConfigs: Array<{ kind: string; config: Record<string, unknown> }>;
+}
+
+interface ResolvedDispatchSkill {
+  name: string;
+  contentHash: string;
+}
+
+interface ResolvedSkillDispatchConfig {
+  executorKey: string;
+  executorRevisionHash: string;
+  resolvedSkillManifest: ResolvedDispatchSkill[];
 }
 
 function readDesignerStepConfig(rawConfig: unknown) {
@@ -72,6 +84,111 @@ function extractScenarioContext(
     actionConfig: actionInfo?.runtimeConfig ?? {},
     outputConfigs: outputs,
   };
+}
+
+function readExecutorKey(actionConfig: Record<string, unknown>): string | null {
+  const executorKey = actionConfig.executorKey;
+  if (typeof executorKey !== 'string' || executorKey.trim() === '') {
+    return null;
+  }
+
+  return executorKey;
+}
+
+async function resolveSkillDispatchConfig(args: {
+  prisma: Pick<PrismaClient, 'executor' | 'skill'>;
+  tenantId: string;
+  executorKey: string;
+}): Promise<ResolvedSkillDispatchConfig> {
+  const executor =
+    await args.prisma.executor.findFirst({
+      where: {
+        key: args.executorKey,
+        tenantId: args.tenantId,
+        source: ExecutorSource.USER,
+      },
+      select: {
+        key: true,
+        yaml: true,
+        contentHash: true,
+      },
+    })
+    ?? await args.prisma.executor.findFirst({
+      where: {
+        key: args.executorKey,
+        tenantId: null,
+        source: ExecutorSource.BUILTIN,
+      },
+      select: {
+        key: true,
+        yaml: true,
+        contentHash: true,
+      },
+    });
+
+  if (!executor) {
+    throw new Error(`Executor "${args.executorKey}" not found for dispatch`);
+  }
+
+  const ast = parseExecutorYaml(executor.yaml, {
+    sourceName: `${executor.key}@${executor.contentHash}`,
+  });
+
+  const skillNames = Array.from(
+    new Set(
+      ast.stages.flatMap((stage) => [stage.system_skill, ...stage.complementary]),
+    ),
+  );
+
+  const skillByName = new Map<string, ResolvedDispatchSkill>();
+  for (const skillName of skillNames) {
+    const skill =
+      await args.prisma.skill.findFirst({
+        where: {
+          name: skillName,
+          tenantId: args.tenantId,
+          source: SkillSource.USER,
+        },
+        select: {
+          name: true,
+          contentHash: true,
+        },
+      })
+      ?? await args.prisma.skill.findFirst({
+        where: {
+          name: skillName,
+          tenantId: null,
+          source: SkillSource.BUILTIN,
+        },
+        select: {
+          name: true,
+          contentHash: true,
+        },
+      });
+
+    if (!skill) {
+      throw new Error(`Skill "${skillName}" referenced by executor "${executor.key}" was not found`);
+    }
+
+    skillByName.set(skillName, {
+      name: skill.name,
+      contentHash: skill.contentHash,
+    });
+  }
+
+  return {
+    executorKey: executor.key,
+    executorRevisionHash: executor.contentHash,
+    resolvedSkillManifest: skillNames.map((skillName) => skillByName.get(skillName)!),
+  };
+}
+
+function buildExecutorFetchUrl(apiBaseUrl: string, executorKey: string, contentHash: string): string {
+  return `${apiBaseUrl}/v1/executors/${encodeURIComponent(executorKey)}/by-hash/${encodeURIComponent(contentHash)}`;
+}
+
+function buildSkillFetchUrl(apiBaseUrl: string, skillName: string, contentHash: string): string {
+  return `${apiBaseUrl}/v1/skills/${encodeURIComponent(skillName)}/by-hash/${encodeURIComponent(contentHash)}`;
 }
 
 export function createDispatcherService(
@@ -131,6 +248,14 @@ export function createDispatcherService(
           }
 
           const scenarioContext = extractScenarioContext(run.workflowScenario);
+          const executorKey = readExecutorKey(scenarioContext.actionConfig);
+          const skillDispatchConfig = executorKey
+            ? await resolveSkillDispatchConfig({
+              prisma: tx,
+              tenantId: run.tenantId,
+              executorKey,
+            })
+            : null;
 
           const provider = await selectProvider(run.workflowType);
           if (!provider) {
@@ -175,6 +300,24 @@ export function createDispatcherService(
             targetBranch: run.repositoryMapping?.defaultBranch ?? 'main',
             executionProfile: 'analysis-only',
             timeoutSeconds: 3600,
+            ...(skillDispatchConfig && {
+              executorKey: skillDispatchConfig.executorKey,
+              executorRevisionHash: skillDispatchConfig.executorRevisionHash,
+              resolvedSkillManifest: skillDispatchConfig.resolvedSkillManifest,
+              executorFetch: {
+                url: buildExecutorFetchUrl(
+                  apiBaseUrl,
+                  skillDispatchConfig.executorKey,
+                  skillDispatchConfig.executorRevisionHash,
+                ),
+                contentHash: skillDispatchConfig.executorRevisionHash,
+              },
+              skillFetches: skillDispatchConfig.resolvedSkillManifest.map((skill) => ({
+                name: skill.name,
+                contentHash: skill.contentHash,
+                url: buildSkillFetchUrl(apiBaseUrl, skill.name, skill.contentHash),
+              })),
+            }),
             providerHints: {
               workItemId: run.workItemId,
               scenarioId: scenarioContext.scenarioId,

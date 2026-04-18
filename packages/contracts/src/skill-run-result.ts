@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+const DeliveryVisibilitySchema = z.enum(['public', 'internal']);
+
 export const PrSpecSchema = z.object({
   branch: z.string(),
   title: z.string(),
@@ -12,22 +14,26 @@ export const PrSpecSchema = z.object({
 export const CommentDeliveryOpSchema = z.object({
   kind: z.literal('comment'),
   body: z.string(),
+  visibility: DeliveryVisibilitySchema.optional(),
 });
 
 export const LabelsDeliveryOpSchema = z.object({
   kind: z.literal('labels'),
   add: z.array(z.string()).optional(),
   remove: z.array(z.string()).optional(),
+  visibility: DeliveryVisibilitySchema.optional(),
 });
 
 export const StateDeliveryOpSchema = z.object({
   kind: z.literal('state'),
   change: z.enum(['close', 'reopen', 'merge', 'request_changes', 'approve']),
+  visibility: DeliveryVisibilitySchema.optional(),
 });
 
 export const PrDeliveryOpSchema = z.object({
   kind: z.literal('pr'),
   spec: PrSpecSchema,
+  visibility: DeliveryVisibilitySchema.optional(),
 });
 
 export const DeliveryOpSchema = z.discriminatedUnion('kind', [

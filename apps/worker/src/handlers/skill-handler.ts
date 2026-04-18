@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Executor as PrismaExecutor, Skill as PrismaSkill } from '@prisma/client';
+import type { Prisma, SkillRole } from '@prisma/client';
 import { type SkillRunResult, type WorkerJob } from '@support-agent/contracts';
 import {
   type ResolvedExecutor,
@@ -18,7 +18,14 @@ import {
 import { loadSkillFromRow } from '@support-agent/skills-runtime';
 import { getExecutorByKey, runWithJsonOutput, type Executor } from '../executors/index.js';
 import { type WorkerApiClient } from '../lib/api-client.js';
-import { prisma } from '../lib/prisma.js';
+import {
+  clearDispatchAbortController,
+  clearDispatchControl,
+  isDispatchCancelRequested,
+  isDispatchForceCanceled,
+  registerActiveChildProcess,
+  registerDispatchAbortController,
+} from '../lib/dispatch-control.js';
 import {
   createSkillRunResultSchema,
   createTemplateFromJsonSchema,
@@ -29,8 +36,20 @@ export interface SkillHandlerOptions {
 }
 
 type SkillManifestEntry = NonNullable<WorkerJob['resolvedSkillManifest']>[number];
-type SkillRow = Pick<PrismaSkill, 'name' | 'description' | 'role' | 'body' | 'outputSchema' | 'contentHash'>;
-type ExecutorRow = Pick<PrismaExecutor, 'key' | 'yaml' | 'contentHash'>;
+type SkillFetchEntry = NonNullable<WorkerJob['skillFetches']>[number];
+type SkillRow = {
+  name: string;
+  description: string;
+  role: SkillRole;
+  body: string;
+  outputSchema: Prisma.JsonValue | null;
+  contentHash: string;
+};
+type ExecutorRow = {
+  key: string;
+  yaml: string;
+  contentHash: string;
+};
 type RuntimeResolvedExecutor = ResolvedExecutor & { stages: RuntimeResolvedStageAst[] };
 
 const CANCEL_POLL_INTERVAL_MS = 2_000;
@@ -57,10 +76,20 @@ export async function handleSkillJob(
     `[skill] Starting ${job.executorKey}@${job.executorRevisionHash} for run ${workflowRunId}`,
   );
 
-  const executorRow = await loadExecutorRow(job.executorKey, job.executorRevisionHash);
-  const skillRowsByName = await loadSkillRows(job.resolvedSkillManifest);
+  const executorRow = await loadExecutorRow(api, {
+    key: job.executorKey,
+    contentHash: job.executorRevisionHash,
+    url: job.executorFetch?.url,
+  });
+  const skillRowsByName = await loadSkillRows(
+    api,
+    job.resolvedSkillManifest,
+    job.skillFetches ?? [],
+  );
   const resolvedExecutor = await resolveExecutor(executorRow, skillRowsByName);
   const workDir = await mkdtemp(join(tmpdir(), `support-agent-skill-${jobId}-`));
+  const abortController = new AbortController();
+  registerDispatchAbortController(jobId, abortController);
 
   try {
     const buildStagePrompt = (
@@ -91,7 +120,7 @@ export async function handleSkillJob(
       }) => api.postCheckpoint(jobId, args),
     };
 
-    const cancelChecker = createCancelChecker(api, workflowRunId);
+    const cancelChecker = createCancelChecker(api, jobId, workflowRunId);
 
     const result = await runWithLoop({
       executor: resolvedExecutor,
@@ -122,6 +151,8 @@ export async function handleSkillJob(
           outputPath,
           cwd: workDir,
           timeoutMs: (job.timeoutSeconds ?? 3_600) * 1_000,
+          onSpawn: (child: import('node:child_process').ChildProcess) =>
+            registerActiveChildProcess(jobId, child),
         });
 
         await api.postLog(
@@ -132,7 +163,7 @@ export async function handleSkillJob(
 
         return stageResult;
       },
-      signal: new AbortController().signal,
+      signal: abortController.signal,
       persistIteration: async (iteration, outputsByStage) => {
         const leafOutputs = outputsByStage.get(resolvedExecutor.leafStageId) ?? [];
         await api.postProgress(
@@ -185,6 +216,29 @@ export async function handleSkillJob(
       return;
     }
 
+    if (isDispatchForceCanceled(jobId)) {
+      await api.postLog(
+        jobId,
+        'stdout',
+        '[skill] Force cancel requested; terminating execution',
+      );
+      await api.submitReport(jobId, {
+        workflowRunId,
+        workflowType,
+        status: 'canceled',
+        summary: 'Skill execution force-canceled',
+        stageResults: [
+          {
+            stage: 'skill_execution',
+            status: 'skipped',
+            summary: 'Force-canceled while a subprocess was active',
+          },
+        ],
+        leafOutputs: [],
+      });
+      return;
+    }
+
     await api.postLog(
       jobId,
       'stderr',
@@ -192,49 +246,53 @@ export async function handleSkillJob(
     );
     throw error;
   } finally {
+    clearDispatchAbortController(jobId);
+    clearDispatchControl(jobId);
     await rm(workDir, { recursive: true, force: true });
   }
 }
 
-async function loadExecutorRow(key: string, contentHash: string): Promise<ExecutorRow> {
-  const executor = await prisma.executor.findFirst({
-    where: { key, contentHash },
-    select: { key: true, yaml: true, contentHash: true },
-  });
-
-  if (!executor) {
-    throw new Error(`Executor ${key}@${contentHash} not found`);
-  }
-
-  return executor;
+async function loadExecutorRow(
+  api: WorkerApiClient,
+  fetchTarget: { key: string; contentHash: string; url?: string },
+): Promise<ExecutorRow> {
+  return api.fetchExecutorByHash(
+    fetchTarget.key,
+    fetchTarget.contentHash,
+    fetchTarget.url,
+  );
 }
 
 async function loadSkillRows(
+  api: WorkerApiClient,
   manifest: SkillManifestEntry[],
+  skillFetches: SkillFetchEntry[],
 ): Promise<Map<string, SkillRow>> {
+  const fetchesByName = new Map(skillFetches.map((entry) => [entry.name, entry]));
   const rows = await Promise.all(
     manifest.map(async (entry) => {
-      const row = await prisma.skill.findFirst({
-        where: { name: entry.name, contentHash: entry.contentHash },
-        select: {
-          name: true,
-          description: true,
-          role: true,
-          body: true,
-          outputSchema: true,
-          contentHash: true,
-        },
-      });
-
-      if (!row) {
-        throw new Error(`Skill ${entry.name}@${entry.contentHash} not found`);
+      const fetchTarget = fetchesByName.get(entry.name);
+      if (fetchTarget && fetchTarget.contentHash !== entry.contentHash) {
+        throw new Error(
+          `Dispatch skill fetch hash mismatch for ${entry.name}: ${fetchTarget.contentHash} != ${entry.contentHash}`,
+        );
       }
 
+      const row = await api.fetchSkillByHash(entry.name, entry.contentHash, fetchTarget?.url);
       return [entry.name, row] as const;
     }),
   );
 
-  return new Map(rows);
+  return new Map(
+    rows.map(([name, row]) => [
+      name,
+      {
+        ...row,
+        role: row.role as SkillRole,
+        outputSchema: row.outputSchema as Prisma.JsonValue | null,
+      },
+    ]),
+  );
 }
 
 async function resolveExecutor(
@@ -298,11 +356,19 @@ function getStageOutputSchema(stage: RuntimeResolvedStageAst): Record<string, un
   return outputSchema as Record<string, unknown>;
 }
 
-function createCancelChecker(api: WorkerApiClient, workflowRunId: string) {
+function createCancelChecker(
+  api: WorkerApiClient,
+  dispatchAttemptId: string,
+  workflowRunId: string,
+) {
   let lastCheckedAt = 0;
   let lastStatus = '';
 
   return async () => {
+    if (isDispatchCancelRequested(dispatchAttemptId)) {
+      return true;
+    }
+
     const now = Date.now();
     if (now - lastCheckedAt < CANCEL_POLL_INTERVAL_MS) {
       return lastStatus === 'cancel_requested';

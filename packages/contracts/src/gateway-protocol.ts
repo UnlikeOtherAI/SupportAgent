@@ -8,9 +8,16 @@ export const GatewayDispatchMessage = z.object({
   job: WorkerJobSchema,
 });
 
-export const GatewayCancelMessage = z.object({
-  type: z.literal('cancel'),
-  jobId: z.string(),
+export const GatewayCancelRequestedMessage = z.object({
+  type: z.literal('cancel_requested'),
+  dispatchAttemptId: z.string().uuid(),
+  workflowRunId: z.string().uuid(),
+});
+
+export const GatewayCancelForceMessage = z.object({
+  type: z.literal('cancel_force'),
+  dispatchAttemptId: z.string().uuid(),
+  workflowRunId: z.string().uuid(),
 });
 
 export const GatewayPingMessage = z.object({
@@ -19,7 +26,8 @@ export const GatewayPingMessage = z.object({
 
 export const GatewayMessage = z.discriminatedUnion('type', [
   GatewayDispatchMessage,
-  GatewayCancelMessage,
+  GatewayCancelRequestedMessage,
+  GatewayCancelForceMessage,
   GatewayPingMessage,
 ]);
 

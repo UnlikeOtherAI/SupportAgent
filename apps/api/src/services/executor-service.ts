@@ -64,6 +64,40 @@ export class ExecutorService {
     };
   }
 
+  async getByKeyAndHash(
+    key: string,
+    contentHash: string,
+    tenantId: string,
+  ): Promise<ExecutorDetail | null> {
+    const executor = await this.prisma.executor.findFirst({
+      where: {
+        key,
+        contentHash,
+        OR: [
+          { tenantId: null, source: ExecutorSource.BUILTIN },
+          { tenantId, source: ExecutorSource.USER },
+        ],
+      },
+    });
+
+    if (!executor) {
+      return null;
+    }
+
+    const parentLabels = await this.loadParentExecutorLabels([executor]);
+    return {
+      id: executor.id,
+      key: executor.key,
+      description: executor.description,
+      yaml: executor.yaml,
+      parsed: executor.parsed as Record<string, unknown>,
+      contentHash: executor.contentHash,
+      source: executor.source,
+      clonedFrom: mapClonedFrom(executor.parentExecutorId, parentLabels),
+      updatedAt: executor.updatedAt.toISOString(),
+    };
+  }
+
   async clone(rawInput: unknown, tenantId: string): Promise<ExecutorDetail> {
     const input = CreateExecutorCloneSchema.parse(rawInput);
     const builtin = await this.prisma.executor.findFirst({

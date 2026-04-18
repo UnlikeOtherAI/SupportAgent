@@ -564,10 +564,22 @@ describe('WorkerJobSchema', () => {
       providerHints: { model: 'claude-opus-4-20250514' },
       runtimeCapabilities: ['docker', 'gpu'],
       networkRequirements: ['github.com'],
+      executorFetch: {
+        url: 'https://api.example.com/v1/executors/triage-default/by-hash/rev-123',
+        contentHash: 'rev-123',
+      },
+      skillFetches: [
+        {
+          name: 'triage-issue',
+          contentHash: 'hash-1',
+          url: 'https://api.example.com/v1/skills/triage-issue/by-hash/hash-1',
+        },
+      ],
     });
     const result = WorkerJobSchema.parse(full);
     expect(result.preferredModelRouting).toBe('proxy');
     expect(result.runtimeCapabilities).toHaveLength(2);
+    expect(result.executorFetch?.contentHash).toBe('rev-123');
   });
 
   it('allows optional fields to be omitted', () => {

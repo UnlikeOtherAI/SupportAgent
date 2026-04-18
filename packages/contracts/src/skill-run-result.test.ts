@@ -47,6 +47,14 @@ describe('SkillRunResultSchema', () => {
     expect(result.findings?.summary).toBe('The null check is missing.');
   });
 
+  it('accepts internal visibility on delivery ops', () => {
+    const result = SkillRunResultSchema.parse({
+      delivery: [{ kind: 'comment', body: 'Internal diagnostic', visibility: 'internal' }],
+    });
+
+    expect(result.delivery[0]).toMatchObject({ visibility: 'internal' });
+  });
+
   it('rejects an invalid state change value', () => {
     expect(() =>
       SkillRunResultSchema.parse({

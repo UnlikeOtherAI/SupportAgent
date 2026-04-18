@@ -54,13 +54,15 @@ function makeApi(): { api: WorkerApiClient; submitReport: ReturnType<typeof vi.f
       baseUrl: 'http://localhost:4441',
       secret: 'secret',
       fetchJobContext: vi.fn(),
+      fetchExecutorByHash: vi.fn(),
+      fetchSkillByHash: vi.fn(),
       getRunStatus: vi.fn(),
       postProgress: vi.fn().mockResolvedValue(undefined),
       postLog: vi.fn().mockResolvedValue(undefined),
       postCheckpoint: vi.fn(),
       uploadArtifact: vi.fn(),
       submitReport,
-    } as WorkerApiClient,
+    } as unknown as WorkerApiClient,
     submitReport,
   };
 }

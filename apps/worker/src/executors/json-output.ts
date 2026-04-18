@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { ZodType } from 'zod';
@@ -14,6 +15,7 @@ export interface JsonOutputRunInput<T> {
   outputPath: string;
   cwd?: string;
   timeoutMs: number;
+  onSpawn?: (child: ChildProcess) => void;
 }
 
 export class ExecutorOutputError extends Error {
@@ -60,6 +62,7 @@ export async function runWithJsonOutput<T>(
     cwd: input.cwd,
     outputPath: input.outputPath,
     timeoutMs: input.timeoutMs,
+    onSpawn: input.onSpawn,
   });
 
   if (!outputContent) {

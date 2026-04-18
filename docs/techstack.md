@@ -233,6 +233,7 @@ Rules:
 - Workers fetch context, stream progress, upload artifacts, and submit final reports through API endpoints only.
 - The runtime CLI should be the canonical customer-facing implementation of worker or gateway registration.
 - The runtime CLI should be the canonical prompt-fetch, manifest-fetch, and connection layer for workers and gateways.
+- Remote skill dispatches must fetch executor YAML and `SKILL.md` bodies through authenticated by-hash API endpoints rather than direct database reads.
 - The worker-side GitHub helper layer must be shared with the API-facing local-runtime RPC for local-`gh` repo discovery, issue fetches, issue comments, and label management.
 - GitHub triage delivery must post the discovery comment before labeling, and it must ensure `triaged` and severity labels exist before applying them so local polling does not requeue already-processed issues.
 
@@ -402,6 +403,7 @@ Naming split:
 - `routing_rules` and `routing_targets` are configuration records
 - reusable outbound destinations are represented by `routing_targets`
 - `action_outputs` and `action_delivery_attempts` are execution-time output and delivery records for arbitrary scenario actions
+- `action_outputs.deliveryStatus` captures audit-only suppression states such as `suppressed_internal` even when no outbound delivery attempt row is created
 - existing `outbound_delivery_attempts` should be treated as legacy workflow-output delivery until migrated or aliased into `action_delivery_attempts`
 - existing `workflow_scenarios`, `workflow_scenario_bindings`, `workflow_scenario_steps`, and `outbound_destinations` should be treated as legacy tables, aliases, or read-only projections during migration. New writes should target `automation_scenarios`, `automation_scenario_versions`, `trigger_policies`, `routing_rules`, and `routing_targets`.
 
@@ -595,6 +597,7 @@ External source -> API intake/webhook or polling -> AutomationEvent
 ```
 
 Reverse-connected workers should use WebSocket for control messages, heartbeats, and wake-up notifications. Incremental log chunks and final reports should be persisted through HTTP API endpoints so reconnects do not lose log history.
+Reverse-connected stop control is two-phase: `cancel_requested` sets a checkpoint-visible cancel flag, while `cancel_force` terminates the tracked executor subprocess with `SIGTERM` and escalates to `SIGKILL` after a short timeout if it does not exit.
 
 ## Architectural Rules
 
@@ -613,6 +616,7 @@ Reverse-connected workers should use WebSocket for control messages, heartbeats,
 - Privately hosted execution machines should connect outward to the platform through a persistent session rather than relying on inbound access.
 - Control messages for reverse-connected hosts should use the live session, while artifacts and final reports should be sent back through HTTP `POST` API calls rather than over WebSocket.
 - Live log chunks from reverse-connected hosts may use the WebSocket session, but they must be persisted server-side and exposed to the dashboard through the backend.
+- Current gap: the API does not yet own a direct bridge into gateway worker sessions, so control-plane cancel broadcast may remain a logged no-op until API-to-gateway session routing exists. Worker-side HTTP polling remains the required fallback.
 - Enterprise mode should assume customer-executed workers so repository access can stay entirely inside the customer's environment.
 - PR generation must be a separate workflow from triage, even when auto-PR is enabled.
 

@@ -1,6 +1,7 @@
 import { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { createWorkflowRunRepository } from '../repositories/workflow-run-repository.js';
+import { createDispatchCancelBroadcaster } from '../services/dispatch-cancel-broadcaster.js';
 import { createWorkflowRunService } from '../services/workflow-run-service.js';
 
 const CancelQuery = z.object({
@@ -9,7 +10,11 @@ const CancelQuery = z.object({
 
 export async function workflowRunControlRoutes(app: FastifyInstance) {
   const repo = createWorkflowRunRepository(app.prisma);
-  const service = createWorkflowRunService(repo, app.prisma);
+  const service = createWorkflowRunService(
+    repo,
+    app.prisma,
+    createDispatchCancelBroadcaster(app.prisma, app.log),
+  );
 
   app.addHook('onRequest', async (request) => {
     await request.authenticate();

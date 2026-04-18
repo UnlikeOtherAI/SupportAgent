@@ -5,6 +5,19 @@ export interface WorkerApiClient {
   baseUrl: string;
   secret: string;
   fetchJobContext(jobId: string): Promise<WorkerJob>;
+  fetchExecutorByHash(key: string, contentHash: string, url?: string): Promise<{
+    key: string;
+    contentHash: string;
+    yaml: string;
+  }>;
+  fetchSkillByHash(name: string, contentHash: string, url?: string): Promise<{
+    name: string;
+    contentHash: string;
+    description: string;
+    role: string;
+    body: string;
+    outputSchema: Record<string, unknown> | null;
+  }>;
   getRunStatus(workflowRunId: string): Promise<string>;
   postProgress(jobId: string, stage: string, message: string): Promise<void>;
   postLog(jobId: string, streamType: string, message: string): Promise<void>;
@@ -34,6 +47,29 @@ export function createWorkerApiClient(baseUrl: string, workerSharedSecret: strin
       const res = await fetch(`${baseUrl}/worker/jobs/${jobId}/context`, { headers });
       if (!res.ok) throw new Error(`Failed to fetch job context: ${res.status}`);
       return res.json() as Promise<WorkerJob>;
+    },
+    async fetchExecutorByHash(key, contentHash, url) {
+      const targetUrl = url ?? `${baseUrl}/v1/executors/${encodeURIComponent(key)}/by-hash/${encodeURIComponent(contentHash)}`;
+      const res = await fetch(targetUrl, { headers });
+      if (!res.ok) throw new Error(`Failed to fetch executor ${key}@${contentHash}: ${res.status}`);
+      return res.json() as Promise<{
+        key: string;
+        contentHash: string;
+        yaml: string;
+      }>;
+    },
+    async fetchSkillByHash(name, contentHash, url) {
+      const targetUrl = url ?? `${baseUrl}/v1/skills/${encodeURIComponent(name)}/by-hash/${encodeURIComponent(contentHash)}`;
+      const res = await fetch(targetUrl, { headers });
+      if (!res.ok) throw new Error(`Failed to fetch skill ${name}@${contentHash}: ${res.status}`);
+      return res.json() as Promise<{
+        name: string;
+        contentHash: string;
+        description: string;
+        role: string;
+        body: string;
+        outputSchema: Record<string, unknown> | null;
+      }>;
     },
     async getRunStatus(workflowRunId) {
       const res = await fetch(`${baseUrl}/worker/jobs/run/${workflowRunId}`, { headers });

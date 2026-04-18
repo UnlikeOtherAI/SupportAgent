@@ -1,3 +1,5 @@
+import type { ChildProcess } from 'node:child_process';
+
 export interface ExecutorRunInput {
   /** Full prompt — must already include any output-file instructions. */
   prompt: string;
@@ -5,6 +7,7 @@ export interface ExecutorRunInput {
   /** Absolute path the executor's prompt asks the LLM to write its result to. */
   outputPath: string;
   timeoutMs: number;
+  onSpawn?: (child: ChildProcess) => void;
 }
 
 export interface ExecutorRunResult {

@@ -634,6 +634,7 @@ model ActionOutput {
   tenantId        String
   workflowRunId   String
   outputType      String
+  deliveryStatus  String           @default("pending")
   payload         Json
   summary         String?          @db.Text
   visibilityLevel OutputVisibility @default(full)

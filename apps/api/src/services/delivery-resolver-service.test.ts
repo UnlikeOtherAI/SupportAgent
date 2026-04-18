@@ -67,6 +67,12 @@ function createPrisma(run: WorkflowRunRecord) {
           outputs.push(row);
           return row;
         }),
+        update: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          const row = outputs.find((output) => output.id === where.id);
+          if (!row) throw new Error(`Missing output ${where.id}`);
+          Object.assign(row, data);
+          return row;
+        }),
       },
       actionDeliveryAttempt: {
         create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -303,5 +309,49 @@ describe('DeliveryResolverService', () => {
     expect(ghAddIssueComment).not.toHaveBeenCalled();
     expect(fake.actionAttempts[0]?.externalRef).toBe('existing-progress-comment');
     expect(fake.actionAttempts[0]?.status).toBe('succeeded');
+  });
+
+  it('suppresses internal delivery ops while keeping the action output audit row', async () => {
+    const run: WorkflowRunRecord = {
+      id: 'run-internal-comment',
+      progressCommentId: null,
+      repositoryMapping: {
+        connector: { platformType: { key: 'github' } },
+        connectorId: 'repo-connector',
+        repositoryUrl: 'https://github.com/test/repo',
+      },
+      tenantId: 'tenant-1',
+      workItem: {
+        connectorInstanceId: 'source-connector',
+        externalItemId: '77',
+        reviewTargetNumber: null,
+        reviewTargetType: null,
+        workItemKind: 'issue',
+      },
+    };
+    const fake = createPrisma(run);
+
+    const { createDeliveryResolverService } = await import('./delivery-resolver-service.js');
+    const service = createDeliveryResolverService(fake.prisma as never);
+
+    const result = await service.resolveDelivery({
+      workflowRunId: run.id,
+      leafOutputs: [
+        {
+          delivery: [
+            {
+              kind: 'comment',
+              body: 'internal_diagnostic',
+              visibility: 'internal',
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result).toEqual({ persisted: 1, dispatched: 0 });
+    expect(fake.actionOutputs[0]?.deliveryStatus).toBe('suppressed_internal');
+    expect(fake.actionAttempts).toHaveLength(0);
+    expect(ghAddIssueComment).not.toHaveBeenCalled();
   });
 });

@@ -47,6 +47,11 @@ export interface WorkerDispatchJob {
   targetBranch: string;
   executionProfile: string;
   timeoutSeconds: number;
+  executorKey?: string;
+  executorRevisionHash?: string;
+  resolvedSkillManifest?: Array<{ name: string; contentHash: string }>;
+  executorFetch?: { url: string; contentHash: string };
+  skillFetches?: Array<{ name: string; contentHash: string; url: string }>;
   /** Extra context for the worker: issue numbers, PR refs, parent run IDs, etc. */
   providerHints?: WorkerDispatchProviderHints;
 }

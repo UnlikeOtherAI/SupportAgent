@@ -44,6 +44,30 @@ export class SkillService {
     return this.mapDetail(skill, parentNames);
   }
 
+  async getByNameAndHash(
+    name: string,
+    contentHash: string,
+    tenantId: string,
+  ): Promise<SkillDetail | null> {
+    const skill = await this.prisma.skill.findFirst({
+      where: {
+        name,
+        contentHash,
+        OR: [
+          { tenantId: null, source: SkillSource.BUILTIN },
+          { tenantId, source: SkillSource.USER },
+        ],
+      },
+    });
+
+    if (!skill) {
+      return null;
+    }
+
+    const parentNames = await this.loadParentSkillNames([skill]);
+    return this.mapDetail(skill, parentNames);
+  }
+
   async clone(rawInput: unknown, tenantId: string): Promise<SkillDetail> {
     const input = CreateSkillCloneSchema.parse(rawInput);
     const builtin = await this.prisma.skill.findFirst({
