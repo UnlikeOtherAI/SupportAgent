@@ -1,4 +1,4 @@
-import { type PrismaClient } from '@prisma/client';
+import { WorkflowRunStatus, type PrismaClient } from '@prisma/client';
 import {
   ghAddIssueComment,
   ghAddPRComment,
@@ -32,6 +32,25 @@ function buildPlaceholderBody(body: string) {
 
 function buildDefaultPlaceholder() {
   return buildPlaceholderBody(`Last update: ${new Date().toISOString()}`);
+}
+
+function buildThrottleClaimWhere(workflowRunId: string, threshold: Date) {
+  return {
+    id: workflowRunId,
+    completedAt: null,
+    status: {
+      notIn: [
+        WorkflowRunStatus.succeeded,
+        WorkflowRunStatus.failed,
+        WorkflowRunStatus.canceled,
+        WorkflowRunStatus.lost,
+      ],
+    },
+    OR: [
+      { lastProgressEditAt: null },
+      { lastProgressEditAt: { lt: threshold } },
+    ],
+  };
 }
 
 async function resolveProgressContext(
@@ -131,18 +150,21 @@ export function createProgressCommentService(prisma: PrismaClient) {
       }
 
       const now = new Date();
-      if (
-        run.lastProgressEditAt &&
-        now.getTime() - run.lastProgressEditAt.getTime() < PROGRESS_THROTTLE_MS
-      ) {
-        return;
-      }
-
       const context = await resolveProgressContext(prisma, workflowRunId);
       if (!context.isGitHub) {
         return;
       }
       const target = context.target;
+      const claimed = await prisma.workflowRun.updateMany({
+        where: buildThrottleClaimWhere(
+          workflowRunId,
+          new Date(now.getTime() - PROGRESS_THROTTLE_MS),
+        ),
+        data: { lastProgressEditAt: now },
+      });
+      if (claimed.count === 0) {
+        return;
+      }
       const nextBody = buildPlaceholderBody(body);
 
       if (!run.progressCommentId) {
@@ -151,7 +173,6 @@ export function createProgressCommentService(prisma: PrismaClient) {
           where: { id: workflowRunId },
           data: {
             progressCommentId: created.id,
-            lastProgressEditAt: now,
           },
         });
         return;
@@ -160,10 +181,6 @@ export function createProgressCommentService(prisma: PrismaClient) {
       try {
         await ghGetComment(target.owner, target.repo, run.progressCommentId);
         await ghEditComment(target.owner, target.repo, run.progressCommentId, nextBody);
-        await prisma.workflowRun.update({
-          where: { id: workflowRunId },
-          data: { lastProgressEditAt: now },
-        });
       } catch (error) {
         if (!isStaleCommentError(error)) {
           throw error;
@@ -174,7 +191,6 @@ export function createProgressCommentService(prisma: PrismaClient) {
           where: { id: workflowRunId },
           data: {
             progressCommentId: created.id,
-            lastProgressEditAt: now,
           },
         });
       }

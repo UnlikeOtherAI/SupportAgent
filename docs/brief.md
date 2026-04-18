@@ -197,7 +197,7 @@ For skills-and-executors dispatches, the worker should also fetch the pinned exe
 
 For direct cloud workers, the standard contract should remain API-driven.
 For reverse-connected workers or gateways, WebSocket may also be used for control messages, heartbeats, and incremental live log chunks, while final reports and bulky outputs still go through HTTP API calls.
-Reverse-connected cancel remains a two-phase contract: `cancel_requested` is checkpoint-safe, while `cancel_force` terminates the active subprocess on the worker. Until the API has a direct API-to-gateway session bridge, control-plane cancel broadcasts may be logged as intent and the worker must keep the HTTP status polling fallback.
+Reverse-connected cancel remains a two-phase contract: `cancel_requested` is checkpoint-safe, while `cancel_force` terminates the active subprocess on the worker. Until the API has a direct API-to-gateway session bridge, control-plane cancel broadcasts may be logged as intent and the worker HTTP status polling fallback is the authoritative cancel transport, including `cancelForceRequestedAt` force-stop escalation.
 
 For support-ticket-driven flows, triage should be able to boot the application environment and use tools such as Playwright to reproduce the reported issue before handing the result to a developer.
 

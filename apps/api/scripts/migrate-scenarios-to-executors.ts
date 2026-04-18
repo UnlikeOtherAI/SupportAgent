@@ -143,6 +143,13 @@ export function buildMigrationDecision(
     return { type: 'update', status: 'requires_manual_review', config: nextConfig };
   }
 
+  if (executorKey === 'build-default') {
+    nextConfig.migration_status = 'requires_manual_review';
+    nextConfig.migration_note =
+      'no builtin build-default.yaml exists yet — route to a USER executor after cloning one';
+    return { type: 'update', status: 'requires_manual_review', config: nextConfig };
+  }
+
   nextConfig.executorKey = executorKey;
   nextConfig.taskPrompt = readTaskPrompt(config) ?? DEFAULT_TASK_PROMPTS[executorKey];
   nextConfig.migration_status = MANUAL_REVIEW_EXECUTOR_KEYS.has(executorKey)

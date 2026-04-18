@@ -54,6 +54,24 @@ function createPrisma(run: RunRecord) {
         Object.assign(run, data);
         return run;
       }),
+      updateMany: vi.fn(async ({ where, data }: { where: Record<string, unknown>; data: Partial<RunRecord> }) => {
+        const threshold = (where.OR as Array<Record<string, unknown>> | undefined)?.find(
+          (candidate) => candidate.lastProgressEditAt && typeof candidate.lastProgressEditAt === 'object',
+        )?.lastProgressEditAt as { lt?: Date } | undefined;
+        const canClaim =
+          run.completedAt === null
+          && !['succeeded', 'failed', 'canceled', 'lost'].includes(run.status)
+          && (
+            run.lastProgressEditAt === null
+            || (threshold?.lt instanceof Date && run.lastProgressEditAt < threshold.lt)
+          );
+        if (!canClaim) {
+          return { count: 0 };
+        }
+
+        Object.assign(run, data);
+        return { count: 1 };
+      }),
     },
   };
 }
@@ -128,5 +146,39 @@ describe('ProgressCommentService', () => {
     expect(ghAddIssueComment).toHaveBeenCalledTimes(1);
     expect(ghEditComment).not.toHaveBeenCalled();
     expect(run.progressCommentId).toBe('comment-new');
+  });
+
+  it('only lets one concurrent progress update claim the throttle slot', async () => {
+    const run: RunRecord = {
+      completedAt: null,
+      id: 'run-3',
+      lastProgressEditAt: new Date(Date.now() - 31_000),
+      progressCommentId: 'comment-1',
+      repositoryMapping: {
+        connector: { platformType: { key: 'github' } },
+        repositoryUrl: 'https://github.com/test/repo',
+      },
+      status: 'running',
+      workItem: {
+        externalItemId: '42',
+        reviewTargetNumber: null,
+        reviewTargetType: null,
+        workItemKind: 'issue',
+      },
+    };
+    const prisma = createPrisma(run);
+    ghGetComment.mockResolvedValue({ id: 'comment-1' });
+    ghEditComment.mockResolvedValue({ id: 'comment-1' });
+
+    const { createProgressCommentService } = await import('./progress-comment-service.js');
+    const service = createProgressCommentService(prisma as never);
+
+    await Promise.all([
+      service.updateProgress(run.id, 'First'),
+      service.updateProgress(run.id, 'Second'),
+    ]);
+
+    expect(ghEditComment).toHaveBeenCalledTimes(1);
+    expect(prisma.workflowRun.updateMany).toHaveBeenCalledTimes(2);
   });
 });

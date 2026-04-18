@@ -22,6 +22,7 @@ export interface WorkflowRun {
   duration: string | null
   workItemId: string | null
   currentStage?: string | null
+  cancelRequestedAt?: string | null
   cancelForceRequestedAt?: string | null
   workItem?: { title: string; externalUrl: string; repositoryRef: string }
   repositoryMapping?: { repositoryUrl: string; connector?: { name: string } }

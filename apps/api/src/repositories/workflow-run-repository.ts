@@ -103,7 +103,7 @@ export function createWorkflowRunRepository(prisma: PrismaClient) {
       return prisma.workflowRun.update({ where: { id }, data: { currentStage: stage } });
     },
 
-    async requestCancel(id: string, expectedStatuses: string[]) {
+    async requestCancel(id: string, expectedStatuses: string[], requestedAt: Date) {
       const updated = await prisma.workflowRun.updateMany({
         where: {
           id,
@@ -111,19 +111,31 @@ export function createWorkflowRunRepository(prisma: PrismaClient) {
         },
         data: {
           status: 'cancel_requested',
+          cancelRequestedAt: requestedAt,
         },
       });
 
       return updated.count > 0 ? prisma.workflowRun.findUnique({ where: { id } }) : null;
     },
 
-    async requestForceCancel(id: string, expectedStatuses: string[], requestedAt: Date) {
+    async requestForceCancel(
+      id: string,
+      expectedStatuses: string[],
+      requestedAt: Date,
+      options?: { setCancelRequested: boolean },
+    ) {
       const updated = await prisma.workflowRun.updateMany({
         where: {
           id,
           status: { in: expectedStatuses as any },
         },
         data: {
+          ...(options?.setCancelRequested
+            ? {
+                status: 'cancel_requested',
+                cancelRequestedAt: requestedAt,
+              }
+            : {}),
           cancelForceRequestedAt: requestedAt,
         },
       });

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseExecutorYaml } from '@support-agent/executors-runtime';
+import { parseExecutorYaml, validateExecutor } from '@support-agent/executors-runtime';
 
 const builtinExecutors = [
   'triage-default',
@@ -15,6 +15,37 @@ function readExecutorYaml(name: (typeof builtinExecutors)[number]): string {
   return readFileSync(resolve(process.cwd(), 'builtin', `${name}.yaml`), 'utf8');
 }
 
+function readSkillRecord(name: string) {
+  const skillDir = resolve(process.cwd(), '../skills/builtin', name);
+  const markdown = readFileSync(resolve(skillDir, 'SKILL.md'), 'utf8');
+  const frontmatterMatch = markdown.match(/^---\n([\s\S]*?)\n---/);
+  if (!frontmatterMatch) {
+    throw new Error(`Missing frontmatter in ${name}/SKILL.md`);
+  }
+
+  const frontmatter = Object.fromEntries(
+    frontmatterMatch[1]
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [key, ...rest] = line.split(':');
+        return [key.trim(), rest.join(':').trim()];
+      }),
+  );
+
+  const outputSchemaPath = frontmatter.output_schema?.replace(/^\.\/+/, '');
+  const outputSchema = outputSchemaPath
+    ? JSON.parse(readFileSync(resolve(skillDir, outputSchemaPath), 'utf8'))
+    : null;
+
+  return {
+    contentHash: `test-${name}`,
+    outputSchema,
+    role: String(frontmatter.role ?? '').toUpperCase(),
+  };
+}
+
 function getLeafStageId(stageIds: string[], afterGraph: Map<string, string[]>): string[] {
   return stageIds.filter(
     (candidate) =>
@@ -23,8 +54,14 @@ function getLeafStageId(stageIds: string[], afterGraph: Map<string, string[]>): 
 }
 
 describe('builtin executor YAMLs', () => {
-  it.each(builtinExecutors)('parses %s without schema or graph errors', (name) => {
-    expect(() => parseExecutorYaml(readExecutorYaml(name), { sourceName: name })).not.toThrow();
+  it.each(builtinExecutors)('parses and validates %s without schema or graph errors', async (name) => {
+    const ast = parseExecutorYaml(readExecutorYaml(name), { sourceName: name });
+
+    await expect(
+      validateExecutor(ast, {
+        resolveSkill: async (skillName: string) => readSkillRecord(skillName),
+      }),
+    ).resolves.toBeDefined();
   });
 
   it('models cross-llm-review as three reviewers feeding one consolidator leaf', () => {

@@ -25,6 +25,9 @@ const CANCELABLE_STATUSES = [
 ] as const;
 
 const TERMINAL_STATUSES = ['succeeded', 'failed', 'canceled', 'lost'] as const;
+const FORCE_CANCELABLE_STATUSES = CANCELABLE_STATUSES.filter(
+  (status) => status !== 'cancel_requested',
+);
 
 function assertValidTransition(from: string, to: string) {
   const allowed = VALID_TRANSITIONS[from];
@@ -131,6 +134,9 @@ export function createWorkflowRunService(
         updateExtra.startedAt = null;
         updateExtra.completedAt = null;
       }
+      if (newStatus === 'cancel_requested' && !updateExtra.cancelRequestedAt) {
+        updateExtra.cancelRequestedAt = new Date();
+      }
 
       return repo.updateStatusConditional(id, run.status, newStatus, updateExtra);
     },
@@ -145,24 +151,28 @@ export function createWorkflowRunService(
       }
 
       if (force) {
-        const forced = await repo.requestForceCancel(
-          id,
-          [...CANCELABLE_STATUSES],
-          new Date(),
-        );
+        const requestedAt = new Date();
+        const forced =
+          run.status === 'cancel_requested'
+            ? await repo.requestForceCancel(
+                id,
+                ['cancel_requested'],
+                requestedAt,
+              )
+            : FORCE_CANCELABLE_STATUSES.includes(run.status as (typeof FORCE_CANCELABLE_STATUSES)[number])
+              ? await repo.requestForceCancel(
+                  id,
+                  [...FORCE_CANCELABLE_STATUSES],
+                  requestedAt,
+                  { setCancelRequested: true },
+                )
+              : null;
         if (!forced) {
           throw Object.assign(new Error('Concurrent status change detected'), {
             statusCode: 409,
           });
         }
         await broadcaster?.broadcastRunCancel({ workflowRunId: id, force: true });
-        if (forced.status !== 'cancel_requested') {
-          const requested = await repo.requestCancel(id, [...CANCELABLE_STATUSES]);
-          if (requested) {
-            await broadcaster?.broadcastRunCancel({ workflowRunId: id, force: false });
-          }
-          return requested ?? forced;
-        }
         return forced;
       }
 
@@ -170,7 +180,7 @@ export function createWorkflowRunService(
         return run;
       }
 
-      const canceled = await repo.requestCancel(id, [...CANCELABLE_STATUSES]);
+      const canceled = await repo.requestCancel(id, [...CANCELABLE_STATUSES], new Date());
       if (!canceled) {
         throw Object.assign(new Error('Concurrent status change detected'), {
           statusCode: 409,

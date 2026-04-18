@@ -19,6 +19,10 @@ export interface WorkerApiClient {
     outputSchema: Record<string, unknown> | null;
   }>;
   getRunStatus(workflowRunId: string): Promise<string>;
+  getRunCancelState(workflowRunId: string): Promise<{
+    cancelForceRequestedAt: string | null;
+    status: string;
+  }>;
   postProgress(jobId: string, stage: string, message: string): Promise<void>;
   postLog(jobId: string, streamType: string, message: string): Promise<void>;
   postCheckpoint(
@@ -79,13 +83,23 @@ export function createWorkerApiClient(baseUrl: string, workerSharedSecret: strin
       }>;
     },
     async getRunStatus(workflowRunId) {
+      const run = await this.getRunCancelState(workflowRunId);
+      return run.status;
+    },
+    async getRunCancelState(workflowRunId) {
       const res = await fetch(`${baseUrl}/worker/jobs/run/${workflowRunId}`, { headers });
       if (!res.ok) throw new Error(`Failed to fetch run status: ${res.status}`);
-      const run = await res.json() as { status?: string };
+      const run = await res.json() as {
+        cancelForceRequestedAt?: string | null;
+        status?: string;
+      };
       if (!run.status) {
         throw new Error(`Run ${workflowRunId} did not include a status`);
       }
-      return run.status;
+      return {
+        status: run.status,
+        cancelForceRequestedAt: run.cancelForceRequestedAt ?? null,
+      };
     },
     async postProgress(jobId, stage, message) {
       const res = await fetch(`${baseUrl}/worker/jobs/${jobId}/progress`, {

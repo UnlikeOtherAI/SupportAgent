@@ -7,7 +7,8 @@
     "dev": "{ lsof -ti:4440 | xargs kill -9; } 2>/dev/null; vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run src"
   },
   "dependencies": {
     "@support-agent/contracts": "workspace:*",
@@ -43,6 +44,7 @@
     "tailwindcss": "^4.2.2",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.58.0",
-    "vite": "^8.0.1"
+    "vite": "^8.0.1",
+    "vitest": "^3.0.4"
   }
 }

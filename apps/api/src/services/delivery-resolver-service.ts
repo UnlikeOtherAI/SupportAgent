@@ -7,6 +7,7 @@ import {
   ghCloseIssue,
   ghCreatePR,
   ghEditIssueLabels,
+  ghListOpenPRsForBranch,
   ghMergePR,
   ghReopenIssue,
   ghRequestChangesPR,
@@ -151,6 +152,20 @@ async function dispatchGitHubOp(args: {
       await ghRequestChangesPR(sourceTarget.owner, sourceTarget.repo, sourceTarget.number);
       return {};
     case 'pr': {
+      const existing = await ghListOpenPRsForBranch(
+        codeHostTarget.owner,
+        codeHostTarget.repo,
+        op.spec.branch,
+      );
+      if (existing.length > 0) {
+        return {
+          externalRef: existing[0].url,
+          producedValues: {
+            prUrl: existing[0].url,
+          },
+        };
+      }
+
       const created = await ghCreatePR(
         codeHostTarget.owner,
         codeHostTarget.repo,
@@ -171,6 +186,15 @@ async function dispatchGitHubOp(args: {
 }
 
 export function createDeliveryResolverService(prisma: PrismaClient) {
+  async function findExistingOutput(idempotencyKey: string) {
+    return prisma.actionOutput.findUnique({
+      where: { idempotencyKey },
+      include: {
+        deliveryAttempts: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+    });
+  }
+
   return {
     async resolveDelivery(args: {
       workflowRunId: string;
@@ -202,21 +226,77 @@ export function createDeliveryResolverService(prisma: PrismaClient) {
       let dispatched = 0;
       let firstCommentHandledByProgressComment = Boolean(run.progressCommentId);
 
-      for (const leafOutput of args.leafOutputs) {
-        for (const rawOp of leafOutput.delivery) {
+      for (const [leafIndex, leafOutput] of args.leafOutputs.entries()) {
+        let skipRemainingOps = false;
+
+        for (const [opIndex, rawOp] of leafOutput.delivery.entries()) {
           const op = applyPreviousValues(rawOp, previousValues);
+          const idempotencyKey = `${run.id}:${leafIndex}:${opIndex}`;
+
+          if (skipRemainingOps) {
+            const existingOutput = await findExistingOutput(idempotencyKey);
+            if (existingOutput) {
+              await prisma.actionOutput.update({
+                where: { id: existingOutput.id },
+                data: {
+                  deliveryStatus: 'skipped_after_failure',
+                  payload: op as unknown as object,
+                  summary: buildOutputSummary(op),
+                },
+              });
+            } else {
+              await prisma.actionOutput.create({
+                data: {
+                  tenantId: run.tenantId,
+                  workflowRunId: run.id,
+                  idempotencyKey,
+                  outputType: op.kind,
+                  deliveryStatus: 'skipped_after_failure',
+                  payload: op as unknown as object,
+                  summary: buildOutputSummary(op),
+                },
+              });
+            }
+            persisted += 1;
+            continue;
+          }
+
+          const existingOutput = await findExistingOutput(idempotencyKey);
+          if (existingOutput?.deliveryStatus === 'sent' || existingOutput?.deliveryStatus === 'suppressed_internal') {
+            if (op.kind === 'comment' && firstCommentHandledByProgressComment) {
+              firstCommentHandledByProgressComment = false;
+            }
+            if (op.kind === 'pr') {
+              const externalRef = existingOutput.deliveryAttempts[0]?.externalRef;
+              if (externalRef) {
+                previousValues.prUrl = externalRef;
+              }
+            }
+            continue;
+          }
+
           const connectorTarget = resolveConnectorTarget(op, run);
           const visibility = readDeliveryVisibility(op);
-          const actionOutput = await prisma.actionOutput.create({
-            data: {
-              tenantId: run.tenantId,
-              workflowRunId: run.id,
-              outputType: op.kind,
-              deliveryStatus: visibility === 'internal' ? 'suppressed_internal' : 'pending',
-              payload: op as unknown as object,
-              summary: buildOutputSummary(op),
-            },
-          });
+          const actionOutput = existingOutput
+            ? await prisma.actionOutput.update({
+                where: { id: existingOutput.id },
+                data: {
+                  deliveryStatus: visibility === 'internal' ? 'suppressed_internal' : 'pending',
+                  payload: op as unknown as object,
+                  summary: buildOutputSummary(op),
+                },
+              })
+            : await prisma.actionOutput.create({
+                data: {
+                  tenantId: run.tenantId,
+                  workflowRunId: run.id,
+                  idempotencyKey,
+                  outputType: op.kind,
+                  deliveryStatus: visibility === 'internal' ? 'suppressed_internal' : 'pending',
+                  payload: op as unknown as object,
+                  summary: buildOutputSummary(op),
+                },
+              });
           persisted += 1;
 
           if (visibility === 'internal') {
@@ -302,6 +382,7 @@ export function createDeliveryResolverService(prisma: PrismaClient) {
               where: { id: actionOutput.id },
               data: { deliveryStatus: 'failed' },
             });
+            skipRemainingOps = true;
           }
         }
       }

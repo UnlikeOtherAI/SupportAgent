@@ -25,13 +25,18 @@ describe('createWorkflowRunService cancel broadcasting', () => {
       id: 'run-1',
       status: 'cancel_requested',
     });
+    expect(repo.requestCancel).toHaveBeenCalledWith(
+      'run-1',
+      expect.any(Array),
+      expect.any(Date),
+    );
     expect(broadcaster.broadcastRunCancel).toHaveBeenCalledWith({
       workflowRunId: 'run-1',
       force: false,
     });
   });
 
-  it('broadcasts force cancel requests when force=1 is used', async () => {
+  it('force-cancel on a running run marks cancel_requested and stamps cancelForceRequestedAt', async () => {
     const repo = {
       getById: vi.fn().mockResolvedValue({
         id: 'run-2',
@@ -52,9 +57,63 @@ describe('createWorkflowRunService cancel broadcasting', () => {
     const result = await service.cancelRun('run-2', 'tenant-1', true);
 
     expect(result).toMatchObject({ id: 'run-2', status: 'cancel_requested' });
+    expect(repo.requestForceCancel).toHaveBeenCalledWith(
+      'run-2',
+      expect.any(Array),
+      expect.any(Date),
+      { setCancelRequested: true },
+    );
     expect(broadcaster.broadcastRunCancel).toHaveBeenCalledWith({
       workflowRunId: 'run-2',
       force: true,
+    });
+  });
+
+  it('force-cancel on an already cancel_requested run only stamps cancelForceRequestedAt', async () => {
+    const repo = {
+      getById: vi.fn().mockResolvedValue({
+        id: 'run-3',
+        status: 'cancel_requested',
+        attemptNumber: 1,
+      }),
+      requestForceCancel: vi.fn().mockResolvedValue({
+        id: 'run-3',
+        status: 'cancel_requested',
+        cancelRequestedAt: new Date().toISOString(),
+        cancelForceRequestedAt: new Date().toISOString(),
+      }),
+    };
+    const broadcaster = {
+      broadcastRunCancel: vi.fn().mockResolvedValue(undefined),
+    };
+    const service = createWorkflowRunService(repo as never, {} as never, broadcaster);
+
+    const result = await service.cancelRun('run-3', 'tenant-1', true);
+
+    expect(result).toMatchObject({ id: 'run-3', status: 'cancel_requested' });
+    expect(repo.requestForceCancel).toHaveBeenCalledWith(
+      'run-3',
+      ['cancel_requested'],
+      expect.any(Date),
+    );
+    expect(broadcaster.broadcastRunCancel).toHaveBeenCalledWith({
+      workflowRunId: 'run-3',
+      force: true,
+    });
+  });
+
+  it('returns 409 when force-cancel is requested for a completed run', async () => {
+    const repo = {
+      getById: vi.fn().mockResolvedValue({
+        id: 'run-4',
+        status: 'succeeded',
+        attemptNumber: 1,
+      }),
+    };
+    const service = createWorkflowRunService(repo as never, {} as never);
+
+    await expect(service.cancelRun('run-4', 'tenant-1', true)).rejects.toMatchObject({
+      statusCode: 409,
     });
   });
 });

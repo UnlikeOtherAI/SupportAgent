@@ -194,6 +194,7 @@ The admin app must provide:
 - workflow run detail view
 - checkpoint-derived loop convergence timeline on workflow run detail
 - two-phase run stop controls (`cancel_requested` then optional force-stop)
+- force-stop timing derived from `cancelRequestedAt` so worker progress heartbeats do not delay escalation
 - realtime progress updates
 - full available log viewer for each run, subject to output-visibility policy
 - build workflow controls
@@ -234,6 +235,7 @@ Rules:
 - The runtime CLI should be the canonical customer-facing implementation of worker or gateway registration.
 - The runtime CLI should be the canonical prompt-fetch, manifest-fetch, and connection layer for workers and gateways.
 - Remote skill dispatches must fetch executor YAML and `SKILL.md` bodies through authenticated by-hash API endpoints rather than direct database reads.
+- The worker HTTP polling path is the authoritative cancel transport until API-to-gateway session routing exists, and it must read both `status` and `cancelForceRequestedAt`.
 - The worker-side GitHub helper layer must be shared with the API-facing local-runtime RPC for local-`gh` repo discovery, issue fetches, issue comments, and label management.
 - GitHub triage delivery must post the discovery comment before labeling, and it must ensure `triaged` and severity labels exist before applying them so local polling does not requeue already-processed issues.
 

@@ -267,7 +267,49 @@ describe('Workflow Run API', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().status).toBe('cancel_requested');
+    expect(res.json().cancelRequestedAt).toBeTruthy();
     expect(res.json().cancelForceRequestedAt).toBeTruthy();
+  });
+
+  it('POST /v1/workflow-runs/:id/cancel?force=1 returns 409 for a completed run', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/runs',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        workflowType: 'triage',
+        workItemId,
+        repositoryMappingId: repoMappingId,
+      },
+    });
+    const run = createRes.json();
+
+    await app.inject({
+      method: 'POST',
+      url: `/v1/runs/${run.id}/transition`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { status: 'dispatched' },
+    });
+    await app.inject({
+      method: 'POST',
+      url: `/v1/runs/${run.id}/transition`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { status: 'running' },
+    });
+    await app.inject({
+      method: 'POST',
+      url: `/v1/runs/${run.id}/transition`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { status: 'succeeded' },
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/workflow-runs/${run.id}/cancel?force=1`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(409);
   });
 
   it('GET /v1/workflow-runs/:id/checkpoints returns the run checkpoint rows', async () => {

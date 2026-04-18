@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import { runsApi, type Finding, type LogEvent, type RunCheckpoint, type WorkflowRun } from '@/api/runs'
+import { isForceStopEnabled } from './run-force-stop'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card, CardHeader } from '@/components/ui/Card'
@@ -381,13 +382,6 @@ function truncateRunId(id: string) {
 function formatTimestamp(value: string | null | undefined) {
   if (!value) return '—'
   return new Date(value).toLocaleString()
-}
-
-function isForceStopEnabled(run: WorkflowRun) {
-  if (run.status !== 'cancel_requested' || !run.updatedAt || !!run.cancelForceRequestedAt) {
-    return false
-  }
-  return Date.now() - new Date(run.updatedAt).getTime() >= 30_000
 }
 
 function buildIterationTimeline(

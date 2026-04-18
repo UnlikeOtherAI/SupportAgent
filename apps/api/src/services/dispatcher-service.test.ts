@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, ExecutorSource, SkillRole, SkillSource } from '@prisma/client';
 import { parseEnv } from '@support-agent/config';
 import { createDispatcherService } from './dispatcher-service.js';
 import { createLocalHostProvider } from './execution-provider.js';
@@ -20,6 +20,9 @@ describe('DispatcherService', () => {
   let connectorId: string;
   let repoMappingId: string;
   let workItemId: string;
+  let executorId: string;
+  let scenarioId: string;
+  let skillId: string;
 
   beforeAll(async () => {
     parseEnv({
@@ -64,15 +67,147 @@ describe('DispatcherService', () => {
       },
     });
     workItemId = item.id;
+
+    const existingSkill = await prisma.skill.findFirst({
+      where: {
+        tenantId: null,
+        name: 'triage-issue',
+        source: SkillSource.BUILTIN,
+      },
+    });
+    const skill = existingSkill
+      ? await prisma.skill.update({
+          where: { id: existingSkill.id },
+          data: {
+            description: 'Builtin triage skill',
+            role: SkillRole.SYSTEM,
+            body: '# Triage\n',
+            outputSchema: {
+              type: 'object',
+              properties: {
+                delivery: { type: 'array' },
+              },
+              required: ['delivery'],
+            },
+            contentHash: 'skill-hash-dispatcher-test',
+          },
+        })
+      : await prisma.skill.create({
+          data: {
+            tenantId: null,
+            name: 'triage-issue',
+            description: 'Builtin triage skill',
+            role: SkillRole.SYSTEM,
+            body: '# Triage\n',
+            outputSchema: {
+              type: 'object',
+              properties: {
+                delivery: { type: 'array' },
+              },
+              required: ['delivery'],
+            },
+            contentHash: 'skill-hash-dispatcher-test',
+            source: SkillSource.BUILTIN,
+          },
+        });
+    skillId = skill.id;
+
+    const existingExecutor = await prisma.executor.findFirst({
+      where: {
+        tenantId: null,
+        key: 'triage-default',
+        source: ExecutorSource.BUILTIN,
+      },
+    });
+    const executor = existingExecutor
+      ? await prisma.executor.update({
+          where: { id: existingExecutor.id },
+          data: {
+            description: 'Builtin triage executor',
+            yaml: `version: 1
+key: triage-default
+display_name: "Default triage"
+stages:
+  - id: investigate
+    parallel: 1
+    system_skill: triage-issue
+    complementary: []
+    executor: max
+    after: []
+    inputs_from: []
+    task_prompt: "Investigate"
+loop:
+  enabled: false
+  max_iterations: 1
+  until_done: false
+`,
+            parsed: {},
+            contentHash: 'executor-hash-dispatcher-test',
+          },
+        })
+      : await prisma.executor.create({
+          data: {
+            tenantId: null,
+            key: 'triage-default',
+            description: 'Builtin triage executor',
+            yaml: `version: 1
+key: triage-default
+display_name: "Default triage"
+stages:
+  - id: investigate
+    parallel: 1
+    system_skill: triage-issue
+    complementary: []
+    executor: max
+    after: []
+    inputs_from: []
+    task_prompt: "Investigate"
+loop:
+  enabled: false
+  max_iterations: 1
+  until_done: false
+`,
+            parsed: {},
+            contentHash: 'executor-hash-dispatcher-test',
+            source: ExecutorSource.BUILTIN,
+          },
+        });
+    executorId = executor.id;
+
+    const scenario = await prisma.workflowScenario.create({
+      data: {
+        tenantId,
+        key: `dispatcher-test-scenario-${Date.now()}`,
+        displayName: 'Dispatcher Test Scenario',
+        workflowType: 'triage',
+        steps: {
+          create: [
+            {
+              stepType: 'action',
+              stepOrder: 1,
+              config: {
+                designer: { sourceKey: 'workflow.triage' },
+                executorKey: 'triage-default',
+              },
+            },
+          ],
+        },
+      },
+    });
+    scenarioId = scenario.id;
   });
 
   afterAll(async () => {
     await prisma.workerDispatch.deleteMany({ where: { workflowRun: { tenantId } } });
     await prisma.workflowRun.deleteMany({ where: { tenantId } });
+    await prisma.workflowScenarioStep.deleteMany({ where: { scenarioId } });
+    await prisma.workflowScenario.deleteMany({ where: { id: scenarioId } });
     await prisma.inboundWorkItem.deleteMany({ where: { connectorInstanceId: connectorId } });
     await prisma.repositoryMapping.deleteMany({ where: { tenantId } });
     await prisma.connector.deleteMany({ where: { tenantId } });
     await prisma.executionProvider.deleteMany({ where: { tenantId } });
+    await prisma.executor.deleteMany({ where: { id: executorId } });
+    await prisma.skill.deleteMany({ where: { id: skillId } });
     await prisma.$disconnect();
   });
 
@@ -90,6 +225,7 @@ describe('DispatcherService', () => {
         status: 'queued',
         workItemId,
         repositoryMappingId: repoMappingId,
+        workflowScenarioId: scenarioId,
       },
     });
 
@@ -104,6 +240,10 @@ describe('DispatcherService', () => {
     });
     expect(run!.status).toBe('running');
     expect(run!.acceptedDispatchAttempt).toBe(result!.dispatchId);
+    expect(run!.resolvedExecutorRevision).toBe('executor-hash-dispatcher-test');
+    expect(run!.resolvedSkillRevisions).toEqual({
+      'triage-issue': 'skill-hash-dispatcher-test',
+    });
 
     // Verify dispatch record
     const dispatch = await prisma.workerDispatch.findUnique({

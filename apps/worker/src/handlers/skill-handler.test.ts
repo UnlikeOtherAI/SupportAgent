@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { handleSkillJob } from './skill-handler.js';
+import { createCancelChecker, handleSkillJob } from './skill-handler.js';
 import { type WorkerApiClient } from '../lib/api-client.js';
 import { type WorkerJob } from '@support-agent/contracts';
+import { clearDispatchControl, registerActiveChildProcess } from '../lib/dispatch-control.js';
 
 function makeJob(): WorkerJob {
   return {
@@ -108,6 +109,10 @@ loop:
       fetchExecutorByHash,
       fetchSkillByHash,
       getRunStatus: vi.fn().mockResolvedValue('running'),
+      getRunCancelState: vi.fn().mockResolvedValue({
+        status: 'running',
+        cancelForceRequestedAt: null,
+      }),
       postProgress: vi.fn().mockResolvedValue(undefined),
       postLog: vi.fn().mockResolvedValue(undefined),
       postCheckpoint,
@@ -124,6 +129,7 @@ loop:
 describe('handleSkillJob', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearDispatchControl('dispatch-cancel-test');
   });
 
   it('uses scenario task prompts, persists iteration state, writes checkpoints, and submits leaf outputs', async () => {
@@ -252,5 +258,51 @@ describe('handleSkillJob', () => {
         status: 'succeeded',
       }),
     );
+  });
+
+  it('treats status=cancel_requested without force as a graceful checkpoint cancel', async () => {
+    const { api } = makeApi();
+    vi.mocked(api.getRunCancelState).mockResolvedValue({
+      status: 'cancel_requested',
+      cancelForceRequestedAt: null,
+    });
+    const child = {
+      killed: false,
+      kill: vi.fn(),
+      once: vi.fn(),
+    };
+    registerActiveChildProcess('dispatch-cancel-test', child as never);
+
+    const shouldCancel = await createCancelChecker(
+      api,
+      'dispatch-cancel-test',
+      'run-cancel-test',
+    )();
+
+    expect(shouldCancel).toBe(true);
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it('escalates cancelForceRequestedAt to SIGTERM on the active subprocess', async () => {
+    const { api } = makeApi();
+    vi.mocked(api.getRunCancelState).mockResolvedValue({
+      status: 'cancel_requested',
+      cancelForceRequestedAt: new Date().toISOString(),
+    });
+    const child = {
+      killed: false,
+      kill: vi.fn(),
+      once: vi.fn(),
+    };
+    registerActiveChildProcess('dispatch-cancel-test', child as never);
+
+    const shouldCancel = await createCancelChecker(
+      api,
+      'dispatch-cancel-test',
+      'run-cancel-test',
+    )();
+
+    expect(shouldCancel).toBe(true);
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
   });
 });

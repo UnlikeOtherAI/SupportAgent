@@ -7,6 +7,7 @@ const ghApprovePR = vi.fn();
 const ghCloseIssue = vi.fn();
 const ghCreatePR = vi.fn();
 const ghEditIssueLabels = vi.fn();
+const ghListOpenPRsForBranch = vi.fn();
 const ghMergePR = vi.fn();
 const ghReopenIssue = vi.fn();
 const ghRequestChangesPR = vi.fn();
@@ -18,6 +19,7 @@ vi.mock('@support-agent/github-cli', () => ({
   ghCloseIssue,
   ghCreatePR,
   ghEditIssueLabels,
+  ghListOpenPRsForBranch,
   ghMergePR,
   ghReopenIssue,
   ghRequestChangesPR,
@@ -62,6 +64,28 @@ function createPrisma(run: WorkflowRunRecord) {
         findUnique: vi.fn(async () => run),
       },
       actionOutput: {
+        findUnique: vi.fn(async ({ where }: { where: { idempotencyKey?: string } }) => {
+          if (!where.idempotencyKey) {
+            return null;
+          }
+
+          const row = outputs.find((output) => output.idempotencyKey === where.idempotencyKey);
+          if (!row) {
+            return null;
+          }
+
+          return {
+            ...row,
+            deliveryAttempts: attempts
+              .filter((attempt) => attempt.actionOutputId === row.id)
+              .sort((left, right) => {
+                const leftValue = String(left.createdAt ?? '');
+                const rightValue = String(right.createdAt ?? '');
+                return rightValue.localeCompare(leftValue);
+              })
+              .slice(0, 1),
+          };
+        }),
         create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
           const row = { id: `output-${outputs.length + 1}`, ...data };
           outputs.push(row);
@@ -76,7 +100,11 @@ function createPrisma(run: WorkflowRunRecord) {
       },
       actionDeliveryAttempt: {
         create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
-          const row = { id: `attempt-${attempts.length + 1}`, ...data };
+          const row = {
+            id: `attempt-${attempts.length + 1}`,
+            createdAt: new Date(attempts.length + 1).toISOString(),
+            ...data,
+          };
           attempts.push(row);
           return row;
         }),
@@ -96,6 +124,7 @@ describe('DeliveryResolverService', () => {
     vi.clearAllMocks();
     ghAddIssueComment.mockResolvedValue({ id: 'comment-1', url: 'https://github.com/test/repo/issues/10#issuecomment-1' });
     ghAddPRComment.mockResolvedValue({ id: 'comment-pr-1', url: 'https://github.com/test/repo/pull/12#issuecomment-1' });
+    ghListOpenPRsForBranch.mockResolvedValue([]);
     ghCreatePR.mockResolvedValue({ number: 88, url: 'https://github.com/test/repo/pull/88' });
   });
 
@@ -353,5 +382,106 @@ describe('DeliveryResolverService', () => {
     expect(fake.actionOutputs[0]?.deliveryStatus).toBe('suppressed_internal');
     expect(fake.actionAttempts).toHaveLength(0);
     expect(ghAddIssueComment).not.toHaveBeenCalled();
+  });
+
+  it('marks later ops in a leaf as skipped_after_failure after the first dispatch failure', async () => {
+    const run: WorkflowRunRecord = {
+      id: 'run-failure-sequencing',
+      progressCommentId: null,
+      repositoryMapping: {
+        connector: { platformType: { key: 'github' } },
+        connectorId: 'repo-connector',
+        repositoryUrl: 'https://github.com/test/repo',
+      },
+      tenantId: 'tenant-1',
+      workItem: {
+        connectorInstanceId: 'source-connector',
+        externalItemId: '88',
+        reviewTargetNumber: null,
+        reviewTargetType: null,
+        workItemKind: 'issue',
+      },
+    };
+    const fake = createPrisma(run);
+    ghAddIssueComment.mockRejectedValueOnce(new Error('comment failed'));
+
+    const { createDeliveryResolverService } = await import('./delivery-resolver-service.js');
+    const service = createDeliveryResolverService(fake.prisma as never);
+
+    await service.resolveDelivery({
+      workflowRunId: run.id,
+      leafOutputs: [
+        {
+          delivery: [
+            { kind: 'comment', body: 'first comment' },
+            { kind: 'labels', add: ['triaged'] },
+            { kind: 'state', change: 'close' },
+          ],
+        },
+      ],
+    });
+
+    expect(fake.actionOutputs.map((output) => output.deliveryStatus)).toEqual([
+      'failed',
+      'skipped_after_failure',
+      'skipped_after_failure',
+    ]);
+    expect(fake.actionAttempts).toHaveLength(1);
+    expect(fake.actionAttempts[0]?.status).toBe('failed');
+    expect(ghEditIssueLabels).not.toHaveBeenCalled();
+    expect(ghCloseIssue).not.toHaveBeenCalled();
+  });
+
+  it('does not redispatch delivery ops that already succeeded for the same run leaf/op idempotency key', async () => {
+    const run: WorkflowRunRecord = {
+      id: 'run-idempotent',
+      progressCommentId: null,
+      repositoryMapping: {
+        connector: { platformType: { key: 'github' } },
+        connectorId: 'repo-connector',
+        repositoryUrl: 'https://github.com/test/repo',
+      },
+      tenantId: 'tenant-1',
+      workItem: {
+        connectorInstanceId: 'source-connector',
+        externalItemId: '101',
+        reviewTargetNumber: null,
+        reviewTargetType: null,
+        workItemKind: 'issue',
+      },
+    };
+    const fake = createPrisma(run);
+
+    const { createDeliveryResolverService } = await import('./delivery-resolver-service.js');
+    const service = createDeliveryResolverService(fake.prisma as never);
+    const leafOutputs: SkillRunResult[] = [
+      {
+        delivery: [
+          { kind: 'comment', body: 'comment once' },
+          {
+            kind: 'pr',
+            spec: {
+              base: 'main',
+              body: 'Fix body',
+              branch: 'sa/fix-101',
+              title: 'Fix issue 101',
+            },
+          },
+        ],
+      },
+    ];
+
+    await service.resolveDelivery({
+      workflowRunId: run.id,
+      leafOutputs,
+    });
+    await service.resolveDelivery({
+      workflowRunId: run.id,
+      leafOutputs,
+    });
+
+    expect(ghAddIssueComment).toHaveBeenCalledTimes(1);
+    expect(ghCreatePR).toHaveBeenCalledTimes(1);
+    expect(fake.actionOutputs).toHaveLength(2);
   });
 });

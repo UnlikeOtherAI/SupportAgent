@@ -381,6 +381,15 @@ export function createDispatcherService(
             where: { id: run.id },
             data: {
               acceptedDispatchAttempt: dispatch.id,
+              ...(skillDispatchConfig && {
+                resolvedExecutorRevision: skillDispatchConfig.executorRevisionHash,
+                resolvedSkillRevisions: Object.fromEntries(
+                  skillDispatchConfig.resolvedSkillManifest.map((skill) => [
+                    skill.name,
+                    skill.contentHash,
+                  ]),
+                ),
+              }),
             },
           });
 

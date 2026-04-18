@@ -27,6 +27,7 @@ import {
   isDispatchForceCanceled,
   registerActiveChildProcess,
   registerDispatchAbortController,
+  requestDispatchCancel,
 } from '../lib/dispatch-control.js';
 import {
   createSkillRunResultSchema,
@@ -533,13 +534,13 @@ function getStageOutputSchema(stage: RuntimeResolvedStageAst): Record<string, un
   return outputSchema as Record<string, unknown>;
 }
 
-function createCancelChecker(
+export function createCancelChecker(
   api: WorkerApiClient,
   dispatchAttemptId: string,
   workflowRunId: string,
 ) {
   let lastCheckedAt = 0;
-  let lastStatus = '';
+  let lastCancelState: { cancelForceRequestedAt: string | null; status: string } | null = null;
 
   return async () => {
     if (isDispatchCancelRequested(dispatchAttemptId)) {
@@ -548,12 +549,17 @@ function createCancelChecker(
 
     const now = Date.now();
     if (now - lastCheckedAt < CANCEL_POLL_INTERVAL_MS) {
-      return lastStatus === 'cancel_requested';
+      return lastCancelState?.status === 'cancel_requested';
     }
 
     lastCheckedAt = now;
-    lastStatus = await api.getRunStatus(workflowRunId);
-    return lastStatus === 'cancel_requested';
+    lastCancelState = await api.getRunCancelState(workflowRunId);
+    if (lastCancelState.cancelForceRequestedAt) {
+      requestDispatchCancel(dispatchAttemptId, 'force');
+      return true;
+    }
+
+    return lastCancelState.status === 'cancel_requested';
   };
 }
 

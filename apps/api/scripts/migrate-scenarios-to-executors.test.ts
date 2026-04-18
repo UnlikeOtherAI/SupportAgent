@@ -60,8 +60,14 @@ describe('migrate-scenarios-to-executors', () => {
       type: 'update',
       status: 'requires_manual_review',
       config: {
-        executorKey: 'build-default',
+        migration_note:
+          'no builtin build-default.yaml exists yet — route to a USER executor after cloning one',
         migration_status: 'requires_manual_review',
+      },
+    });
+    expect(decision).not.toMatchObject({
+      config: {
+        executorKey: 'build-default',
       },
     });
   });
@@ -139,7 +145,8 @@ describe('migrate-scenarios-to-executors', () => {
       migration_status: 'requires_manual_review',
     });
     expect(updatedConfigs.get('step-4')).toMatchObject({
-      executorKey: 'build-default',
+      migration_note:
+        'no builtin build-default.yaml exists yet — route to a USER executor after cloning one',
       migration_status: 'requires_manual_review',
     });
   });

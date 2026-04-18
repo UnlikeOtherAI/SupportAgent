@@ -511,6 +511,7 @@ model WorkflowRun {
   resolvedSkillRevisions   Json?
   progressCommentId        String?
   lastProgressEditAt       DateTime?
+  cancelRequestedAt        DateTime?
   cancelForceRequestedAt   DateTime?
   createdAt                DateTime          @default(now())
   startedAt                DateTime?
@@ -649,6 +650,7 @@ model ActionOutput {
   id              String           @id @default(uuid())
   tenantId        String
   workflowRunId   String
+  idempotencyKey  String?          @unique
   outputType      String
   deliveryStatus  String           @default("pending")
   payload         Json
