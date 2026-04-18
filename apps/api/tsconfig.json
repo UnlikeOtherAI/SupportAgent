@@ -2,13 +2,14 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "."
   },
-  "include": ["src"],
-  "exclude": ["src/**/*.test.ts"],
+  "include": ["src", "scripts"],
+  "exclude": ["src/**/*.test.ts", "scripts/**/*.test.ts"],
   "references": [
     { "path": "../../packages/config" },
     { "path": "../../packages/contracts" },
+    { "path": "../../packages/executors-runtime" },
     { "path": "../../packages/github-cli" },
     { "path": "../../packages/skills-runtime" }
   ]

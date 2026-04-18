@@ -7,7 +7,8 @@
     "build": "tsc",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "seed:max-loop": "tsx prisma/seed-max-loop.ts"
+    "seed:max-loop": "tsx prisma/seed-max-loop.ts",
+    "migrate:scenarios": "tsx scripts/migrate-scenarios-to-executors.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.2",
@@ -15,6 +16,7 @@
     "@prisma/client": "^6.2.1",
     "@support-agent/config": "workspace:*",
     "@support-agent/contracts": "workspace:*",
+    "@support-agent/executors-runtime": "workspace:*",
     "@support-agent/github-cli": "workspace:*",
     "@support-agent/queue": "workspace:*",
     "@support-agent/skills-runtime": "workspace:*",

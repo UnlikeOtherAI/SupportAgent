@@ -214,7 +214,7 @@ describe('Workflow Run API', () => {
     expect(res.statusCode).toBe(409);
   });
 
-  it('POST /v1/runs/:id/cancel cancels a queued run', async () => {
+  it('POST /v1/runs/:id/cancel marks a queued run as cancel_requested', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/v1/runs',
@@ -233,7 +233,7 @@ describe('Workflow Run API', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().status).toBe('canceled');
+    expect(res.json().status).toBe('cancel_requested');
   });
 
   it('POST /v1/runs/:id/retry retries a failed run and increments attemptNumber', async () => {

@@ -404,7 +404,7 @@ describe('E2E Lifecycle', () => {
 
       const cancelRes = await api('POST', `/v1/runs/${secondRunId}/cancel`);
       expect(cancelRes.statusCode).toBe(200);
-      expect(cancelRes.json().status).toBe('canceled');
+      expect(cancelRes.json().status).toBe('cancel_requested');
 
       const retrySourceRes = await api('POST', '/v1/runs', {
         workflowType: 'triage',
