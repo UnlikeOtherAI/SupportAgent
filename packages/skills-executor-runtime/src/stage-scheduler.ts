@@ -25,7 +25,7 @@ interface RunStageDagArgs {
 
 interface StageExecutionResult {
   outputs: SkillRunResult[];
-  errors: Error[];
+  errors: Array<{ error: Error; spawnIndex: number }>;
 }
 
 function throwIfAborted(signal: AbortSignal): void {
@@ -131,15 +131,19 @@ async function executeStageOnce(
   );
 
   const outputs: SkillRunResult[] = [];
-  const errors: Error[] = [];
+  const errors: Array<{ error: Error; spawnIndex: number }> = [];
 
-  for (const result of settled) {
+  settled.forEach((result, spawnIndex) => {
     if (result.status === 'fulfilled') {
       outputs.push(result.value);
-    } else {
-      errors.push(result.reason instanceof Error ? result.reason : new Error(String(result.reason)));
+      return;
     }
-  }
+
+    errors.push({
+      spawnIndex,
+      error: result.reason instanceof Error ? result.reason : new Error(String(result.reason)),
+    });
+  });
 
   return { outputs, errors };
 }
@@ -165,12 +169,12 @@ async function executeStageWithRetries(
       result.outputs.length === stage.parallel ||
       !isConsolidator ||
       result.errors.length === 0 ||
-      !result.errors.every((error) => isSchemaValidationFailure(error))
+      !result.errors.every(({ error }) => isSchemaValidationFailure(error))
     ) {
       return result;
     }
 
-    lastSchemaError = result.errors[0] ?? null;
+    lastSchemaError = result.errors[0]?.error ?? null;
   }
 
   if (lastResult) {
@@ -190,6 +194,7 @@ function getLeafOutputs(
 export async function runStageDag(args: RunStageDagArgs): Promise<StageDagRunResult> {
   const orderedStages = topologicallySortStages(args.executor.stages);
   const outputsByStage = new Map<string, SkillRunResult[]>();
+  const schemaErrors: Array<{ stageId: string; spawnIndex: number; message: string }> = [];
 
   for (const stage of orderedStages) {
     throwIfAborted(args.signal);
@@ -198,6 +203,7 @@ export async function runStageDag(args: RunStageDagArgs): Promise<StageDagRunRes
         `Execution canceled before stage "${stage.id}"`,
         cloneOutputs(outputsByStage),
         getLeafOutputs(args.executor, outputsByStage),
+        [...schemaErrors],
       );
     }
 
@@ -224,8 +230,18 @@ export async function runStageDag(args: RunStageDagArgs): Promise<StageDagRunRes
     }
 
     if (result.errors.length > 0 && stage.parallel === 1) {
-      throw result.errors[0]!;
+      throw result.errors[0]!.error;
     }
+
+    schemaErrors.push(
+      ...result.errors
+        .filter(({ error }) => isSchemaValidationFailure(error))
+        .map(({ error, spawnIndex }) => ({
+          stageId: stage.id,
+          spawnIndex,
+          message: error.message,
+        })),
+    );
 
     assertMultiLeafCommentOnly(stage, result.outputs);
     outputsByStage.set(stage.id, result.outputs);
@@ -239,5 +255,6 @@ export async function runStageDag(args: RunStageDagArgs): Promise<StageDagRunRes
   return {
     outputsByStage,
     leafOutputs: getLeafOutputs(args.executor, outputsByStage),
+    schemaErrors,
   };
 }

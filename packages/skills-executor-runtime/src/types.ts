@@ -19,6 +19,7 @@ export interface RuntimeResolvedStageAst extends Omit<ResolvedStageAst, 'resolve
 export interface StageDagRunResult {
   outputsByStage: Map<string, SkillRunResult[]>;
   leafOutputs: SkillRunResult[];
+  schemaErrors: Array<{ stageId: string; spawnIndex: number; message: string }>;
 }
 
 export class SkillExecutorRuntimeError extends Error {
@@ -72,6 +73,7 @@ export class CanceledError extends SkillExecutorRuntimeError {
     message = 'Execution canceled',
     readonly outputsByStage: Map<string, SkillRunResult[]> = new Map(),
     readonly preservedOutputs: SkillRunResult[] = [],
+    readonly schemaErrors: Array<{ stageId: string; spawnIndex: number; message: string }> = [],
   ) {
     super(message);
   }

@@ -121,6 +121,7 @@ export async function runWithLoop(args: RunWithLoopArgs): Promise<RunWithLoopRes
           `Execution canceled before iteration ${iteration}`,
           lastSuccessfulResult ? cloneOutputs(lastSuccessfulResult.outputsByStage) : new Map(),
           lastSuccessfulResult?.leafOutputs.map((output) => structuredClone(output)) ?? [],
+          lastSuccessfulResult?.schemaErrors.map((entry) => ({ ...entry })) ?? [],
         );
       }
 
@@ -178,6 +179,9 @@ export async function runWithLoop(args: RunWithLoopArgs): Promise<RunWithLoopRes
           error.preservedOutputs.length > 0
             ? error.preservedOutputs
             : lastSuccessfulResult?.leafOutputs.map((output) => structuredClone(output)) ?? [],
+          error.schemaErrors.length > 0
+            ? error.schemaErrors.map((entry) => ({ ...entry }))
+            : lastSuccessfulResult?.schemaErrors.map((entry) => ({ ...entry })) ?? [],
         );
       }
       if (stickyDone) {

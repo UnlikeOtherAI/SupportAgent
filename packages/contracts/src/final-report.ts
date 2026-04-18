@@ -28,6 +28,7 @@ export const FinalReportSchema = z.object({
   pullRequestRef: z.string().optional(),
   mergeRef: z.string().optional(),
   distributionRefs: z.array(z.string()).optional(),
+  extras: z.record(z.unknown()).optional(),
 });
 
 export type FinalReport = z.infer<typeof FinalReportSchema>;

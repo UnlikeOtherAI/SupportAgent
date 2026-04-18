@@ -40,23 +40,47 @@ function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
   return value as Prisma.InputJsonValue;
 }
 
-function synthesizeDeliveryFromFindings(leafOutput: SkillRunResult): SkillRunResult {
+function readFindingsRenderPlatform(run: {
+  repositoryMapping?: {
+    connector?: {
+      platformType?: {
+        key?: string | null;
+      } | null;
+    } | null;
+  } | null;
+  workItem?: {
+    platformType?: string | null;
+  } | null;
+}): string {
+  return run.repositoryMapping?.connector?.platformType?.key
+    ?? run.workItem?.platformType
+    ?? 'github';
+}
+
+function synthesizeDeliveryFromFindings(
+  leafOutput: SkillRunResult,
+  platform: string,
+): SkillRunResult {
   if (leafOutput.delivery.length > 0 || !leafOutput.findings) {
     return leafOutput;
   }
 
+  const findings = structuredClone(leafOutput.findings);
   return {
-    ...leafOutput,
+    findings,
+    reportSummary: leafOutput.reportSummary,
+    loop: leafOutput.loop ? structuredClone(leafOutput.loop) : undefined,
+    extras: leafOutput.extras ? structuredClone(leafOutput.extras) : undefined,
     delivery: [
       {
         kind: 'comment',
-        body: renderFindingsToComment(leafOutput.findings, 'github'),
+        body: renderFindingsToComment(findings, platform),
       },
     ],
   };
 }
 
-function mapFindingsToRowData(leafOutput: SkillRunResult) {
+function mapFindingsToRowData(leafOutput: SkillRunResult, platform: string) {
   const findings = leafOutput.findings;
   if (!findings) {
     return null;
@@ -72,7 +96,7 @@ function mapFindingsToRowData(leafOutput: SkillRunResult) {
     recommendedNextAction: findings.proposedFix ?? null,
     outboundSummary:
       leafOutput.delivery.length === 0
-        ? renderFindingsToComment(findings, 'github')
+        ? renderFindingsToComment(findings, platform)
         : null,
     suspectFiles: toJsonValue(findings.affectedAreas),
     userVisibleImpact: findings.summary ?? null,
@@ -233,9 +257,34 @@ export function createWorkerApiService(prisma: PrismaClient) {
         }>;
         findingsRef?: string;
         leafOutputs?: SkillRunResult[];
+        extras?: Record<string, unknown>;
       },
     ) {
       await assertAcceptedDispatchAttempt(workflowRunId, dispatchId);
+
+      const run = await prisma.workflowRun.findUnique({
+        where: { id: workflowRunId },
+        include: {
+          repositoryMapping: {
+            include: {
+              connector: {
+                include: {
+                  platformType: true,
+                },
+              },
+            },
+          },
+          workItem: {
+            select: {
+              platformType: true,
+            },
+          },
+        },
+      });
+      if (!run) {
+        throw Object.assign(new Error('Run not found'), { statusCode: 404 });
+      }
+      const findingsRenderPlatform = readFindingsRenderPlatform(run);
 
       const finalStatus =
         report.status === 'succeeded'
@@ -265,16 +314,24 @@ export function createWorkerApiService(prisma: PrismaClient) {
           timestamp: new Date(),
           streamType: 'report',
           stage: 'final',
-          message: report.leafOutputs
-            ? `${report.summary}\n\nleafOutputs=${JSON.stringify(report.leafOutputs)}`
-            : report.summary,
+          message: [
+            report.summary,
+            report.leafOutputs
+              ? `leafOutputs=${JSON.stringify(report.leafOutputs)}`
+              : null,
+            report.extras
+              ? `extras=${JSON.stringify(report.extras)}`
+              : null,
+          ].filter(Boolean).join('\n\n'),
         },
       });
 
       const parsedLeafOutputs = (report.leafOutputs ?? []).map((output) =>
         SkillRunResultSchema.parse(output),
       );
-      const leafOutputs = parsedLeafOutputs.map(synthesizeDeliveryFromFindings);
+      const leafOutputs = parsedLeafOutputs.map((output) =>
+        synthesizeDeliveryFromFindings(output, findingsRenderPlatform),
+      );
 
       try {
         await progressCommentService.finalize(
@@ -289,7 +346,7 @@ export function createWorkerApiService(prisma: PrismaClient) {
       }
 
       for (const leafOutput of parsedLeafOutputs) {
-        const findingRowData = mapFindingsToRowData(leafOutput);
+        const findingRowData = mapFindingsToRowData(leafOutput, findingsRenderPlatform);
         if (!findingRowData) {
           continue;
         }

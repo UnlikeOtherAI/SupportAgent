@@ -29,7 +29,6 @@ Return only JSON matching `./output.schema.json`.
 
 - Emit exactly one `comment` delivery op with the final markdown review.
 - Set `reportSummary` to one plain-text sentence.
-- `findings` is optional. Use it only if structured storage adds value.
 
 Recommended comment structure:
 

@@ -259,6 +259,56 @@ describe('runStageDag', () => {
     });
   });
 
+  it('carries prior schema validation errors forward when a later cancel fires', async () => {
+    try {
+      await runStageDag({
+        executor: buildExecutor({
+          ast: {
+            key: 'fan-out-cancel',
+            preamble: 'SupportAgent preamble',
+            guardrails: { fan_out_min_success_rate: 0.5 },
+            loop: { enabled: false, max_iterations: 1, until_done: false },
+          },
+          stages: [
+            {
+              id: 'workers',
+              parallel: 2,
+              executor: 'max',
+              after: [],
+            },
+            {
+              id: 'leaf',
+              parallel: 1,
+              executor: 'codex',
+              after: ['workers'],
+            },
+          ],
+          leafStageId: 'leaf',
+        }) as never,
+        buildStagePrompt: (stage) => `${stage.id} prompt`,
+        runStage: vi
+          .fn()
+          .mockResolvedValueOnce({ delivery: [{ kind: 'comment', body: 'ok' }] })
+          .mockRejectedValueOnce(new SchemaValidationError('schema exploded'))
+          .mockResolvedValueOnce({ delivery: [{ kind: 'comment', body: 'leaf' }] }),
+        signal: new AbortController().signal,
+        cancelChecker: vi
+          .fn()
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true),
+      });
+    } catch (error) {
+      expect(error).toBeInstanceOf(CanceledError);
+      expect((error as CanceledError).schemaErrors).toEqual([
+        {
+          stageId: 'workers',
+          spawnIndex: 1,
+          message: 'schema exploded',
+        },
+      ]);
+    }
+  });
+
   it('accepts multi-leaf stages when every spawn emits comment-only delivery', async () => {
     const result = await runStageDag({
       executor: buildExecutor({

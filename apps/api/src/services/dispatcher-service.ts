@@ -1,6 +1,7 @@
 import { ExecutorSource, SkillSource, type PrismaClient } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { parseExecutorYaml } from '@support-agent/executors-runtime';
+import { ghGetAuthenticatedLogin } from '@support-agent/github-cli';
 import { type ExecutionProvider, type TriggerComment, type WorkerDispatchJob } from './execution-provider.js';
 import { createProgressCommentService } from './progress-comment-service.js';
 
@@ -46,6 +47,7 @@ interface ResolvedSkillDispatchConfig {
   executorKey: string;
   executorRevisionHash: string;
   resolvedSkillManifest: ResolvedDispatchSkill[];
+  noSelfRetrigger: boolean;
 }
 
 function readDesignerStepConfig(rawConfig: unknown) {
@@ -180,6 +182,7 @@ async function resolveSkillDispatchConfig(args: {
     executorKey: executor.key,
     executorRevisionHash: executor.contentHash,
     resolvedSkillManifest: skillNames.map((skillName) => skillByName.get(skillName)!),
+    noSelfRetrigger: ast.guardrails?.loop_safety?.no_self_retrigger ?? true,
   };
 }
 
@@ -197,6 +200,20 @@ export function createDispatcherService(
   apiBaseUrl: string,
 ) {
   const progressCommentService = createProgressCommentService(prisma);
+  let botLoginPromise: Promise<string | null> | null = null;
+
+  async function getBotLogin(): Promise<string | null> {
+    if (!botLoginPromise) {
+      botLoginPromise = ghGetAuthenticatedLogin().catch((error) => {
+        console.warn('[dispatcher] Failed to resolve bot identity for no_self_retrigger', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      });
+    }
+
+    return botLoginPromise;
+  }
 
   async function selectProvider(
     workflowType: string,
@@ -256,6 +273,37 @@ export function createDispatcherService(
               executorKey,
             })
             : null;
+          const rawComments = run.workItem.comments;
+          const firstComment = Array.isArray(rawComments) && rawComments.length > 0
+            ? readTriggerComment(rawComments[0])
+            : null;
+
+          if (
+            skillDispatchConfig?.noSelfRetrigger !== false
+            && run.workflowType === 'review'
+            && firstComment
+          ) {
+            const botLogin = await getBotLogin();
+            if (botLogin && firstComment.author.localeCompare(botLogin, undefined, { sensitivity: 'accent' }) === 0) {
+              await tx.workflowRun.update({
+                where: { id: run.id },
+                data: {
+                  status: 'canceled',
+                  completedAt: new Date(),
+                },
+              });
+              await tx.workflowLogEvent.create({
+                data: {
+                  workflowRunId: run.id,
+                  timestamp: new Date(),
+                  streamType: 'dispatcher',
+                  stage: 'dispatch',
+                  message: 'self-retrigger prevented',
+                },
+              });
+              return null;
+            }
+          }
 
           const provider = await selectProvider(run.workflowType);
           if (!provider) {
@@ -342,10 +390,6 @@ export function createDispatcherService(
                 prRef: run.providerExecutionRef ?? '',
               }),
               ...(run.workflowType === 'review' && (() => {
-                const rawComments = run.workItem.comments;
-                const firstComment = Array.isArray(rawComments) && rawComments.length > 0
-                  ? readTriggerComment(rawComments[0])
-                  : null;
                 return {
                   prNumber: run.workItem.reviewTargetNumber ?? undefined,
                   prRef: run.workItem.externalUrl ?? issueRef,

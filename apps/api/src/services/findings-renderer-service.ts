@@ -1,7 +1,5 @@
 import type { StructuredFindings } from '@support-agent/contracts';
 
-type SupportedConnector = 'github';
-
 function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
@@ -36,12 +34,8 @@ function readCustomField(
 
 export function renderFindingsToComment(
   findings: StructuredFindings,
-  connector: SupportedConnector,
+  _connector: string,
 ): string {
-  if (connector !== 'github') {
-    throw new Error(`Unsupported findings renderer connector: ${connector}`);
-  }
-
   const severity = findings.severity
     ? titleCase(findings.severity)
     : 'Unknown';

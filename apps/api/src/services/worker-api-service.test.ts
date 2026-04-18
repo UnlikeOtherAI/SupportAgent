@@ -17,9 +17,28 @@ vi.mock('./progress-comment-service.js', () => ({
 }));
 
 function createPrismaMock() {
+  const runRecord = {
+    acceptedDispatchAttempt: 'dispatch-1',
+    repositoryMapping: {
+      connector: {
+        platformType: {
+          key: 'github',
+        },
+      },
+    },
+    workItem: {
+      platformType: 'github',
+    },
+  };
   return {
     workflowRun: {
-      findUnique: vi.fn().mockResolvedValue({ acceptedDispatchAttempt: 'dispatch-1' }),
+      findUnique: vi.fn().mockImplementation(async (args?: { select?: Record<string, unknown> }) => {
+        if (args?.select?.acceptedDispatchAttempt) {
+          return { acceptedDispatchAttempt: runRecord.acceptedDispatchAttempt };
+        }
+
+        return runRecord;
+      }),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     workflowLogEvent: {
@@ -116,7 +135,7 @@ describe('createWorkerApiService.submitReport', () => {
     });
   });
 
-  it('does not synthesize a comment when findings already have explicit delivery', async () => {
+  it('does not synthesize a comment when explicit delivery is already present', async () => {
     const prisma = createPrismaMock();
     const service = createWorkerApiService(prisma);
 
@@ -126,25 +145,82 @@ describe('createWorkerApiService.submitReport', () => {
       leafOutputs: [
         {
           delivery: [{ kind: 'comment', body: 'Explicit comment body' }],
-          findings: {
-            summary: 'Summary',
-          },
         },
       ],
     });
 
-    expect(prisma.finding.create).toHaveBeenCalledTimes(1);
+    expect(prisma.finding.create).not.toHaveBeenCalled();
     expect(resolveDelivery).toHaveBeenCalledWith({
       workflowRunId: 'run-1',
       leafOutputs: [
         {
           delivery: [{ kind: 'comment', body: 'Explicit comment body' }],
-          findings: {
-            summary: 'Summary',
-          },
         },
       ],
     });
+  });
+
+  it('does not mutate the original leaf output when synthesizing delivery from findings', async () => {
+    const prisma = createPrismaMock();
+    const service = createWorkerApiService(prisma);
+    const originalLeafOutput = {
+      delivery: [],
+      findings: {
+        summary: 'Summary',
+      },
+      extras: {
+        marker: 'original',
+      },
+    } as const;
+
+    await service.submitReport('run-1', 'dispatch-1', {
+      status: 'succeeded',
+      summary: 'Run summary',
+      leafOutputs: [structuredClone(originalLeafOutput)],
+    });
+
+    expect(originalLeafOutput.delivery).toEqual([]);
+    expect(originalLeafOutput.findings).toEqual({ summary: 'Summary' });
+    expect(originalLeafOutput.extras).toEqual({ marker: 'original' });
+  });
+
+  it('renders findings for non-github platforms without throwing', async () => {
+    const prisma = createPrismaMock();
+    prisma.workflowRun.findUnique = vi.fn().mockImplementation(async (args?: { select?: Record<string, unknown> }) => {
+      if (args?.select?.acceptedDispatchAttempt) {
+        return { acceptedDispatchAttempt: 'dispatch-1' };
+      }
+
+      return {
+        acceptedDispatchAttempt: 'dispatch-1',
+        repositoryMapping: {
+          connector: {
+            platformType: {
+              key: 'linear',
+            },
+          },
+        },
+        workItem: {
+          platformType: 'linear',
+        },
+      };
+    });
+    const service = createWorkerApiService(prisma);
+
+    await expect(
+      service.submitReport('run-1', 'dispatch-1', {
+        status: 'succeeded',
+        summary: 'Run summary',
+        leafOutputs: [
+          {
+            delivery: [],
+            findings: {
+              summary: 'Summary',
+            },
+          },
+        ],
+      }),
+    ).resolves.toEqual({ status: 'accepted' });
   });
 
   it('finalizes the placeholder with the first public comment body', async () => {

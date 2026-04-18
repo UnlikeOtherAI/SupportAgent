@@ -32,10 +32,7 @@ export async function workerApiRoutes(app: FastifyInstance) {
       return null;
     }
 
-    if (
-      run.id !== request.workerDispatch!.workflowRunId
-      && run.tenantId !== request.workerDispatch!.tenantId
-    ) {
+    if (run.id !== request.workerDispatch!.workflowRunId) {
       throw Object.assign(new Error('Run access forbidden'), { statusCode: 403 });
     }
 
@@ -119,6 +116,7 @@ export async function workerApiRoutes(app: FastifyInstance) {
         leafOutputs: z
           .array(SkillRunResultSchema)
           .optional(),
+        extras: z.record(z.unknown()).optional(),
       })
       .parse(request.body);
     return service.submitReport(

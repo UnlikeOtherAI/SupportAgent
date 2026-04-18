@@ -1,8 +1,20 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { PrismaClient, ExecutorSource, SkillRole, SkillSource } from '@prisma/client';
 import { parseEnv } from '@support-agent/config';
 import { createDispatcherService } from './dispatcher-service.js';
 import { createLocalHostProvider } from './execution-provider.js';
+
+const { ghGetAuthenticatedLogin } = vi.hoisted(() => ({
+  ghGetAuthenticatedLogin: vi.fn(),
+}));
+
+vi.mock('@support-agent/github-cli', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@support-agent/github-cli')>();
+  return {
+    ...actual,
+    ghGetAuthenticatedLogin,
+  };
+});
 
 describe('DispatcherService', () => {
   const prisma = new PrismaClient();
@@ -21,8 +33,11 @@ describe('DispatcherService', () => {
   let repoMappingId: string;
   let workItemId: string;
   let executorId: string;
+  let reviewExecutorId: string;
   let scenarioId: string;
+  let reviewScenarioId: string;
   let skillId: string;
+  let reviewSkillId: string;
 
   beforeAll(async () => {
     parseEnv({
@@ -30,6 +45,7 @@ describe('DispatcherService', () => {
       JWT_SECRET: 'test-secret-that-is-at-least-32-characters-long',
       REDIS_URL: 'redis://localhost:6379',
     });
+    ghGetAuthenticatedLogin.mockResolvedValue('supportagent-bot');
 
     // Create fixture data
     const pt = await prisma.platformType.findFirst({ where: { key: 'github' } });
@@ -195,18 +211,97 @@ loop:
       },
     });
     scenarioId = scenario.id;
+
+    const reviewSkill = await prisma.skill.create({
+      data: {
+        tenantId,
+        name: `pr-reviewer-dispatcher-${Date.now()}`,
+        description: 'Builtin review skill for dispatcher tests',
+        role: SkillRole.SYSTEM,
+        body: '# Review\n',
+        outputSchema: {
+          type: 'object',
+          properties: {
+            delivery: { type: 'array' },
+          },
+          required: ['delivery'],
+        },
+        contentHash: `review-skill-hash-${Date.now()}`,
+        source: SkillSource.USER,
+      },
+    });
+    reviewSkillId = reviewSkill.id;
+
+    const reviewExecutor = await prisma.executor.create({
+      data: {
+        tenantId,
+        key: `review-dispatcher-${Date.now()}`,
+        description: 'Review executor for no_self_retrigger tests',
+        yaml: `version: 1
+key: review-dispatcher
+display_name: "Review Dispatcher"
+guardrails:
+  loop_safety:
+    no_self_retrigger: true
+stages:
+  - id: review
+    parallel: 1
+    system_skill: ${reviewSkill.name}
+    complementary: []
+    executor: max
+    after: []
+    inputs_from: []
+    task_prompt: "Review"
+loop:
+  enabled: false
+  max_iterations: 1
+  until_done: false
+`,
+        parsed: {},
+        contentHash: `review-executor-hash-${Date.now()}`,
+        source: ExecutorSource.USER,
+      },
+    });
+    reviewExecutorId = reviewExecutor.id;
+
+    const reviewScenario = await prisma.workflowScenario.create({
+      data: {
+        tenantId,
+        key: `dispatcher-review-scenario-${Date.now()}`,
+        displayName: 'Dispatcher Review Scenario',
+        workflowType: 'review',
+        steps: {
+          create: [
+            {
+              stepType: 'action',
+              stepOrder: 1,
+              config: {
+                designer: { sourceKey: 'workflow.review' },
+                executorKey: reviewExecutor.key,
+              },
+            },
+          ],
+        },
+      },
+    });
+    reviewScenarioId = reviewScenario.id;
   });
 
   afterAll(async () => {
     await prisma.workerDispatch.deleteMany({ where: { workflowRun: { tenantId } } });
+    await prisma.workflowLogEvent.deleteMany({ where: { workflowRun: { tenantId } } });
     await prisma.workflowRun.deleteMany({ where: { tenantId } });
+    await prisma.workflowScenarioStep.deleteMany({ where: { scenarioId: reviewScenarioId } });
+    await prisma.workflowScenario.deleteMany({ where: { id: reviewScenarioId } });
     await prisma.workflowScenarioStep.deleteMany({ where: { scenarioId } });
     await prisma.workflowScenario.deleteMany({ where: { id: scenarioId } });
     await prisma.inboundWorkItem.deleteMany({ where: { connectorInstanceId: connectorId } });
     await prisma.repositoryMapping.deleteMany({ where: { tenantId } });
     await prisma.connector.deleteMany({ where: { tenantId } });
     await prisma.executionProvider.deleteMany({ where: { tenantId } });
+    await prisma.executor.deleteMany({ where: { id: reviewExecutorId } });
     await prisma.executor.deleteMany({ where: { id: executorId } });
+    await prisma.skill.deleteMany({ where: { id: reviewSkillId } });
     await prisma.skill.deleteMany({ where: { id: skillId } });
     await prisma.$disconnect();
   });
@@ -345,6 +440,99 @@ loop:
     const payload = dispatch!.jobPayload as Record<string, unknown>;
     const hints = payload.providerHints as Record<string, unknown>;
     expect(hints.triggerContext).toBeUndefined();
+  });
+
+  it('prevents self-retrigger dispatches from the bot author when no_self_retrigger is enabled', async () => {
+    ghGetAuthenticatedLogin.mockResolvedValueOnce('supportagent-bot');
+
+    const reviewItem = await prisma.inboundWorkItem.create({
+      data: {
+        connectorInstanceId: connectorId,
+        platformType: 'github',
+        workItemKind: 'review_target',
+        reviewTargetType: 'pull_request',
+        reviewTargetNumber: 44,
+        externalItemId: '44',
+        externalUrl: 'https://github.com/test/repo/pull/44',
+        title: 'Bot-triggered review PR',
+        dedupeKey: `review-test-44-${Date.now()}`,
+        repositoryMappingId: repoMappingId,
+        comments: [
+          {
+            commentId: 'cmt-bot-001',
+            author: 'supportagent-bot',
+            body: '/sa review',
+            createdAt: '2026-04-18T10:00:00Z',
+          },
+        ],
+      },
+    });
+
+    const run = await prisma.workflowRun.create({
+      data: {
+        tenantId,
+        workflowType: 'review',
+        status: 'queued',
+        workItemId: reviewItem.id,
+        repositoryMappingId: repoMappingId,
+        workflowScenarioId: reviewScenarioId,
+      },
+    });
+
+    const result = await dispatcher.dispatchNext();
+    expect(result).toBeNull();
+
+    const updatedRun = await prisma.workflowRun.findUnique({ where: { id: run.id } });
+    expect(updatedRun?.status).toBe('canceled');
+
+    const dispatchCount = await prisma.workerDispatch.count({
+      where: { workflowRunId: run.id },
+    });
+    expect(dispatchCount).toBe(0);
+  });
+
+  it('dispatches normally for human-authored comment triggers', async () => {
+    ghGetAuthenticatedLogin.mockResolvedValueOnce('supportagent-bot');
+
+    const reviewItem = await prisma.inboundWorkItem.create({
+      data: {
+        connectorInstanceId: connectorId,
+        platformType: 'github',
+        workItemKind: 'review_target',
+        reviewTargetType: 'pull_request',
+        reviewTargetNumber: 45,
+        externalItemId: '45',
+        externalUrl: 'https://github.com/test/repo/pull/45',
+        title: 'Human-triggered review PR',
+        dedupeKey: `review-test-45-${Date.now()}`,
+        repositoryMappingId: repoMappingId,
+        comments: [
+          {
+            commentId: 'cmt-human-001',
+            author: 'alice',
+            body: '/sa review',
+            createdAt: '2026-04-18T10:05:00Z',
+          },
+        ],
+      },
+    });
+
+    const run = await prisma.workflowRun.create({
+      data: {
+        tenantId,
+        workflowType: 'review',
+        status: 'queued',
+        workItemId: reviewItem.id,
+        repositoryMappingId: repoMappingId,
+        workflowScenarioId: reviewScenarioId,
+      },
+    });
+
+    const result = await dispatcher.dispatchNext();
+    expect(result).not.toBeNull();
+
+    const updatedRun = await prisma.workflowRun.findUnique({ where: { id: run.id } });
+    expect(updatedRun?.status).toBe('running');
   });
 
   it('dispatchAll dispatches multiple queued runs', async () => {

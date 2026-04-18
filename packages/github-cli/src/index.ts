@@ -131,6 +131,10 @@ async function ghGetViewerLogin(): Promise<string> {
   return run(`gh api /user --jq '.login'`);
 }
 
+export async function ghGetAuthenticatedLogin(): Promise<string> {
+  return ghGetViewerLogin();
+}
+
 async function ghGetOrganizations(): Promise<string[]> {
   const result = await run(`gh api /user/orgs --jq '.[].login'`);
   return result

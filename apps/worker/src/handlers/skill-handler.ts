@@ -113,8 +113,7 @@ function buildPromptContext(job: WorkerJobWithContext): Record<string, unknown> 
       : typeof workItem.body === 'string'
         ? workItem.body
         : undefined;
-
-  return {
+  const context = {
     action: actionConfig,
     job: {
       id: job.jobId,
@@ -142,6 +141,18 @@ function buildPromptContext(job: WorkerJobWithContext): Record<string, unknown> 
         fullName: repositoryFullName,
         url: repositoryUrl,
       },
+    },
+  };
+
+  const scenarioTaskPrompt =
+    typeof actionConfig.taskPrompt === 'string'
+      ? substitutePlaceholders(actionConfig.taskPrompt.trim(), context)
+      : '';
+
+  return {
+    ...context,
+    scenario: {
+      taskPrompt: scenarioTaskPrompt,
     },
   };
 }
@@ -244,16 +255,11 @@ export async function handleSkillJob(
   const abortController = new AbortController();
   registerDispatchAbortController(jobId, abortController);
   const promptContext = buildPromptContext(job as WorkerJobWithContext);
-  const actionConfig = readRecord((job as WorkerJobWithContext).providerHints?.actionConfig);
 
   try {
     for (const stage of resolvedExecutor.stages) {
       const runtimeStage = stage as RuntimeResolvedStageAst;
-      const configuredTaskPrompt = typeof actionConfig.taskPrompt === 'string'
-        && actionConfig.taskPrompt.trim() !== ''
-        ? actionConfig.taskPrompt
-        : runtimeStage.task_prompt;
-      await warnOnMissingPlaceholders(api, jobId, configuredTaskPrompt, promptContext);
+      await warnOnMissingPlaceholders(api, jobId, runtimeStage.task_prompt, promptContext);
     }
 
     const buildStagePrompt = (
@@ -263,15 +269,11 @@ export async function handleSkillJob(
       prevIterationOutputs?: Map<string, SkillRunResult[]>,
     ) => {
       const runtimeStage = stage as RuntimeResolvedStageAst;
-      const configuredTaskPrompt = typeof actionConfig.taskPrompt === 'string'
-        && actionConfig.taskPrompt.trim() !== ''
-        ? actionConfig.taskPrompt
-        : runtimeStage.task_prompt;
       return (
       composePrompt({
         executor: resolvedExecutor,
         stage: runtimeStage,
-        taskPrompt: substitutePlaceholders(configuredTaskPrompt, promptContext),
+        taskPrompt: substitutePlaceholders(runtimeStage.task_prompt, promptContext),
         inputsByStage: outputsByStage,
         iteration,
         prevIterationOutputs,
@@ -390,6 +392,9 @@ export async function handleSkillJob(
           },
         ],
         leafOutputs: error.preservedOutputs,
+        extras: error.schemaErrors.length > 0
+          ? { schemaErrors: error.schemaErrors }
+          : undefined,
       });
       return;
     }

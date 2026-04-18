@@ -14,7 +14,10 @@ stages:
     executor: claude-sonnet
     after: []
     inputs_from: []
-    task_prompt: Investigate the issue described in {{trigger.issue.title}} and {{trigger.issue.url}}.
+    task_prompt: |
+      {{scenario.taskPrompt}}
+
+      Investigate the issue described in {{trigger.issue.title}} and {{trigger.issue.url}}.
 loop:
   enabled: false
   max_iterations: 1

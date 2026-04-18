@@ -88,4 +88,17 @@ describe('builtin executor YAMLs', () => {
 
     expect(ast.loop.until_done).toBe(true);
   });
+
+  it('keeps scenario.taskPrompt opt-in on the first builtin stage only', () => {
+    for (const name of builtinExecutors) {
+      const ast = parseExecutorYaml(readExecutorYaml(name), { sourceName: name });
+      expect(ast.stages[0]?.task_prompt).toContain('{{scenario.taskPrompt}}');
+
+      ast.stages
+        .slice(1)
+        .forEach((stage) => {
+          expect(stage.task_prompt).not.toContain('{{scenario.taskPrompt}}');
+        });
+    }
+  });
 });

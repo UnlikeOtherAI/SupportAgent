@@ -2,8 +2,8 @@
 name: deep-reviewer
 description: |
   Use for opinionated parallel review spawns in cross-LLM workflows. Each
-  spawn produces an independent review with structured findings and a
-  delivery-ready markdown comment.
+  spawn produces an independent review with a delivery-ready markdown
+  comment.
 role: system
 output_schema: ./output.schema.json
 ---
@@ -28,12 +28,6 @@ Your job is not to be neutral or minimal. Your job is to independently inspect t
 Return only JSON matching `./output.schema.json`.
 
 - Emit exactly one `comment` delivery op containing your markdown review.
-- Populate `findings` with the strongest structured summary of your assessment.
-- Use `findings.custom` for additional structured reviewer metadata such as:
-  - `verdict`
-  - `strengths`
-  - `blockingFindings`
-  - `testGaps`
 - Set `reportSummary` to one plain-text sentence.
 
 Recommended comment structure:

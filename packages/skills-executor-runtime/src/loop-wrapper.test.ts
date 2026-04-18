@@ -159,6 +159,7 @@ describe('runWithLoop', () => {
       expect(canceled.preservedOutputs).toEqual([
         { delivery: [{ kind: 'comment', body: 'iteration-one' }], loop: { done: false } },
       ]);
+      expect(canceled.schemaErrors).toEqual([]);
     }
 
     expect(persistIteration).toHaveBeenCalledTimes(1);

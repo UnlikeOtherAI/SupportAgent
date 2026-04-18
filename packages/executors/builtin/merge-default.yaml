@@ -14,7 +14,10 @@ stages:
     executor: claude-sonnet
     after: []
     inputs_from: []
-    task_prompt: Assess whether {{trigger.pull_request.url}} is ready to merge now.
+    task_prompt: |
+      {{scenario.taskPrompt}}
+
+      Assess whether {{trigger.pull_request.url}} is ready to merge now.
 loop:
   enabled: false
   max_iterations: 1

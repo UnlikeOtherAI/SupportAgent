@@ -56,8 +56,8 @@ function makeApi(): {
   const postIterationState = vi.fn().mockResolvedValue(undefined);
   const fetchExecutorByHash = vi.fn().mockResolvedValue({
     key: 'triage-default',
-    contentHash: 'exec-hash-1',
-    yaml: `version: 1
+      contentHash: 'exec-hash-1',
+      yaml: `version: 1
 key: triage-default
 display_name: "Default triage"
 preamble: "Use file:line citations."
@@ -69,7 +69,10 @@ stages:
     executor: max
     after: []
     inputs_from: []
-    task_prompt: "Investigate the issue"
+    task_prompt: |
+      {{scenario.taskPrompt}}
+
+      Investigate the issue
 loop:
   enabled: false
   max_iterations: 1
@@ -230,6 +233,77 @@ describe('handleSkillJob', () => {
     );
   });
 
+  it('keeps non-entry stage task prompts instead of replacing them wholesale', async () => {
+    const { api } = makeApi();
+    vi.mocked(api.fetchExecutorByHash).mockResolvedValueOnce({
+      key: 'triage-default',
+      contentHash: 'exec-hash-1',
+      yaml: `version: 1
+key: triage-default
+display_name: "Default triage"
+preamble: "Use file:line citations."
+stages:
+  - id: investigate
+    parallel: 1
+    system_skill: triage-issue
+    complementary: []
+    executor: max
+    after: []
+    inputs_from: []
+    task_prompt: "{{scenario.taskPrompt}}"
+  - id: consolidate
+    parallel: 1
+    system_skill: triage-issue
+    complementary: []
+    executor: max
+    after: [investigate]
+    inputs_from: [investigate]
+    task_prompt: "Consolidate the previous stage output."
+loop:
+  enabled: false
+  max_iterations: 1
+  until_done: false
+`,
+    });
+    const executor = {
+      key: 'mock-executor',
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({
+          stdout: '',
+          outputContent: JSON.stringify({
+            delivery: [],
+            findings: {
+              summary: 'first stage',
+            },
+            reportSummary: 'first stage',
+          }),
+        })
+        .mockResolvedValueOnce({
+          stdout: '',
+          outputContent: JSON.stringify({
+            delivery: [],
+            findings: {
+              summary: 'second stage',
+            },
+            reportSummary: 'second stage',
+          }),
+        }),
+    };
+
+    await handleSkillJob(makeJob(), api, { executor });
+
+    expect(executor.run.mock.calls[0]?.[0]?.prompt).toContain(
+      'Investigate Crash on save at https://github.com/example/repo/issues/123 in example/repo',
+    );
+    expect(executor.run.mock.calls[1]?.[0]?.prompt).toContain(
+      'Consolidate the previous stage output.',
+    );
+    expect(executor.run.mock.calls[1]?.[0]?.prompt).not.toContain(
+      'Investigate Crash on save at https://github.com/example/repo/issues/123 in example/repo',
+    );
+  });
+
   it('retries checkpoint posts once before continuing', async () => {
     const { api, submitReport, postCheckpoint } = makeApi();
     postCheckpoint
@@ -305,4 +379,5 @@ describe('handleSkillJob', () => {
     expect(shouldCancel).toBe(true);
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
   });
+
 });

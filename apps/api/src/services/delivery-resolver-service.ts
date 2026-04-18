@@ -186,6 +186,90 @@ async function dispatchGitHubOp(args: {
 }
 
 export function createDeliveryResolverService(prisma: PrismaClient) {
+  type ExistingOutputRecord = NonNullable<Awaited<ReturnType<typeof findExistingOutput>>>;
+
+  async function createReconciliationAttempt(args: {
+    actionOutputId: string;
+    destinationId: string;
+    destinationType: DeliveryTargetKind;
+    externalRef?: string;
+    response: Record<string, unknown>;
+    tenantId: string;
+    workflowRunId: string;
+  }) {
+    return prisma.actionDeliveryAttempt.create({
+      data: {
+        tenantId: args.tenantId,
+        workflowRunId: args.workflowRunId,
+        actionOutputId: args.actionOutputId,
+        destinationType: args.destinationType,
+        destinationId: args.destinationId,
+        status: 'succeeded',
+        attemptNumber: 1,
+        externalRef: args.externalRef,
+        response: args.response as unknown as object,
+        completedAt: new Date(),
+      },
+    });
+  }
+
+  async function reconcileInFlightOutput(args: {
+    actionOutput: ExistingOutputRecord;
+    codeHostTarget: ConnectorTarget;
+    firstCommentHandledByProgressComment: boolean;
+    op: DeliveryOp;
+    run: Awaited<ReturnType<typeof prisma.workflowRun.findUnique>> & { progressCommentId: string | null; tenantId: string; id: string };
+    sourceTarget: SourceTarget;
+  }): Promise<{
+    externalRef?: string;
+    producedValues?: Record<string, string>;
+    reconciled: boolean;
+  }> {
+    const latestAttempt = args.actionOutput?.deliveryAttempts[0];
+
+    if (latestAttempt?.status === 'succeeded') {
+      const externalRef = latestAttempt.externalRef ?? undefined;
+      return {
+        externalRef,
+        producedValues:
+          args.op.kind === 'pr' && externalRef
+            ? { prUrl: externalRef }
+            : undefined,
+        reconciled: true,
+      };
+    }
+
+    if (args.op.kind === 'comment' || args.op.kind === 'labels' || args.op.kind === 'state') {
+      if (args.op.kind === 'comment' && args.firstCommentHandledByProgressComment && args.run.progressCommentId) {
+        return {
+          externalRef: args.run.progressCommentId,
+          reconciled: true,
+        };
+      }
+
+      return { reconciled: true };
+    }
+
+    const existing = await ghListOpenPRsForBranch(
+      args.codeHostTarget.owner,
+      args.codeHostTarget.repo,
+      args.op.spec.branch,
+    );
+    if (existing.length > 0) {
+      return {
+        externalRef: existing[0].url,
+        producedValues: {
+          prUrl: existing[0].url,
+        },
+        reconciled: true,
+      };
+    }
+
+    throw new Error(
+      `In-flight PR delivery for branch "${args.op.spec.branch}" could not be reconciled safely`,
+    );
+  }
+
   async function findExistingOutput(idempotencyKey: string) {
     return prisma.actionOutput.findUnique({
       where: { idempotencyKey },
@@ -277,11 +361,75 @@ export function createDeliveryResolverService(prisma: PrismaClient) {
 
           const connectorTarget = resolveConnectorTarget(op, run);
           const visibility = readDeliveryVisibility(op);
+          if (existingOutput?.deliveryStatus === 'in_flight') {
+            try {
+              const reconciliation = await reconcileInFlightOutput({
+                actionOutput: existingOutput,
+                codeHostTarget: connectorTarget,
+                firstCommentHandledByProgressComment,
+                op,
+                run,
+                sourceTarget,
+              });
+              Object.assign(previousValues, reconciliation.producedValues);
+              await createReconciliationAttempt({
+                actionOutputId: existingOutput.id as string,
+                destinationId: connectorTarget.connectorId,
+                destinationType: connectorTarget.kind,
+                externalRef: reconciliation.externalRef,
+                response: {
+                  reconciled: reconciliation.reconciled,
+                  retryDisposition: 'skipped_existing_in_flight',
+                },
+                tenantId: run.tenantId,
+                workflowRunId: run.id,
+              });
+              await prisma.actionOutput.update({
+                where: { id: existingOutput.id as string },
+                data: {
+                  deliveryStatus: 'sent',
+                  payload: op as unknown as object,
+                  summary: buildOutputSummary(op),
+                },
+              });
+              persisted += 1;
+              if (op.kind === 'comment' && firstCommentHandledByProgressComment) {
+                firstCommentHandledByProgressComment = false;
+              }
+              continue;
+            } catch (error) {
+              await prisma.actionDeliveryAttempt.create({
+                data: {
+                  tenantId: run.tenantId,
+                  workflowRunId: run.id,
+                  actionOutputId: existingOutput.id as string,
+                  destinationType: connectorTarget.kind,
+                  destinationId: connectorTarget.connectorId,
+                  status: 'failed',
+                  attemptNumber: 1,
+                  error: error instanceof Error ? error.message : String(error),
+                  completedAt: new Date(),
+                },
+              });
+              await prisma.actionOutput.update({
+                where: { id: existingOutput.id as string },
+                data: {
+                  deliveryStatus: 'failed',
+                  payload: op as unknown as object,
+                  summary: buildOutputSummary(op),
+                },
+              });
+              persisted += 1;
+              skipRemainingOps = true;
+              continue;
+            }
+          }
+
           const actionOutput = existingOutput
             ? await prisma.actionOutput.update({
                 where: { id: existingOutput.id },
                 data: {
-                  deliveryStatus: visibility === 'internal' ? 'suppressed_internal' : 'pending',
+                  deliveryStatus: visibility === 'internal' ? 'suppressed_internal' : 'in_flight',
                   payload: op as unknown as object,
                   summary: buildOutputSummary(op),
                 },
@@ -292,7 +440,7 @@ export function createDeliveryResolverService(prisma: PrismaClient) {
                   workflowRunId: run.id,
                   idempotencyKey,
                   outputType: op.kind,
-                  deliveryStatus: visibility === 'internal' ? 'suppressed_internal' : 'pending',
+                  deliveryStatus: visibility === 'internal' ? 'suppressed_internal' : 'in_flight',
                   payload: op as unknown as object,
                   summary: buildOutputSummary(op),
                 },

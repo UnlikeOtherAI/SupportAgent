@@ -160,6 +160,9 @@ describe('DeliveryResolverService', () => {
     expect(ghAddIssueComment).toHaveBeenCalledWith('test', 'repo', 10, 'hello issue');
     expect(ghAddPRComment).not.toHaveBeenCalled();
     expect(fake.actionAttempts[0]?.status).toBe('succeeded');
+    expect(
+      vi.mocked(fake.prisma.actionOutput.create).mock.calls[0]?.[0]?.data?.deliveryStatus,
+    ).toBe('in_flight');
   });
 
   it('routes PR comments and review states to PR helpers', async () => {
@@ -483,5 +486,125 @@ describe('DeliveryResolverService', () => {
     expect(ghAddIssueComment).toHaveBeenCalledTimes(1);
     expect(ghCreatePR).toHaveBeenCalledTimes(1);
     expect(fake.actionOutputs).toHaveLength(2);
+  });
+
+  it('reconciles an in-flight comment output on retry without dispatching again', async () => {
+    const run: WorkflowRunRecord = {
+      id: 'run-in-flight-comment',
+      progressCommentId: null,
+      repositoryMapping: {
+        connector: { platformType: { key: 'github' } },
+        connectorId: 'repo-connector',
+        repositoryUrl: 'https://github.com/test/repo',
+      },
+      tenantId: 'tenant-1',
+      workItem: {
+        connectorInstanceId: 'source-connector',
+        externalItemId: '111',
+        reviewTargetNumber: null,
+        reviewTargetType: null,
+        workItemKind: 'issue',
+      },
+    };
+    const fake = createPrisma(run);
+    fake.actionOutputs.push({
+      id: 'output-1',
+      tenantId: run.tenantId,
+      workflowRunId: run.id,
+      idempotencyKey: `${run.id}:0:0`,
+      outputType: 'comment',
+      deliveryStatus: 'in_flight',
+      payload: { kind: 'comment', body: 'already sent once' },
+      summary: 'already sent once',
+    });
+
+    const { createDeliveryResolverService } = await import('./delivery-resolver-service.js');
+    const service = createDeliveryResolverService(fake.prisma as never);
+
+    const result = await service.resolveDelivery({
+      workflowRunId: run.id,
+      leafOutputs: [{ delivery: [{ kind: 'comment', body: 'already sent once' }] }],
+    });
+
+    expect(result).toEqual({ persisted: 1, dispatched: 0 });
+    expect(ghAddIssueComment).not.toHaveBeenCalled();
+    expect(fake.actionOutputs[0]?.deliveryStatus).toBe('sent');
+    expect(fake.actionAttempts.at(-1)?.response).toEqual({
+      reconciled: true,
+      retryDisposition: 'skipped_existing_in_flight',
+    });
+  });
+
+  it('reconciles an in-flight PR output by matching an existing branch PR', async () => {
+    const run: WorkflowRunRecord = {
+      id: 'run-in-flight-pr',
+      progressCommentId: null,
+      repositoryMapping: {
+        connector: { platformType: { key: 'github' } },
+        connectorId: 'repo-connector',
+        repositoryUrl: 'https://github.com/test/repo',
+      },
+      tenantId: 'tenant-1',
+      workItem: {
+        connectorInstanceId: 'source-connector',
+        externalItemId: '112',
+        reviewTargetNumber: null,
+        reviewTargetType: null,
+        workItemKind: 'issue',
+      },
+    };
+    const fake = createPrisma(run);
+    fake.actionOutputs.push({
+      id: 'output-1',
+      tenantId: run.tenantId,
+      workflowRunId: run.id,
+      idempotencyKey: `${run.id}:0:0`,
+      outputType: 'pr',
+      deliveryStatus: 'in_flight',
+      payload: {
+        kind: 'pr',
+        spec: {
+          base: 'main',
+          body: 'Fix body',
+          branch: 'sa/fix-112',
+          title: 'Fix issue 112',
+        },
+      },
+      summary: 'Fix issue 112',
+    });
+    ghListOpenPRsForBranch.mockResolvedValueOnce([
+      { url: 'https://github.com/test/repo/pull/112' },
+    ]);
+
+    const { createDeliveryResolverService } = await import('./delivery-resolver-service.js');
+    const service = createDeliveryResolverService(fake.prisma as never);
+
+    const result = await service.resolveDelivery({
+      workflowRunId: run.id,
+      leafOutputs: [
+        {
+          delivery: [
+            {
+              kind: 'pr',
+              spec: {
+                base: 'main',
+                body: 'Fix body',
+                branch: 'sa/fix-112',
+                title: 'Fix issue 112',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result).toEqual({ persisted: 1, dispatched: 0 });
+    expect(ghCreatePR).not.toHaveBeenCalled();
+    expect(fake.actionOutputs[0]?.deliveryStatus).toBe('sent');
+    expect(fake.actionAttempts.at(-1)?.externalRef).toBe('https://github.com/test/repo/pull/112');
+    expect(fake.actionAttempts.at(-1)?.response).toEqual({
+      reconciled: true,
+      retryDisposition: 'skipped_existing_in_flight',
+    });
   });
 });

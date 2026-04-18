@@ -17,6 +17,7 @@ describe('Worker API routes', () => {
   let dispatchId: string;
   let executionProviderId: string;
   let staleDispatchId: string;
+  let sameTenantSiblingWorkflowRunId: string;
   let otherTenantConnectorId: string;
   let otherTenantRepoMappingId: string;
   let otherTenantWorkItemId: string;
@@ -134,6 +135,18 @@ describe('Worker API routes', () => {
       },
     });
     staleDispatchId = staleDispatch.id;
+
+    const sameTenantSiblingRun = await app.prisma.workflowRun.create({
+      data: {
+        tenantId: TEST_TENANT_ID,
+        workflowType: 'triage',
+        status: 'running',
+        workItemId,
+        repositoryMappingId: repoMappingId,
+        startedAt: new Date(),
+      },
+    });
+    sameTenantSiblingWorkflowRunId = sameTenantSiblingRun.id;
 
     const otherTenantId = 'c0000000-0000-0000-0000-000000000099';
     const otherConnector = await app.prisma.connector.create({
@@ -631,6 +644,16 @@ describe('Worker API routes', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/worker/jobs/run/${otherTenantWorkflowRunId}`,
+      headers: { authorization: `Bearer ${WORKER_SECRET}` },
+    });
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('GET /worker/jobs/run/:runId returns 403 for a different run in the same tenant', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/worker/jobs/run/${sameTenantSiblingWorkflowRunId}`,
       headers: { authorization: `Bearer ${WORKER_SECRET}` },
     });
 

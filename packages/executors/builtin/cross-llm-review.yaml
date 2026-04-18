@@ -15,7 +15,10 @@ stages:
     executor: claude-sonnet
     after: []
     inputs_from: []
-    task_prompt: Review the changes for {{trigger.pull_request.url}} and report the strongest findings.
+    task_prompt: |
+      {{scenario.taskPrompt}}
+
+      Review the changes for {{trigger.pull_request.url}} and report the strongest findings.
   - id: review-codex
     parallel: 1
     system_skill: deep-reviewer
