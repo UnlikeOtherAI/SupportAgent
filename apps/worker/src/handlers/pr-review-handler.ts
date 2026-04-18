@@ -79,8 +79,6 @@ export async function handlePrReviewJob(
   api: WorkerApiClient,
   options: PrReviewHandlerOptions = {},
 ): Promise<void> {
-  // TODO(skills-executors-migration): Re-home PR review onto workflowType='triage'
-  // with workItemKind='review_target', then remove the legacy 'review' reports here.
   const executor = options.executor ?? getDefaultExecutor();
   const { jobId, workflowRunId, targetRepo } = job;
   const providerHints = (job as any).providerHints ?? {};
