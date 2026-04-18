@@ -48,6 +48,7 @@ describe('parseExecutorYaml', () => {
         scope: 'this_iteration',
       },
     ]);
+    expect(ast.guardrails?.loop_safety?.no_self_retrigger).toBe(true);
   });
 
   it('throws for a bad version', () => {
@@ -128,5 +129,33 @@ loop:
 `;
 
     expect(() => parseExecutorYaml(yaml)).toThrow(/Circular dependency detected/i);
+  });
+
+  it('defaults loop_safety.no_self_retrigger to true when omitted', () => {
+    const ast = parseExecutorYaml(buildYaml());
+
+    expect(ast.guardrails?.loop_safety?.no_self_retrigger).toBe(true);
+  });
+
+  it('parses loop_safety.no_self_retrigger when explicitly false', () => {
+    const ast = parseExecutorYaml(
+      buildYaml().replace(
+        '    min_iteration_change: true',
+        '    min_iteration_change: true\n    no_self_retrigger: false',
+      ),
+    );
+
+    expect(ast.guardrails?.loop_safety?.no_self_retrigger).toBe(false);
+  });
+
+  it('throws when loop_safety.no_self_retrigger is not a boolean', () => {
+    expect(() =>
+      parseExecutorYaml(
+        buildYaml().replace(
+          '    min_iteration_change: true',
+          '    min_iteration_change: true\n    no_self_retrigger: "no"',
+        ),
+      ),
+    ).toThrow(/no_self_retrigger/i);
   });
 });

@@ -34,19 +34,6 @@ describe('SkillRunResultSchema', () => {
     expect(result.delivery).toHaveLength(4);
   });
 
-  it('parses when findings and a comment op are both present', () => {
-    const result = SkillRunResultSchema.parse({
-      delivery: [{ kind: 'comment', body: 'Human-readable summary.' }],
-      findings: {
-        summary: 'The null check is missing.',
-        rootCause: 'The handler assumes metadata is always populated.',
-        confidence: 'high',
-      },
-    });
-
-    expect(result.findings?.summary).toBe('The null check is missing.');
-  });
-
   it('accepts internal visibility on delivery ops', () => {
     const result = SkillRunResultSchema.parse({
       delivery: [{ kind: 'comment', body: 'Internal diagnostic', visibility: 'internal' }],
@@ -61,5 +48,59 @@ describe('SkillRunResultSchema', () => {
         delivery: [{ kind: 'state', change: 'ship' }],
       }),
     ).toThrow();
+  });
+
+  it('rejects findings when a comment delivery op is also present', () => {
+    expect(() =>
+      SkillRunResultSchema.parse({
+        delivery: [{ kind: 'comment', body: 'Human-readable summary.' }],
+        findings: {
+          summary: 'The null check is missing.',
+          rootCause: 'The handler assumes metadata is always populated.',
+          confidence: 'high',
+        },
+      }),
+    ).toThrow(/both findings and comment delivery ops/i);
+  });
+
+  it('accepts findings with non-comment delivery ops', () => {
+    const result = SkillRunResultSchema.parse({
+      delivery: [{ kind: 'labels', add: ['triaged'] }],
+      findings: {
+        summary: 'The null check is missing.',
+      },
+    });
+
+    expect(result.findings?.summary).toBe('The null check is missing.');
+  });
+
+  it('accepts findings-only results', () => {
+    const result = SkillRunResultSchema.parse({
+      delivery: [],
+      findings: {
+        summary: 'The null check is missing.',
+      },
+    });
+
+    expect(result.findings?.summary).toBe('The null check is missing.');
+  });
+
+  it('accepts comment-only results', () => {
+    const result = SkillRunResultSchema.parse({
+      delivery: [{ kind: 'comment', body: 'Human-readable summary.' }],
+    });
+
+    expect(result.delivery).toHaveLength(1);
+  });
+
+  it('accepts comment ops alongside other non-comment delivery ops without findings', () => {
+    const result = SkillRunResultSchema.parse({
+      delivery: [
+        { kind: 'comment', body: 'Human-readable summary.' },
+        { kind: 'labels', add: ['triaged'] },
+      ],
+    });
+
+    expect(result.delivery).toHaveLength(2);
   });
 });

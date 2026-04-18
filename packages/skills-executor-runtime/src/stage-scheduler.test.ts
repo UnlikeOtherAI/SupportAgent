@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runStageDag } from './stage-scheduler.js';
-import { AbortError, CanceledError, FanOutFailureError, SchemaValidationError } from './types.js';
+import {
+  AbortError,
+  CanceledError,
+  FanOutFailureError,
+  MultiLeafSafetyViolation,
+  SchemaValidationError,
+} from './types.js';
 
 function buildExecutor(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -221,5 +227,87 @@ describe('runStageDag', () => {
         },
       ],
     ]);
+  });
+
+  it('rejects multi-leaf stages when any spawn emits a non-comment delivery op', async () => {
+    const runStage = vi
+      .fn()
+      .mockResolvedValueOnce({ delivery: [{ kind: 'comment', body: 'spawn-0' }] })
+      .mockResolvedValueOnce({ delivery: [{ kind: 'state', change: 'close' }] })
+      .mockResolvedValueOnce({ delivery: [{ kind: 'comment', body: 'spawn-2' }] });
+
+    await expect(
+      runStageDag({
+        executor: buildExecutor({
+          stages: [
+            {
+              id: 'leaf',
+              parallel: 3,
+              executor: 'codex',
+              after: [],
+            },
+          ],
+          leafStageId: 'leaf',
+        }) as never,
+        buildStagePrompt: (stage) => `${stage.id} prompt`,
+        runStage,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toMatchObject({
+      name: 'MultiLeafSafetyViolation',
+      message: expect.stringContaining('spawn 1'),
+    });
+  });
+
+  it('accepts multi-leaf stages when every spawn emits comment-only delivery', async () => {
+    const result = await runStageDag({
+      executor: buildExecutor({
+        stages: [
+          {
+            id: 'leaf',
+            parallel: 3,
+            executor: 'codex',
+            after: [],
+          },
+        ],
+        leafStageId: 'leaf',
+      }) as never,
+      buildStagePrompt: (stage) => `${stage.id} prompt`,
+      runStage: vi
+        .fn()
+        .mockResolvedValueOnce({ delivery: [{ kind: 'comment', body: 'spawn-0' }] })
+        .mockResolvedValueOnce({ delivery: [{ kind: 'comment', body: 'spawn-1' }] })
+        .mockResolvedValueOnce({ delivery: [{ kind: 'comment', body: 'spawn-2' }] }),
+      signal: new AbortController().signal,
+    });
+
+    expect(result.leafOutputs).toEqual([
+      { delivery: [{ kind: 'comment', body: 'spawn-0' }] },
+      { delivery: [{ kind: 'comment', body: 'spawn-1' }] },
+      { delivery: [{ kind: 'comment', body: 'spawn-2' }] },
+    ]);
+  });
+
+  it('allows single-leaf stages to emit non-comment delivery ops', async () => {
+    const result = await runStageDag({
+      executor: buildExecutor({
+        stages: [
+          {
+            id: 'leaf',
+            parallel: 1,
+            executor: 'codex',
+            after: [],
+          },
+        ],
+        leafStageId: 'leaf',
+      }) as never,
+      buildStagePrompt: (stage) => `${stage.id} prompt`,
+      runStage: vi.fn().mockResolvedValue({
+        delivery: [{ kind: 'state', change: 'close' }],
+      }),
+      signal: new AbortController().signal,
+    });
+
+    expect(result.leafOutputs).toEqual([{ delivery: [{ kind: 'state', change: 'close' }] }]);
   });
 });

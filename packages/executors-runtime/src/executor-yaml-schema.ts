@@ -114,6 +114,8 @@ export const ExecutorYamlSchema = z.object({
       loop_safety: z
         .object({
           min_iteration_change: z.boolean().optional(),
+          // TODO: Enforced in dispatcher-service.ts:shouldDispatch() — skip run if trigger originated from a SupportAgent-authored comment we just posted.
+          no_self_retrigger: z.boolean().default(true),
         })
         .optional(),
     })

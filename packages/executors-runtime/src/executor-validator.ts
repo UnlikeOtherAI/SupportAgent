@@ -60,6 +60,28 @@ function getObjectProperty(schema: unknown, propertyName: string): unknown {
   return (properties as Record<string, unknown>)[propertyName];
 }
 
+function resolveLocalRef(rootSchema: unknown, ref: string): unknown | null {
+  if (!ref.startsWith('#/')) {
+    return null;
+  }
+
+  const segments = ref
+    .slice(2)
+    .split('/')
+    .map((segment) => segment.replace(/~1/g, '/').replace(/~0/g, '~'));
+
+  let current: unknown = rootSchema;
+  for (const segment of segments) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) {
+      return undefined;
+    }
+
+    current = (current as Record<string, unknown>)[segment];
+  }
+
+  return current;
+}
+
 function schemaRequiresLoopDone(schema: unknown): boolean {
   const rootRequired = findRequiredPropertyNames(schema);
   if (!rootRequired.has('loop')) {
@@ -81,9 +103,13 @@ function schemaRequiresLoopDone(schema: unknown): boolean {
   );
 }
 
-function extractAllowedKindsFromSchema(schema: unknown, allowedKinds: Set<string>): void {
+function extractAllowedKindsFromSchema(
+  schema: unknown,
+  allowedKinds: Set<string>,
+  rootSchema: unknown,
+): boolean {
   if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
-    return;
+    return true;
   }
 
   const typedSchema = schema as {
@@ -93,8 +119,19 @@ function extractAllowedKindsFromSchema(schema: unknown, allowedKinds: Set<string
     anyOf?: unknown;
     allOf?: unknown;
     items?: unknown;
+    prefixItems?: unknown;
     properties?: unknown;
+    $ref?: unknown;
   };
+
+  if (typeof typedSchema.$ref === 'string') {
+    const resolved = resolveLocalRef(rootSchema, typedSchema.$ref);
+    if (resolved === null) {
+      return false;
+    }
+
+    return extractAllowedKindsFromSchema(resolved, allowedKinds, rootSchema);
+  }
 
   if (typeof typedSchema.const === 'string') {
     allowedKinds.add(typedSchema.const);
@@ -112,7 +149,9 @@ function extractAllowedKindsFromSchema(schema: unknown, allowedKinds: Set<string
     const branch = typedSchema[key];
     if (Array.isArray(branch)) {
       for (const item of branch) {
-        extractAllowedKindsFromSchema(item, allowedKinds);
+        if (!extractAllowedKindsFromSchema(item, allowedKinds, rootSchema)) {
+          return false;
+        }
       }
     }
   }
@@ -124,25 +163,52 @@ function extractAllowedKindsFromSchema(schema: unknown, allowedKinds: Set<string
   ) {
     const kindSchema = (typedSchema.properties as Record<string, unknown>).kind;
     if (kindSchema) {
-      extractAllowedKindsFromSchema(kindSchema, allowedKinds);
+      if (!extractAllowedKindsFromSchema(kindSchema, allowedKinds, rootSchema)) {
+        return false;
+      }
     }
   }
 
   if (typedSchema.items) {
-    extractAllowedKindsFromSchema(typedSchema.items, allowedKinds);
+    if (!extractAllowedKindsFromSchema(typedSchema.items, allowedKinds, rootSchema)) {
+      return false;
+    }
   }
+
+  if (Array.isArray(typedSchema.prefixItems)) {
+    for (const item of typedSchema.prefixItems) {
+      if (!extractAllowedKindsFromSchema(item, allowedKinds, rootSchema)) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
-function findAllowedDeliveryKinds(outputSchema: unknown): Set<string> {
+function findAllowedDeliveryKinds(outputSchema: unknown): Set<string> | null {
   const deliverySchema = getObjectProperty(outputSchema, 'delivery');
-  const itemsSchema =
-    deliverySchema &&
-    typeof deliverySchema === 'object' &&
-    !Array.isArray(deliverySchema) &&
-    (deliverySchema as { items?: unknown }).items;
-
   const allowedKinds = new Set<string>();
-  extractAllowedKindsFromSchema(itemsSchema, allowedKinds);
+  if (!deliverySchema || typeof deliverySchema !== 'object' || Array.isArray(deliverySchema)) {
+    return allowedKinds;
+  }
+
+  const typedDeliverySchema = deliverySchema as { items?: unknown; prefixItems?: unknown };
+
+  if (typedDeliverySchema.items) {
+    if (!extractAllowedKindsFromSchema(typedDeliverySchema.items, allowedKinds, outputSchema)) {
+      return null;
+    }
+  }
+
+  if (Array.isArray(typedDeliverySchema.prefixItems)) {
+    for (const item of typedDeliverySchema.prefixItems) {
+      if (!extractAllowedKindsFromSchema(item, allowedKinds, outputSchema)) {
+        return null;
+      }
+    }
+  }
+
   return allowedKinds;
 }
 
@@ -175,12 +241,22 @@ function validateLeafSafety(ast: ExecutorAst, stages: ResolvedStageAst[]): void 
 
   if (ast.stages.length > 1) {
     const allowedKinds = findAllowedDeliveryKinds(leafSkill.outputSchema);
+    const leafStageIndex = ast.stages.findIndex((stage) => stage.id === leafStage.id);
+
+    if (allowedKinds === null) {
+      throw new ZodError([
+        makeIssue(
+          ['stages', leafStageIndex, 'system_skill'],
+          `Leaf stage '${leafStage.id}' uses skill '${leafSkill.name}' with external $ref not supported in multi-stage delivery validation`,
+        ),
+      ]);
+    }
 
     for (const bannedKind of BANNED_MULTI_STAGE_DELIVERY_KINDS) {
       if (allowedKinds.has(bannedKind)) {
         throw new ZodError([
           makeIssue(
-            ['stages', ast.stages.findIndex((stage) => stage.id === leafStage.id), 'system_skill'],
+            ['stages', leafStageIndex, 'system_skill'],
             `Leaf stage '${leafStage.id}' uses skill '${leafSkill.name}' which allows banned delivery kind '${bannedKind}' in a multi-stage executor`,
           ),
         ]);

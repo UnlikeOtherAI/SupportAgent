@@ -7,6 +7,7 @@ export interface ExecutorInputSourceAst {
 
 export interface LoopSafetyAst {
   min_iteration_change?: boolean;
+  no_self_retrigger: boolean;
 }
 
 export interface ExecutorGuardrailsAst {

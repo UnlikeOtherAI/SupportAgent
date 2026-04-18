@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { runWithLoop } from './loop-wrapper.js';
+import { normalizedLeafOutputsEqual, runWithLoop } from './loop-wrapper.js';
 import { CanceledError, FanOutFailureError } from './types.js';
 
 function buildExecutor(loopOverrides: Partial<Record<string, unknown>> = {}, guardrails = {}) {
@@ -178,5 +178,60 @@ describe('runWithLoop', () => {
         },
       ],
     ]);
+  });
+
+  it('treats differing report summaries and next iteration focus as converged', () => {
+    expect(
+      normalizedLeafOutputsEqual(
+        [
+          {
+            delivery: [{ kind: 'comment', body: 'same' }],
+            reportSummary: 'summary one',
+            loop: { done: false, next_iteration_focus: 'focus one' },
+          },
+        ],
+        [
+          {
+            delivery: [{ kind: 'comment', body: 'same' }],
+            reportSummary: 'summary two',
+            loop: { done: false, next_iteration_focus: 'focus two' },
+          },
+        ],
+      ),
+    ).toBe(true);
+  });
+
+  it('treats findings changes as non-converged', () => {
+    expect(
+      normalizedLeafOutputsEqual(
+        [{ delivery: [], findings: { summary: 'first' } }],
+        [{ delivery: [], findings: { summary: 'second' } }],
+      ),
+    ).toBe(false);
+  });
+
+  it('ignores volatile extras keys during convergence checks', () => {
+    expect(
+      normalizedLeafOutputsEqual(
+        [
+          {
+            delivery: [{ kind: 'comment', body: 'same' }],
+            extras: {
+              'x-loop-volatile-timestamp': '2026-04-18T12:00:00Z',
+              stable: 'value',
+            },
+          },
+        ],
+        [
+          {
+            delivery: [{ kind: 'comment', body: 'same' }],
+            extras: {
+              'X-Loop-Volatile-Timestamp': '2026-04-18T12:00:01Z',
+              stable: 'value',
+            },
+          },
+        ],
+      ),
+    ).toBe(true);
   });
 });

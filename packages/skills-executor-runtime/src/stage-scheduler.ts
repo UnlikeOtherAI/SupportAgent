@@ -4,6 +4,7 @@ import {
   AbortError,
   CanceledError,
   FanOutFailureError,
+  MultiLeafSafetyViolation,
   type BuildStagePromptFn,
   type CancelAwareRuntimeArgs,
   type RunStageFn,
@@ -102,6 +103,19 @@ function resolveFanOutThreshold(stage: ResolvedStageAst, executor: ResolvedExecu
   }
 
   return executor.ast.guardrails?.fan_out_min_success_rate ?? 1;
+}
+
+function assertMultiLeafCommentOnly(stage: ResolvedStageAst, outputs: SkillRunResult[]): void {
+  if (stage.parallel <= 1) {
+    return;
+  }
+
+  outputs.forEach((output, spawnIndex) => {
+    const offendingOp = output.delivery.find((op) => op.kind !== 'comment');
+    if (offendingOp) {
+      throw new MultiLeafSafetyViolation(stage.id, spawnIndex, offendingOp.kind);
+    }
+  });
 }
 
 async function executeStageOnce(
@@ -213,6 +227,7 @@ export async function runStageDag(args: RunStageDagArgs): Promise<StageDagRunRes
       throw result.errors[0]!;
     }
 
+    assertMultiLeafCommentOnly(stage, result.outputs);
     outputsByStage.set(stage.id, result.outputs);
     await args.checkpointWriter?.writeCheckpoint({
       kind: 'stage_complete',

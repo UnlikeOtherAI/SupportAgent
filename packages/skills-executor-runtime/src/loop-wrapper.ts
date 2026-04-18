@@ -35,8 +35,49 @@ function cloneOutputs(outputsByStage: Map<string, SkillRunResult[]>): Map<string
   );
 }
 
-function areLeafOutputsEqual(previous: SkillRunResult[], current: SkillRunResult[]): boolean {
-  return JSON.stringify(previous) === JSON.stringify(current);
+function stripVolatileFields(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripVolatileFields(item));
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const cloned = Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => [
+      key,
+      stripVolatileFields(entryValue),
+    ]),
+  );
+
+  delete cloned.reportSummary;
+
+  if ('loop' in cloned && cloned.loop && typeof cloned.loop === 'object' && !Array.isArray(cloned.loop)) {
+    delete (cloned.loop as Record<string, unknown>).next_iteration_focus;
+  }
+
+  if (
+    'extras' in cloned &&
+    cloned.extras &&
+    typeof cloned.extras === 'object' &&
+    !Array.isArray(cloned.extras)
+  ) {
+    for (const key of Object.keys(cloned.extras as Record<string, unknown>)) {
+      if (key.toLowerCase().startsWith('x-loop-volatile')) {
+        delete (cloned.extras as Record<string, unknown>)[key];
+      }
+    }
+  }
+
+  return cloned;
+}
+
+export function normalizedLeafOutputsEqual(
+  previous: SkillRunResult[],
+  current: SkillRunResult[],
+): boolean {
+  return JSON.stringify(stripVolatileFields(previous)) === JSON.stringify(stripVolatileFields(current));
 }
 
 function hasLoopDone(outputs: SkillRunResult[]): boolean {
@@ -97,7 +138,7 @@ export async function runWithLoop(args: RunWithLoopArgs): Promise<RunWithLoopRes
       if (
         minIterationChange &&
         previousLeafOutputs &&
-        areLeafOutputsEqual(previousLeafOutputs, result.leafOutputs)
+        normalizedLeafOutputsEqual(previousLeafOutputs, result.leafOutputs)
       ) {
         throw new NoProgressError(iteration);
       }

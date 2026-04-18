@@ -47,6 +47,70 @@ const stateDeliverySchema = {
   required: ['delivery'],
 };
 
+const prefixItemsStateDeliverySchema = {
+  type: 'object',
+  properties: {
+    delivery: {
+      type: 'array',
+      prefixItems: [
+        {
+          type: 'object',
+          properties: {
+            kind: { const: 'comment' },
+            body: { type: 'string' },
+          },
+          required: ['kind', 'body'],
+        },
+        {
+          type: 'object',
+          properties: {
+            kind: { const: 'state' },
+            change: { enum: ['close', 'reopen'] },
+          },
+          required: ['kind', 'change'],
+        },
+      ],
+    },
+  },
+  required: ['delivery'],
+};
+
+const refStateDeliverySchema = {
+  type: 'object',
+  properties: {
+    delivery: {
+      type: 'array',
+      items: {
+        $ref: '#/$defs/BannedOp',
+      },
+    },
+  },
+  required: ['delivery'],
+  $defs: {
+    BannedOp: {
+      type: 'object',
+      properties: {
+        kind: { const: 'state' },
+        change: { enum: ['close', 'reopen'] },
+      },
+      required: ['kind', 'change'],
+    },
+  },
+};
+
+const externalRefDeliverySchema = {
+  type: 'object',
+  properties: {
+    delivery: {
+      type: 'array',
+      items: {
+        $ref: 'https://example.com/delivery-op.schema.json',
+      },
+    },
+  },
+  required: ['delivery'],
+};
+
 const loopDoneSchema = {
   type: 'object',
   properties: {
@@ -202,6 +266,81 @@ describe('validateExecutor', () => {
         }),
       }),
     ).rejects.toThrow(/banned delivery kind 'state'/i);
+  });
+
+  it('throws when a multi-stage leaf skill allows state delivery through prefixItems', async () => {
+    const ast = parseExecutorYaml(buildExecutorYaml(2));
+
+    await expect(
+      validateExecutor(ast, {
+        resolveSkill: createResolver({
+          'triage-issue': {
+            contentHash: 'hash-triage',
+            role: 'SYSTEM',
+            outputSchema: commentOnlySchema,
+          },
+          consolidator: {
+            contentHash: 'hash-consolidator',
+            role: 'SYSTEM',
+            outputSchema: prefixItemsStateDeliverySchema,
+          },
+          'codebase-architecture': {
+            contentHash: 'hash-architecture',
+            role: 'COMPLEMENTARY',
+          },
+        }),
+      }),
+    ).rejects.toThrow(/banned delivery kind 'state'/i);
+  });
+
+  it('throws when a multi-stage leaf skill allows state delivery through a same-document ref', async () => {
+    const ast = parseExecutorYaml(buildExecutorYaml(2));
+
+    await expect(
+      validateExecutor(ast, {
+        resolveSkill: createResolver({
+          'triage-issue': {
+            contentHash: 'hash-triage',
+            role: 'SYSTEM',
+            outputSchema: commentOnlySchema,
+          },
+          consolidator: {
+            contentHash: 'hash-consolidator',
+            role: 'SYSTEM',
+            outputSchema: refStateDeliverySchema,
+          },
+          'codebase-architecture': {
+            contentHash: 'hash-architecture',
+            role: 'COMPLEMENTARY',
+          },
+        }),
+      }),
+    ).rejects.toThrow(/banned delivery kind 'state'/i);
+  });
+
+  it('fails closed when a multi-stage leaf skill uses an external ref', async () => {
+    const ast = parseExecutorYaml(buildExecutorYaml(2));
+
+    await expect(
+      validateExecutor(ast, {
+        resolveSkill: createResolver({
+          'triage-issue': {
+            contentHash: 'hash-triage',
+            role: 'SYSTEM',
+            outputSchema: commentOnlySchema,
+          },
+          consolidator: {
+            contentHash: 'hash-consolidator',
+            role: 'SYSTEM',
+            outputSchema: externalRefDeliverySchema,
+          },
+          'codebase-architecture': {
+            contentHash: 'hash-architecture',
+            role: 'COMPLEMENTARY',
+          },
+        }),
+      }),
+    ).rejects.toThrow(/external \$ref not supported/i);
   });
 
   it('passes when a single-stage executor allows state delivery', async () => {

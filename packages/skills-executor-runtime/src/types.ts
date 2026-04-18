@@ -41,6 +41,18 @@ export class FanOutFailureError extends SkillExecutorRuntimeError {
   }
 }
 
+export class MultiLeafSafetyViolation extends SkillExecutorRuntimeError {
+  constructor(
+    readonly stageId: string,
+    readonly spawnIndex: number,
+    readonly deliveryKind: string,
+  ) {
+    super(
+      `Stage "${stageId}" spawn ${spawnIndex} emitted forbidden multi-leaf delivery kind "${deliveryKind}"`,
+    );
+  }
+}
+
 export class SchemaValidationError extends SkillExecutorRuntimeError {}
 
 export class NoProgressError extends SkillExecutorRuntimeError {
