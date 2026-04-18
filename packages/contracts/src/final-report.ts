@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { WorkflowType, WorkflowRunStatus } from './enums.js';
+import { SkillRunResultSchema } from './skill-run-result.js';
 
 export const FinalReportSchema = z.object({
   workflowRunId: z.string().uuid(),
@@ -15,6 +16,7 @@ export const FinalReportSchema = z.object({
   artifactRefs: z.array(z.string()).optional(),
   logRef: z.string().optional(),
   findingsRef: z.string().optional(),
+  leafOutputs: z.array(SkillRunResultSchema).optional(),
   reviewOutcome: z.string().optional(),
   outboundActions: z.array(z.object({
     destinationId: z.string(),

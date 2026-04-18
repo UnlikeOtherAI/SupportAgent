@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runStageDag } from './stage-scheduler.js';
-import { AbortError, FanOutFailureError, SchemaValidationError } from './types.js';
+import { AbortError, CanceledError, FanOutFailureError, SchemaValidationError } from './types.js';
 
 function buildExecutor(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -35,10 +35,10 @@ describe('runStageDag', () => {
 
     const result = await runStageDag({
       executor: buildExecutor() as never,
-      taskPromptByStageId: { root: 'root prompt', leaf: 'leaf prompt' },
-      runStage: vi.fn(async (stageId) => {
-        calls.push(stageId);
-        return { delivery: [{ kind: 'comment', body: stageId }] };
+      buildStagePrompt: (stage) => `${stage.id} prompt`,
+      runStage: vi.fn(async (stage) => {
+        calls.push(stage.id);
+        return { delivery: [{ kind: 'comment', body: stage.id }] };
       }),
       signal: new AbortController().signal,
     });
@@ -77,9 +77,9 @@ describe('runStageDag', () => {
 
     const result = await runStageDag({
       executor: executor as never,
-      taskPromptByStageId: { workers: 'worker prompt', consolidator: 'consolidator prompt' },
-      runStage: vi.fn(async (stageId) => {
-        if (stageId === 'workers') {
+      buildStagePrompt: (stage) => `${stage.id} prompt`,
+      runStage: vi.fn(async (stage) => {
+        if (stage.id === 'workers') {
           return { delivery: [{ kind: 'comment', body: 'worker ok' }] };
         }
 
@@ -117,7 +117,7 @@ describe('runStageDag', () => {
           ],
           leafStageId: 'workers',
         }) as never,
-        taskPromptByStageId: { workers: 'worker prompt' },
+        buildStagePrompt: (stage) => `${stage.id} prompt`,
         runStage: vi
           .fn()
           .mockResolvedValueOnce({ delivery: [{ kind: 'comment', body: 'ok-1' }] })
@@ -131,23 +131,95 @@ describe('runStageDag', () => {
 
   it('honors abort signals before running remaining stages', async () => {
     const controller = new AbortController();
-    const runStage = vi.fn(async (stageId: string) => {
-      if (stageId === 'root') {
+    const runStage = vi.fn(async (stage: { id: string }) => {
+      if (stage.id === 'root') {
         controller.abort();
       }
 
-      return { delivery: [{ kind: 'comment', body: stageId }] };
+      return { delivery: [{ kind: 'comment', body: stage.id }] };
     });
 
     await expect(
       runStageDag({
         executor: buildExecutor() as never,
-        taskPromptByStageId: { root: 'root prompt', leaf: 'leaf prompt' },
+        buildStagePrompt: (stage) => `${stage.id} prompt`,
         runStage,
         signal: controller.signal,
       }),
     ).rejects.toBeInstanceOf(AbortError);
 
     expect(runStage).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves completed stage outputs when canceled between stages', async () => {
+    await expect(
+      runStageDag({
+        executor: buildExecutor() as never,
+        buildStagePrompt: (stage) => `${stage.id} prompt`,
+        runStage: vi.fn(async (stage) => ({
+          delivery: [{ kind: 'comment', body: stage.id }],
+        })),
+        signal: new AbortController().signal,
+        cancelChecker: vi
+          .fn()
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true),
+      }),
+    ).rejects.toMatchObject({
+      name: 'CanceledError',
+    });
+
+    try {
+      await runStageDag({
+        executor: buildExecutor() as never,
+        buildStagePrompt: (stage) => `${stage.id} prompt`,
+        runStage: vi.fn(async (stage) => ({
+          delivery: [{ kind: 'comment', body: stage.id }],
+        })),
+        signal: new AbortController().signal,
+        cancelChecker: vi
+          .fn()
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true),
+      });
+    } catch (error) {
+      expect(error).toBeInstanceOf(CanceledError);
+      const canceled = error as CanceledError;
+      expect(canceled.outputsByStage.get('root')).toEqual([
+        { delivery: [{ kind: 'comment', body: 'root' }] },
+      ]);
+      expect(canceled.outputsByStage.has('leaf')).toBe(false);
+    }
+  });
+
+  it('writes stage checkpoints in completion order', async () => {
+    const writeCheckpoint = vi.fn().mockResolvedValue(undefined);
+
+    await runStageDag({
+      executor: buildExecutor() as never,
+      buildStagePrompt: (stage) => `${stage.id} prompt`,
+      runStage: vi.fn(async (stage) => ({
+        delivery: [{ kind: 'comment', body: stage.id }],
+      })),
+      signal: new AbortController().signal,
+      checkpointWriter: { writeCheckpoint },
+    });
+
+    expect(writeCheckpoint.mock.calls).toEqual([
+      [
+        {
+          kind: 'stage_complete',
+          stageId: 'root',
+          payload: [{ delivery: [{ kind: 'comment', body: 'root' }] }],
+        },
+      ],
+      [
+        {
+          kind: 'stage_complete',
+          stageId: 'leaf',
+          payload: [{ delivery: [{ kind: 'comment', body: 'leaf' }] }],
+        },
+      ],
+    ]);
   });
 });

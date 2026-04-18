@@ -70,7 +70,10 @@ beforeEach(async () => {
   });
   vi.mocked(ghGetPRDiff).mockResolvedValue('diff --git a/src/index.ts b/src/index.ts');
   vi.mocked(ghCloneRepo).mockResolvedValue({ workDir, branch: 'main' });
-  vi.mocked(ghAddPRComment).mockResolvedValue(undefined);
+  vi.mocked(ghAddPRComment).mockResolvedValue({
+    id: 'comment-1',
+    url: 'https://github.com/rafiki270/max-test/pull/42#issuecomment-1',
+  });
 });
 
 afterEach(async () => {
@@ -85,8 +88,10 @@ function makeApi(): { api: WorkerApiClient; submitReport: ReturnType<typeof vi.f
       baseUrl: 'http://localhost:4441',
       secret: 'secret',
       fetchJobContext: vi.fn(),
+      getRunStatus: vi.fn(),
       postProgress: vi.fn().mockResolvedValue(undefined),
       postLog,
+      postCheckpoint: vi.fn(),
       uploadArtifact: vi.fn(),
       submitReport,
     } as WorkerApiClient,

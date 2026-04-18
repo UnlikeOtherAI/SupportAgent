@@ -4,6 +4,7 @@ import type {
   ResolvedSkillMetadata,
   ResolvedStageAst,
 } from '@support-agent/executors-runtime';
+import type { CheckpointWriter } from './cancel-checkpoint.js';
 
 export interface RuntimeResolvedSkill extends ResolvedSkillMetadata {
   name: string;
@@ -54,12 +55,36 @@ export class AbortError extends SkillExecutorRuntimeError {
   }
 }
 
+export class CanceledError extends SkillExecutorRuntimeError {
+  constructor(
+    message = 'Execution canceled',
+    readonly outputsByStage: Map<string, SkillRunResult[]> = new Map(),
+    readonly preservedOutputs: SkillRunResult[] = [],
+  ) {
+    super(message);
+  }
+}
+
 export interface RunStageFn {
-  (stageId: string, stagePrompt: string, executorKey: string): Promise<SkillRunResult>;
+  (stage: ResolvedStageAst, stagePrompt: string): Promise<SkillRunResult>;
 }
 
 export interface PersistIterationFn {
   (iteration: number, outputs: Map<string, SkillRunResult[]>): Promise<void>;
+}
+
+export interface BuildStagePromptFn {
+  (
+    stage: ResolvedStageAst,
+    outputsByStage: Map<string, SkillRunResult[]>,
+    iteration?: number,
+    prevIterationOutputs?: Map<string, SkillRunResult[]>,
+  ): string;
+}
+
+export interface CancelAwareRuntimeArgs {
+  cancelChecker?: () => Promise<boolean>;
+  checkpointWriter?: CheckpointWriter;
 }
 
 export type { ResolvedExecutor, ResolvedStageAst };

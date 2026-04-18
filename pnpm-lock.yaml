@@ -206,15 +206,27 @@ importers:
 
   apps/worker:
     dependencies:
+      '@prisma/client':
+        specifier: ^6.2.1
+        version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
       '@support-agent/config':
         specifier: workspace:*
         version: link:../../packages/config
       '@support-agent/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@support-agent/executors-runtime':
+        specifier: workspace:*
+        version: link:../../packages/executors-runtime
       '@support-agent/github-cli':
         specifier: workspace:*
         version: link:../../packages/github-cli
+      '@support-agent/skills-executor-runtime':
+        specifier: workspace:*
+        version: link:../../packages/skills-executor-runtime
+      '@support-agent/skills-runtime':
+        specifier: workspace:*
+        version: link:../../packages/skills-runtime
       bullmq:
         specifier: ^5.34.8
         version: 5.71.1

@@ -2,6 +2,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { processJob } from './worker.js';
 import { type WorkerJob } from '@support-agent/contracts';
 
+vi.mock('./handlers/skill-handler.js', () => ({
+  handleSkillJob: vi.fn().mockResolvedValue(undefined),
+}));
+
 function makeJob(overrides: Partial<WorkerJob> = {}): WorkerJob {
   return {
     jobId: crypto.randomUUID(),
@@ -46,6 +50,6 @@ describe('processJob', () => {
   it('routes jobs with executorKey to the skill handler first', async () => {
     const job = makeJob({ workflowType: 'triage', executorKey: 'triage-default' });
 
-    await expect(processJob(job)).rejects.toThrow('skill handler not implemented');
+    await expect(processJob(job)).resolves.toBeUndefined();
   });
 });

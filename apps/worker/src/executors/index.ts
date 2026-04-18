@@ -1,7 +1,11 @@
 import type { Executor } from './types.js';
+import { claudeHaikuExecutor, claudeSonnetExecutor } from './claude-executor.js';
+import { codexExecutor } from './codex-executor.js';
 import { maxExecutor } from './max-executor.js';
 
 export type { Executor, ExecutorRunInput, ExecutorRunResult } from './types.js';
+export { claudeHaikuExecutor, claudeSonnetExecutor } from './claude-executor.js';
+export { codexExecutor } from './codex-executor.js';
 export { maxExecutor } from './max-executor.js';
 export {
   runWithJsonOutput,
@@ -10,6 +14,9 @@ export {
 } from './json-output.js';
 
 const registry: Record<string, Executor> = {
+  [claudeHaikuExecutor.key]: claudeHaikuExecutor,
+  [claudeSonnetExecutor.key]: claudeSonnetExecutor,
+  [codexExecutor.key]: codexExecutor,
   [maxExecutor.key]: maxExecutor,
 };
 
@@ -22,5 +29,16 @@ export function getDefaultExecutor(): Executor {
       `Unknown executor "${key}". Registered: ${Object.keys(registry).join(', ')}`,
     );
   }
+  return executor;
+}
+
+export function getExecutorByKey(key: string): Executor {
+  const executor = registry[key];
+  if (!executor) {
+    throw new Error(
+      `Unknown executor "${key}". Registered: ${Object.keys(registry).join(', ')}`,
+    );
+  }
+
   return executor;
 }

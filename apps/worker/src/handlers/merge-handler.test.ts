@@ -65,8 +65,10 @@ function makeApi(): { api: WorkerApiClient; submitReport: ReturnType<typeof vi.f
       baseUrl: 'http://localhost:4441',
       secret: 'secret',
       fetchJobContext: vi.fn(),
+      getRunStatus: vi.fn(),
       postProgress: vi.fn().mockResolvedValue(undefined),
       postLog: vi.fn().mockResolvedValue(undefined),
+      postCheckpoint: vi.fn(),
       uploadArtifact: vi.fn(),
       submitReport,
     } as WorkerApiClient,
@@ -102,7 +104,10 @@ describe('handleMergeJob', () => {
       });
       vi.mocked(ghGetPRDiff).mockResolvedValue('diff --git a/file b/file');
       vi.mocked(ghGetPRFiles).mockResolvedValue(['apps/worker/src/handlers/merge-handler.ts']);
-      vi.mocked(ghAddPRComment).mockResolvedValue(undefined);
+      vi.mocked(ghAddPRComment).mockResolvedValue({
+        id: 'comment-1',
+        url: 'https://github.com/rafiki270/max-test/pull/32#issuecomment-1',
+      });
       vi.mocked(ghMergePR).mockResolvedValue(undefined);
 
       const { api, submitReport } = makeApi();
@@ -152,7 +157,10 @@ describe('handleMergeJob', () => {
     });
     vi.mocked(ghGetPRDiff).mockResolvedValue('diff --git a/file b/file');
     vi.mocked(ghGetPRFiles).mockResolvedValue(['apps/worker/src/handlers/merge-handler.ts']);
-    vi.mocked(ghAddPRComment).mockResolvedValue(undefined);
+    vi.mocked(ghAddPRComment).mockResolvedValue({
+      id: 'comment-2',
+      url: 'https://github.com/rafiki270/max-test/pull/32#issuecomment-2',
+    });
     vi.mocked(ghMergePR).mockResolvedValue(undefined);
 
     const { api, submitReport } = makeApi();
@@ -194,7 +202,10 @@ describe('handleMergeJob', () => {
     });
     vi.mocked(ghGetPRDiff).mockResolvedValue('diff --git a/file b/file');
     vi.mocked(ghGetPRFiles).mockResolvedValue(['apps/worker/src/handlers/merge-handler.ts']);
-    vi.mocked(ghAddPRComment).mockResolvedValue(undefined);
+    vi.mocked(ghAddPRComment).mockResolvedValue({
+      id: 'comment-3',
+      url: 'https://github.com/rafiki270/max-test/pull/32#issuecomment-3',
+    });
     vi.mocked(ghMergePR).mockResolvedValue(undefined);
 
     const { api } = makeApi();

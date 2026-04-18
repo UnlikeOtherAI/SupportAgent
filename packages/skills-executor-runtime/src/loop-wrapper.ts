@@ -2,6 +2,9 @@ import type { SkillRunResult } from '@support-agent/contracts';
 import type { ResolvedExecutor } from '@support-agent/executors-runtime';
 import { runStageDag } from './stage-scheduler.js';
 import {
+  CanceledError,
+  type BuildStagePromptFn,
+  type CancelAwareRuntimeArgs,
   type PersistIterationFn,
   type RunStageFn,
   type StageDagRunResult,
@@ -10,10 +13,12 @@ import {
 
 interface RunWithLoopArgs {
   executor: ResolvedExecutor;
-  taskPromptByStageId: Record<string, string>;
+  buildStagePrompt: BuildStagePromptFn;
   runStage: RunStageFn;
   signal: AbortSignal;
   persistIteration: PersistIterationFn;
+  cancelChecker?: CancelAwareRuntimeArgs['cancelChecker'];
+  checkpointWriter?: CancelAwareRuntimeArgs['checkpointWriter'];
 }
 
 interface RunWithLoopResult {
@@ -40,8 +45,20 @@ function hasLoopDone(outputs: SkillRunResult[]): boolean {
 
 export async function runWithLoop(args: RunWithLoopArgs): Promise<RunWithLoopResult> {
   if (!args.executor.ast.loop.enabled) {
-    const result = await runStageDag(args);
+    const result = await runStageDag({
+      executor: args.executor,
+      buildStagePrompt: args.buildStagePrompt,
+      runStage: args.runStage,
+      signal: args.signal,
+      cancelChecker: args.cancelChecker,
+      checkpointWriter: args.checkpointWriter,
+    });
     await args.persistIteration(1, result.outputsByStage);
+    await args.checkpointWriter?.writeCheckpoint({
+      kind: 'iteration_complete',
+      iteration: 1,
+      payload: result.leafOutputs.map((output) => structuredClone(output)),
+    });
     return {
       iterations: 1,
       finalOutputs: result.leafOutputs,
@@ -58,7 +75,24 @@ export async function runWithLoop(args: RunWithLoopArgs): Promise<RunWithLoopRes
 
   for (let iteration = 1; iteration <= loopConfig.max_iterations; iteration += 1) {
     try {
-      const result = await runStageDag(args);
+      if (iteration > 1 && await args.cancelChecker?.()) {
+        throw new CanceledError(
+          `Execution canceled before iteration ${iteration}`,
+          lastSuccessfulResult ? cloneOutputs(lastSuccessfulResult.outputsByStage) : new Map(),
+          lastSuccessfulResult?.leafOutputs.map((output) => structuredClone(output)) ?? [],
+        );
+      }
+
+      const result = await runStageDag({
+        executor: args.executor,
+        buildStagePrompt: args.buildStagePrompt,
+        runStage: args.runStage,
+        signal: args.signal,
+        iteration,
+        prevIterationOutputs: lastSuccessfulResult?.outputsByStage,
+        cancelChecker: args.cancelChecker,
+        checkpointWriter: args.checkpointWriter,
+      });
 
       if (
         minIterationChange &&
@@ -69,6 +103,11 @@ export async function runWithLoop(args: RunWithLoopArgs): Promise<RunWithLoopRes
       }
 
       await args.persistIteration(iteration, result.outputsByStage);
+      await args.checkpointWriter?.writeCheckpoint({
+        kind: 'iteration_complete',
+        iteration,
+        payload: result.leafOutputs.map((output) => structuredClone(output)),
+      });
 
       lastSuccessfulResult = result;
       previousLeafOutputs = result.leafOutputs.map((output) => structuredClone(output));
@@ -87,6 +126,19 @@ export async function runWithLoop(args: RunWithLoopArgs): Promise<RunWithLoopRes
         };
       }
     } catch (error) {
+      if (error instanceof CanceledError) {
+        throw new CanceledError(
+          error.message,
+          error.outputsByStage.size > 0
+            ? error.outputsByStage
+            : lastSuccessfulResult
+              ? cloneOutputs(lastSuccessfulResult.outputsByStage)
+              : new Map(),
+          error.preservedOutputs.length > 0
+            ? error.preservedOutputs
+            : lastSuccessfulResult?.leafOutputs.map((output) => structuredClone(output)) ?? [],
+        );
+      }
       if (stickyDone) {
         return {
           iterations: stickyDone.iteration,

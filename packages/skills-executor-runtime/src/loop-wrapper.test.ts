@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runWithLoop } from './loop-wrapper.js';
-import { FanOutFailureError } from './types.js';
+import { CanceledError, FanOutFailureError } from './types.js';
 
 function buildExecutor(loopOverrides: Partial<Record<string, unknown>> = {}, guardrails = {}) {
   return {
@@ -32,7 +32,7 @@ describe('runWithLoop', () => {
     const persistIteration = vi.fn().mockResolvedValue(undefined);
     const result = await runWithLoop({
       executor: buildExecutor({ enabled: false, until_done: false, max_iterations: 1 }) as never,
-      taskPromptByStageId: { leaf: 'prompt' },
+      buildStagePrompt: () => 'prompt',
       runStage: vi.fn().mockResolvedValue({ delivery: [{ kind: 'comment', body: 'once' }] }),
       signal: new AbortController().signal,
       persistIteration,
@@ -59,7 +59,7 @@ describe('runWithLoop', () => {
 
     const result = await runWithLoop({
       executor: buildExecutor() as never,
-      taskPromptByStageId: { leaf: 'prompt' },
+      buildStagePrompt: () => 'prompt',
       runStage,
       signal: new AbortController().signal,
       persistIteration: vi.fn().mockResolvedValue(undefined),
@@ -74,7 +74,7 @@ describe('runWithLoop', () => {
   it('returns the last successful outputs at max_iterations', async () => {
     const result = await runWithLoop({
       executor: buildExecutor({ until_done: false, max_iterations: 2 }) as never,
-      taskPromptByStageId: { leaf: 'prompt' },
+      buildStagePrompt: () => 'prompt',
       runStage: vi
         .fn()
         .mockResolvedValueOnce({
@@ -99,7 +99,7 @@ describe('runWithLoop', () => {
     await expect(
       runWithLoop({
         executor: buildExecutor({ until_done: false, max_iterations: 2 }, { loop_safety: { min_iteration_change: true } }) as never,
-        taskPromptByStageId: { leaf: 'prompt' },
+        buildStagePrompt: () => 'prompt',
         runStage: vi.fn().mockResolvedValue({
           delivery: [{ kind: 'comment', body: 'same' }],
           loop: { done: false },
@@ -121,7 +121,7 @@ describe('runWithLoop', () => {
 
     const result = await runWithLoop({
       executor: buildExecutor({ until_done: false, max_iterations: 2 }) as never,
-      taskPromptByStageId: { leaf: 'prompt' },
+      buildStagePrompt: () => 'prompt',
       runStage,
       signal: new AbortController().signal,
       persistIteration: vi.fn().mockResolvedValue(undefined),
@@ -131,5 +131,52 @@ describe('runWithLoop', () => {
       iterations: 1,
       finalOutputs: [{ delivery: [{ kind: 'comment', body: 'stable result' }], loop: { done: true } }],
     });
+  });
+
+  it('preserves the last completed iteration outputs when canceled between iterations', async () => {
+    const persistIteration = vi.fn().mockResolvedValue(undefined);
+    const writeCheckpoint = vi.fn().mockResolvedValue(undefined);
+
+    try {
+      await runWithLoop({
+        executor: buildExecutor({ until_done: false, max_iterations: 3 }) as never,
+        buildStagePrompt: () => 'prompt',
+        runStage: vi.fn().mockResolvedValue({
+          delivery: [{ kind: 'comment', body: 'iteration-one' }],
+          loop: { done: false },
+        }),
+        signal: new AbortController().signal,
+        persistIteration,
+        checkpointWriter: { writeCheckpoint },
+        cancelChecker: vi
+          .fn()
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true),
+      });
+    } catch (error) {
+      expect(error).toBeInstanceOf(CanceledError);
+      const canceled = error as CanceledError;
+      expect(canceled.preservedOutputs).toEqual([
+        { delivery: [{ kind: 'comment', body: 'iteration-one' }], loop: { done: false } },
+      ]);
+    }
+
+    expect(persistIteration).toHaveBeenCalledTimes(1);
+    expect(writeCheckpoint.mock.calls).toEqual([
+      [
+        {
+          kind: 'stage_complete',
+          stageId: 'leaf',
+          payload: [{ delivery: [{ kind: 'comment', body: 'iteration-one' }], loop: { done: false } }],
+        },
+      ],
+      [
+        {
+          kind: 'iteration_complete',
+          iteration: 1,
+          payload: [{ delivery: [{ kind: 'comment', body: 'iteration-one' }], loop: { done: false } }],
+        },
+      ],
+    ]);
   });
 });

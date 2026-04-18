@@ -26,6 +26,8 @@ import { syncPlatformTypes } from './lib/sync-platform-types.js';
 import { pollingRoutes } from './routes/polling.js';
 import { reviewProfileRoutes } from './routes/review-profiles.js';
 import { workflowScenarioRoutes } from './routes/workflow-scenarios.js';
+import { workflowRunProgressCommentRoutes } from './routes/workflow-run-progress-comments.js';
+import { dispatchAttemptCheckpointRoutes } from './routes/dispatch-attempt-checkpoints.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
@@ -65,6 +67,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(repositoryMappingRoutes, { prefix: '/v1/repository-mappings' });
   await app.register(reviewProfileRoutes, { prefix: '/v1/review-profiles' });
   await app.register(workflowScenarioRoutes, { prefix: '/v1/workflow-scenarios' });
+  await app.register(workflowRunProgressCommentRoutes, { prefix: '/v1/workflow-runs' });
   await app.register(
     async function workerScope(instance) {
       instance.addContentTypeParser(
@@ -80,6 +83,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   );
   await app.register(settingsRoutes, { prefix: '/v1/settings' });
   await app.register(dispatcherRoutes, { prefix: '/v1/dispatcher' });
+  await app.register(dispatchAttemptCheckpointRoutes, { prefix: '/v1/dispatch-attempts' });
   await app.register(workflowChainRoutes, { prefix: '/v1/workflow-chain' });
   await app.register(pollingRoutes, { prefix: '/v1/polling' });
 

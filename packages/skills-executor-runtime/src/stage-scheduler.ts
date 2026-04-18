@@ -2,7 +2,10 @@ import type { SkillRunResult } from '@support-agent/contracts';
 import type { ResolvedExecutor, ResolvedStageAst } from '@support-agent/executors-runtime';
 import {
   AbortError,
+  CanceledError,
   FanOutFailureError,
+  type BuildStagePromptFn,
+  type CancelAwareRuntimeArgs,
   type RunStageFn,
   SchemaValidationError,
   type StageDagRunResult,
@@ -10,9 +13,13 @@ import {
 
 interface RunStageDagArgs {
   executor: ResolvedExecutor;
-  taskPromptByStageId: Record<string, string>;
+  buildStagePrompt: BuildStagePromptFn;
   runStage: RunStageFn;
   signal: AbortSignal;
+  iteration?: number;
+  prevIterationOutputs?: Map<string, SkillRunResult[]>;
+  cancelChecker?: CancelAwareRuntimeArgs['cancelChecker'];
+  checkpointWriter?: CancelAwareRuntimeArgs['checkpointWriter'];
 }
 
 interface StageExecutionResult {
@@ -24,6 +31,15 @@ function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) {
     throw new AbortError();
   }
+}
+
+function cloneOutputs(outputsByStage: Map<string, SkillRunResult[]>): Map<string, SkillRunResult[]> {
+  return new Map(
+    Array.from(outputsByStage.entries(), ([stageId, outputs]) => [
+      stageId,
+      outputs.map((output) => structuredClone(output)),
+    ]),
+  );
 }
 
 function topologicallySortStages(stages: ResolvedStageAst[]): ResolvedStageAst[] {
@@ -97,7 +113,7 @@ async function executeStageOnce(
   throwIfAborted(signal);
 
   const settled = await Promise.allSettled(
-    Array.from({ length: stage.parallel }, () => runStage(stage.id, prompt, stage.executor)),
+    Array.from({ length: stage.parallel }, () => runStage(stage, prompt)),
   );
 
   const outputs: SkillRunResult[] = [];
@@ -163,11 +179,20 @@ export async function runStageDag(args: RunStageDagArgs): Promise<StageDagRunRes
 
   for (const stage of orderedStages) {
     throwIfAborted(args.signal);
-
-    const prompt = args.taskPromptByStageId[stage.id];
-    if (typeof prompt !== 'string') {
-      throw new Error(`Missing task prompt for stage "${stage.id}"`);
+    if (await args.cancelChecker?.()) {
+      throw new CanceledError(
+        `Execution canceled before stage "${stage.id}"`,
+        cloneOutputs(outputsByStage),
+        getLeafOutputs(args.executor, outputsByStage),
+      );
     }
+
+    const prompt = args.buildStagePrompt(
+      stage,
+      cloneOutputs(outputsByStage),
+      args.iteration,
+      args.prevIterationOutputs ? cloneOutputs(args.prevIterationOutputs) : undefined,
+    );
 
     const result = await executeStageWithRetries(
       stage,
@@ -189,6 +214,11 @@ export async function runStageDag(args: RunStageDagArgs): Promise<StageDagRunRes
     }
 
     outputsByStage.set(stage.id, result.outputs);
+    await args.checkpointWriter?.writeCheckpoint({
+      kind: 'stage_complete',
+      stageId: stage.id,
+      payload: result.outputs.map((output) => structuredClone(output)),
+    });
   }
 
   return {

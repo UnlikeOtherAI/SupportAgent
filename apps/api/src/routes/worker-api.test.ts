@@ -135,6 +135,10 @@ describe('Worker API routes', () => {
     try {
       // Clean up in strict FK-safe order using raw SQL to avoid constraint issues
       await app.prisma.$executeRawUnsafe(
+        `DELETE FROM dispatch_attempt_checkpoints WHERE "dispatchAttemptId" IN (SELECT id FROM worker_dispatches WHERE "workflowRunId" IN (SELECT id FROM workflow_runs WHERE "tenantId" = $1))`,
+        TEST_TENANT_ID,
+      );
+      await app.prisma.$executeRawUnsafe(
         `DELETE FROM workflow_log_events WHERE "workflowRunId" IN (SELECT id FROM workflow_runs WHERE "tenantId" = $1)`,
         TEST_TENANT_ID,
       );
@@ -242,6 +246,17 @@ describe('Worker API routes', () => {
     expect(logs[0].message).toBe('npm install completed');
   });
 
+  it('POST /v1/workflow-runs/:runId/progress-comment accepts worker-authenticated updates', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/workflow-runs/${workflowRunId}/progress-comment`,
+      headers: { authorization: `Bearer ${WORKER_SECRET}` },
+      payload: { body: 'Still working...' },
+    });
+
+    expect(res.statusCode).toBe(204);
+  });
+
   it('POST /:jobId/report updates run status to succeeded', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -271,5 +286,82 @@ describe('Worker API routes', () => {
     });
     expect(logs.length).toBeGreaterThanOrEqual(1);
     expect(logs[0].message).toBe('Triage completed successfully');
+  });
+
+  it('POST /v1/dispatch-attempts/:id/checkpoints appends a checkpoint row', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/dispatch-attempts/${dispatchId}/checkpoints`,
+      headers: { authorization: `Bearer ${WORKER_SECRET}` },
+      payload: {
+        kind: 'stage_complete',
+        stageId: 'investigate',
+        payload: [
+          {
+            delivery: [{ kind: 'comment', body: 'checkpoint body' }],
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(204);
+
+    const checkpoints = await app.prisma.dispatchAttemptCheckpoint.findMany({
+      where: { dispatchAttemptId: dispatchId },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(checkpoints.at(-1)?.kind).toBe('stage_complete');
+    expect(checkpoints.at(-1)?.stageId).toBe('investigate');
+  });
+
+  it('POST /:jobId/report accepts canceled reports with leaf outputs', async () => {
+    const run = await app.prisma.workflowRun.create({
+      data: {
+        tenantId: TEST_TENANT_ID,
+        workflowType: 'triage',
+        status: 'running',
+        workItemId,
+        repositoryMappingId: repoMappingId,
+        startedAt: new Date(),
+      },
+    });
+
+    const canceledDispatch = await app.prisma.workerDispatch.create({
+      data: {
+        workflowRunId: run.id,
+        executionProviderId,
+        workerSharedSecret: 'worker-test-secret-canceled-321',
+        jobPayload: { type: 'triage' },
+        status: 'running',
+        attemptNumber: 1,
+      },
+    });
+
+    await app.prisma.workflowRun.update({
+      where: { id: run.id },
+      data: { acceptedDispatchAttempt: canceledDispatch.id },
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/worker/jobs/${canceledDispatch.id}/report`,
+      headers: { authorization: 'Bearer worker-test-secret-canceled-321' },
+      payload: {
+        status: 'canceled',
+        summary: 'Canceled after first iteration',
+        leafOutputs: [
+          {
+            delivery: [{ kind: 'comment', body: 'partial output' }],
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+
+    const updatedRun = await app.prisma.workflowRun.findUnique({
+      where: { id: run.id },
+    });
+    expect(updatedRun?.status).toBe('canceled');
   });
 });

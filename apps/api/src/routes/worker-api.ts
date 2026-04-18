@@ -1,3 +1,4 @@
+import { type SkillRunResult, SkillRunResultSchema } from '@support-agent/contracts';
 import { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { verifyWorkerAuth } from '../plugins/worker-auth.js';
@@ -78,7 +79,7 @@ export async function workerApiRoutes(app: FastifyInstance) {
     assertJobIdMatch(request);
     const body = z
       .object({
-        status: z.enum(['succeeded', 'failed']),
+        status: z.enum(['succeeded', 'failed', 'canceled']),
         summary: z.string(),
         stageResults: z
           .array(
@@ -91,6 +92,9 @@ export async function workerApiRoutes(app: FastifyInstance) {
           )
           .optional(),
         findingsRef: z.string().optional(),
+        leafOutputs: z
+          .array(SkillRunResultSchema)
+          .optional(),
       })
       .parse(request.body);
     return service.submitReport(
