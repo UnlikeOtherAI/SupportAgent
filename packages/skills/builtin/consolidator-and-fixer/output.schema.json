@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "consolidator-and-fixer SkillRunResult",
+  "type": "object",
+  "properties": {
+    "delivery": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "prefixItems": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "comment"
+            },
+            "body": {
+              "type": "string"
+            }
+          },
+          "required": ["kind", "body"]
+        }
+      ]
+    },
+    "findings": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "rootCause": {
+          "type": "string"
+        },
+        "reproductionSteps": {
+          "type": "string"
+        },
+        "proposedFix": {
+          "type": "string"
+        },
+        "affectedAreas": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"]
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        "custom": {
+          "type": "object"
+        }
+      }
+    },
+    "reportSummary": {
+      "type": "string"
+    },
+    "loop": {
+      "type": "object",
+      "properties": {
+        "done": {
+          "type": "boolean"
+        },
+        "next_iteration_focus": {
+          "type": "string"
+        }
+      },
+      "required": ["done"]
+    },
+    "extras": {
+      "type": "object"
+    }
+  },
+  "required": ["delivery", "loop"]
+}

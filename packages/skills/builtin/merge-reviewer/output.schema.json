@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "merge-reviewer SkillRunResult",
+  "type": "object",
+  "properties": {
+    "delivery": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "comment"
+            },
+            "body": {
+              "type": "string"
+            }
+          },
+          "required": ["kind", "body"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "state"
+            },
+            "change": {
+              "type": "string",
+              "enum": ["merge", "request_changes"]
+            }
+          },
+          "required": ["kind", "change"]
+        }
+      ]
+    },
+    "findings": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "rootCause": {
+          "type": "string"
+        },
+        "reproductionSteps": {
+          "type": "string"
+        },
+        "proposedFix": {
+          "type": "string"
+        },
+        "affectedAreas": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"]
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        "custom": {
+          "type": "object"
+        }
+      }
+    },
+    "reportSummary": {
+      "type": "string"
+    },
+    "loop": {
+      "type": "object",
+      "properties": {
+        "done": {
+          "type": "boolean"
+        },
+        "next_iteration_focus": {
+          "type": "string"
+        }
+      },
+      "required": ["done"]
+    },
+    "extras": {
+      "type": "object"
+    }
+  },
+  "required": ["delivery"]
+}

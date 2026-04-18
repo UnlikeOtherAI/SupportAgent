@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "triage-issue SkillRunResult",
+  "type": "object",
+  "properties": {
+    "delivery": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "findings": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "rootCause": {
+          "type": "string"
+        },
+        "reproductionSteps": {
+          "type": "string"
+        },
+        "proposedFix": {
+          "type": "string"
+        },
+        "affectedAreas": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"]
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        "custom": {
+          "type": "object",
+          "properties": {
+            "replicationSteps": {
+              "type": "string"
+            },
+            "severityJustification": {
+              "type": "string"
+            },
+            "confidenceReason": {
+              "type": "string"
+            },
+            "logsExcerpt": {
+              "type": "string"
+            },
+            "sources": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "replicationSteps",
+            "severityJustification",
+            "confidenceReason",
+            "logsExcerpt",
+            "sources"
+          ]
+        }
+      },
+      "required": [
+        "summary",
+        "rootCause",
+        "reproductionSteps",
+        "proposedFix",
+        "affectedAreas",
+        "severity",
+        "confidence",
+        "custom"
+      ]
+    },
+    "reportSummary": {
+      "type": "string"
+    },
+    "loop": {
+      "type": "object",
+      "properties": {
+        "done": {
+          "type": "boolean"
+        },
+        "next_iteration_focus": {
+          "type": "string"
+        }
+      },
+      "required": ["done"]
+    },
+    "extras": {
+      "type": "object"
+    }
+  },
+  "required": ["delivery", "findings"],
+  "$defs": {
+    "prSpec": {
+      "type": "object",
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "commit_message": {
+          "type": "string"
+        },
+        "draft": {
+          "type": "boolean"
+        }
+      },
+      "required": ["branch", "title", "body"]
+    },
+    "deliveryOp": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "comment"
+            },
+            "body": {
+              "type": "string"
+            }
+          },
+          "required": ["kind", "body"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "labels"
+            },
+            "add": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "remove": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": ["kind"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "state"
+            },
+            "change": {
+              "type": "string",
+              "enum": ["close", "reopen", "merge", "request_changes", "approve"]
+            }
+          },
+          "required": ["kind", "change"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "pr"
+            },
+            "spec": {
+              "$ref": "#/$defs/prSpec"
+            }
+          },
+          "required": ["kind", "spec"]
+        }
+      ]
+    }
+  }
+}
