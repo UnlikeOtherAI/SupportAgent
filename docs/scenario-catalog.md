@@ -112,6 +112,32 @@ Friendly comment when an issue is opened by an author with no prior activity in 
 - **Knobs:** trigger label name, severity label prefix
 - **Status:** ✅ ready — tested on `rafiki270/max-test#51`
 
+### 2.2 Project-Field-Driven Triage
+Same behavior as 2.1 but triggered by a GitHub Projects v2 item's custom-field value (e.g. `Status: Needs Triage`) instead of an issue label. Item may be an `ISSUE`, `PULL_REQUEST`, or `DRAFT_ISSUE`. Supports the pattern where a team's source of truth is a Project board, not the issue list.
+
+- **Trigger:** `github.project_v2_item.field_changed` — `fieldName: Status`, `fieldValue: Needs Triage` (configurable)
+- **Action:** `workflow.triage`
+  - Draft items: run triage against the draft body + title only (no repo clone, no code context).
+  - Issue/PR items: resolve to the underlying issue/PR and run the normal triage flow.
+- **Outputs:**
+  - `github.issue.comment` (findings) — only when the item resolves to a real issue/PR
+  - `github_projects.item.update` — set `Status: Triaged`, populate `Severity` single-select from findings
+  - Optional `github.issue.label` when the item resolves to an issue
+- **Knobs:** project owner+number, trigger field name, trigger value, output-status value, severity-field name
+- **Status:** 🔧 needs `github_projects` connector (GraphQL + `projects_v2_item` webhook), draft-item triage path
+
+### 2.3 Project-Field-Driven Build
+A Project item transitions to `Status: Needs PR` (configurable). System runs a build against the linked issue and opens a PR that says `Fixes #N`. On PR open, the Project item auto-moves to `Status: In Review` (GitHub's native Projects PR automation) or the connector sets it explicitly.
+
+- **Trigger:** `github.project_v2_item.field_changed` — `fieldName: Status`, `fieldValue: Needs PR`
+- **Action:** `workflow.build` (`issueLinkMode: fixes`)
+- **Outputs:**
+  - PR opened via normal build flow
+  - `github_projects.item.update` — set `Status: In Review`, set `PR` field to the new PR url (if `URL` custom field configured)
+  - `github.issue.comment` on the linked issue with PR link
+- **Knobs:** project owner+number, trigger field/value, in-review status value, PR-link field name
+- **Status:** 🔧 needs `github_projects` connector + draft-item-to-issue resolution + skip-if-no-linked-issue guard
+
 ---
 
 ## 3. Issue Lifecycle Hygiene
@@ -409,6 +435,30 @@ PR changes code in `apps/api/src/` (or other documented areas) without touching 
 - **Outputs:** `github.pr.comment` + `github.issue.label: docs-needed`.
 - **Knobs:** code-glob ↔ doc-glob mapping (`src/services/* → docs/services/*`).
 - **Status:** 🔧 needs skills + executors runtime + changed-files lookup.
+
+### 11.4 Wiki Knowledge-Base Auto-Updater
+PR merges new functionality. Scan wiki pages linked from the GitHub Project that owns the PR's tracking item, decide which pages are affected, and rewrite them as user-facing docs support teams can use as a knowledge base.
+
+Concrete example: the repo has a wiki page _"How to run a click-through test"_. A PR lands that changes how click-through tests are invoked. Workflow launches, identifies the behavior delta from the diff + PR body, finds the wiki page via the GitHub Project item the PR is linked to, and commits an updated version of the page written for end-users (admins / support / operators) rather than developers.
+
+- **Trigger:** `github.pull_request.merged` (also usable on `github.pull_request.opened` as a preview)
+- **Executor:** `wiki-kb-writer` (single stage; loop variant when multiple pages need coordinated edits)
+  - System skill: `wiki-kb-writer`
+  - Complementary skills: `<project>-architecture`, `<project>-doc-conventions`, `<project>-audience-voice` (one per audience: admin / support / end-user)
+- **Inputs:**
+  - PR diff + body + linked issue(s) — via `github` connector
+  - Project item the PR is linked to, plus any `docs`/`wiki`/`kb` custom-field values on that item — via `github_projects` connector
+  - Wiki pages referenced from the Project item or from the linked issue — via `github_wiki` connector (git-backed `<repo>.wiki.git`)
+- **Outputs:**
+  - `github.wiki.update` — rewrite affected wiki pages as user-facing docs (new primitive, see gaps)
+  - `github.pr.comment` — summary listing pages updated + one-line diff per page
+  - `github_projects.item.update` — set a `Docs Updated` custom field on the linked Project item
+- **Knobs:**
+  - `audience`: `admin | support | end_user | developer` (picks complementary skill)
+  - `pageSelection`: `project_linked | issue_linked | both` (how to discover candidate pages)
+  - `draftMode`: `commit_directly | commit_to_branch_pr_wiki_repo` — wiki git repo has no PR mechanism, so review path is a separate normal repo PR containing the proposed wiki markdown
+  - `commitTemplate`: message used when pushing to the wiki git repo
+- **Status:** 🔧 needs `github_wiki` connector (git-backed CRUD), `github_projects` connector (custom-field read/write), `wiki-kb-writer` skill, new output primitive `github.wiki.update`.
 
 ---
 
