@@ -17,6 +17,7 @@
     "@support-agent/contracts": "workspace:*",
     "@support-agent/github-cli": "workspace:*",
     "@support-agent/queue": "workspace:*",
+    "@support-agent/skills-runtime": "workspace:*",
     "fastify": "^5.2.1",
     "fastify-plugin": "^5.1.0",
     "jose": "^6.2.2",

@@ -9,6 +9,7 @@
   "references": [
     { "path": "../../packages/config" },
     { "path": "../../packages/contracts" },
-    { "path": "../../packages/github-cli" }
+    { "path": "../../packages/github-cli" },
+    { "path": "../../packages/skills-runtime" }
   ]
 }
