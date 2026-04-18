@@ -21,6 +21,11 @@ import {
   respondioGetConversation,
   respondioPostComment,
 } from '../lib/respondio-cli.js';
+import {
+  jiraAddComment,
+  jiraAuthAvailable,
+  jiraGetIssue,
+} from '../lib/jira-cli.js';
 import type { Executor } from '../executors/index.js';
 import { writeFile } from 'node:fs/promises';
 
@@ -44,6 +49,12 @@ vi.mock('../lib/respondio-cli.js', () => ({
   respondioAuthAvailable: vi.fn(),
   respondioGetConversation: vi.fn(),
   respondioPostComment: vi.fn(),
+}));
+
+vi.mock('../lib/jira-cli.js', () => ({
+  jiraAddComment: vi.fn(),
+  jiraAuthAvailable: vi.fn(),
+  jiraGetIssue: vi.fn(),
 }));
 
 beforeEach(() => {
@@ -311,6 +322,108 @@ describe('handleTriageJob — Respond.io-sourced', () => {
       expect.objectContaining({
         status: 'failed',
         summary: expect.stringContaining('No Respond.io contact id'),
+      }),
+    );
+  });
+});
+
+describe('handleTriageJob — Jira-sourced', () => {
+  function makeJiraJob(): WorkerJob {
+    return {
+      jobId: crypto.randomUUID(),
+      workflowRunId: crypto.randomUUID(),
+      workflowType: 'triage',
+      apiBaseUrl: 'http://localhost:4441',
+      workerSharedSecret: 'secret',
+      sourceConnectorKey: 'jira',
+      targetRepo: 'https://github.com/rafiki270/max-test',
+      executionProfile: 'analysis-only',
+      reproductionPolicy: 'never',
+      artifactUploadMode: 'api',
+      timeoutSeconds: 60,
+      providerHints: {
+        sourceExternalId: 'PROJ-42',
+        sourcePlatform: 'jira',
+      },
+    } as WorkerJob;
+  }
+
+  it('fetches the Jira issue, posts the discovery comment to Jira, and never labels GitHub', async () => {
+    vi.mocked(ghCheckAuth).mockResolvedValue(true);
+    vi.mocked(parseGitHubRef).mockReturnValue({ owner: 'rafiki270', repo: 'max-test' });
+    vi.mocked(ghCloneRepo).mockResolvedValue({ workDir: '/tmp/triage-jira', branch: 'main' });
+    vi.mocked(jiraAuthAvailable).mockReturnValue(true);
+    vi.mocked(jiraGetIssue).mockResolvedValue({
+      id: '10001',
+      key: 'PROJ-42',
+      summary: 'Auth crashes',
+      description: 'Steps inside.',
+      url: 'https://acme.atlassian.net/browse/PROJ-42',
+      status: 'To Do',
+      priority: 'High',
+      labels: [],
+      assignee: null,
+    });
+    vi.mocked(cleanupWorkDir).mockResolvedValue(undefined);
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }));
+
+    try {
+      const { api, submitReport } = makeApi();
+      await handleTriageJob(makeJiraJob(), api, { executor: fakeExecutor() });
+
+      expect(jiraGetIssue).toHaveBeenCalledWith('PROJ-42');
+
+      expect(jiraAddComment).toHaveBeenCalledTimes(1);
+      const [issueKey, body] = vi.mocked(jiraAddComment).mock.calls[0];
+      expect(issueKey).toBe('PROJ-42');
+      expect(body).toContain('Login crashes');
+
+      expect(ghAddIssueComment).not.toHaveBeenCalled();
+      expect(ghAddIssueLabels).not.toHaveBeenCalled();
+
+      expect(submitReport).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ status: 'succeeded' }),
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('fails fast when Jira credentials are missing', async () => {
+    vi.mocked(ghCheckAuth).mockResolvedValue(true);
+    vi.mocked(parseGitHubRef).mockReturnValue({ owner: 'rafiki270', repo: 'max-test' });
+    vi.mocked(jiraAuthAvailable).mockReturnValue(false);
+
+    const { api, submitReport } = makeApi();
+    await handleTriageJob(makeJiraJob(), api, { executor: fakeExecutor() });
+
+    expect(jiraGetIssue).not.toHaveBeenCalled();
+    expect(submitReport).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        status: 'failed',
+        summary: expect.stringContaining('Jira credentials'),
+      }),
+    );
+  });
+
+  it('fails fast when sourceExternalId is missing for Jira job', async () => {
+    vi.mocked(ghCheckAuth).mockResolvedValue(true);
+
+    const job = makeJiraJob();
+    (job as { providerHints: Record<string, unknown> }).providerHints = {};
+
+    const { api, submitReport } = makeApi();
+    await handleTriageJob(job, api, { executor: fakeExecutor() });
+
+    expect(jiraGetIssue).not.toHaveBeenCalled();
+    expect(submitReport).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        status: 'failed',
+        summary: expect.stringContaining('No Jira issue key'),
       }),
     );
   });

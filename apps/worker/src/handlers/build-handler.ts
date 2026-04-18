@@ -23,6 +23,11 @@ import {
   respondioGetConversation,
   respondioPostComment,
 } from '../lib/respondio-cli.js';
+import {
+  jiraAddComment,
+  jiraAuthAvailable,
+  jiraGetIssue,
+} from '../lib/jira-cli.js';
 import { buildBuildPrompt } from './build-prompt.js';
 import { codexExec, summarizeResult } from '../utils/codex-exec.js';
 
@@ -46,6 +51,7 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
   const { jobId, workflowRunId, targetRepo, targetBranch, sourceConnectorKey } = job;
   const isLinearSource = sourceConnectorKey === 'linear';
   const isRespondIoSource = sourceConnectorKey === 'respondio';
+  const isJiraSource = sourceConnectorKey === 'jira';
 
   await api.postProgress(jobId, 'auth', 'Checking GitHub authentication');
   await api.postLog(jobId, 'stdout', `[build] Starting build for ${targetRepo}`);
@@ -75,13 +81,27 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
   let displayRef = '';
   let linearIssueId: string | undefined;
   let respondioContactId: string | undefined;
+  let jiraIssueKey: string | undefined;
 
   try {
     const parsed = parseGitHubRef(targetRepo);
     owner = parsed.owner;
     repo = parsed.repo;
 
-    if (isRespondIoSource) {
+    if (isJiraSource) {
+      if (!sourceExternalId) {
+        throw new Error('Jira-sourced build job missing sourceExternalId in providerHints');
+      }
+      if (!jiraAuthAvailable()) {
+        throw new Error('Jira credentials (JIRA_BASE_URL, JIRA_USER_EMAIL, JIRA_API_TOKEN) not configured on worker');
+      }
+      const jiraIssue = await jiraGetIssue(sourceExternalId);
+      issueTitle = jiraIssue.summary;
+      issueBody = jiraIssue.description ?? '';
+      displayRef = jiraIssue.key;
+      jiraIssueKey = jiraIssue.key;
+      await api.postLog(jobId, 'stdout', `[build] Fetched Jira issue ${displayRef}: ${issueTitle}`);
+    } else if (isRespondIoSource) {
       if (!sourceExternalId) {
         throw new Error('Respond.io-sourced build job missing sourceExternalId in providerHints');
       }
@@ -131,12 +151,13 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
     }
   } catch (err) {
     await api.postLog(jobId, 'stderr', `[build] Could not fetch issue: ${err}`);
-    if (isLinearSource || isRespondIoSource) {
+    if (isLinearSource || isRespondIoSource || isJiraSource) {
+      const sourceLabel = isLinearSource ? 'Linear' : isJiraSource ? 'Jira' : 'Respond.io';
       await api.submitReport(jobId, {
         workflowRunId,
         workflowType: 'build',
         status: 'failed',
-        summary: `Failed to fetch ${isLinearSource ? 'Linear' : 'Respond.io'} source ${sourceExternalId}: ${err}`,
+        summary: `Failed to fetch ${sourceLabel} source ${sourceExternalId}: ${err}`,
         stageResults: [
           { stage: 'auth', status: 'passed' },
           { stage: 'issue_fetch', status: 'failed' },
@@ -159,6 +180,12 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
       await respondioPostComment(respondioContactId, buildStartComment);
     } catch (err) {
       await api.postLog(jobId, 'stderr', `[build] Could not post build-start comment on Respond.io: ${err}`);
+    }
+  } else if (isJiraSource && jiraIssueKey) {
+    try {
+      await jiraAddComment(jiraIssueKey, buildStartComment);
+    } catch (err) {
+      await api.postLog(jobId, 'stderr', `[build] Could not post build-start comment on Jira: ${err}`);
     }
   }
 
@@ -256,7 +283,7 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
 
   if (changedFiles.length > 0) {
     // Commit and create PR
-    const branchSlug = (isLinearSource || isRespondIoSource) && displayRef
+    const branchSlug = (isLinearSource || isRespondIoSource || isJiraSource) && displayRef
       ? displayRef.toLowerCase().replace(/[^a-z0-9-]+/g, '-')
       : `issue-${issueNum}`;
     const branchName = `max-fix/${branchSlug}-${Date.now().toString(36)}`;
@@ -300,7 +327,7 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
     try {
       const actionConfig = ((job as any).providerHints?.actionConfig ?? {}) as Record<string, unknown>;
       const issueLinkMode = actionConfig.issueLinkMode === 'mentions' ? 'mentions' : 'fixes';
-      const issueLinkLine = !isLinearSource && !isRespondIoSource && issueNum > 0
+      const issueLinkLine = !isLinearSource && !isRespondIoSource && !isJiraSource && issueNum > 0
         ? issueLinkMode === 'fixes'
           ? `Fixes #${issueNum}`
           : `Relates to #${issueNum}`
@@ -308,7 +335,9 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
           ? `Relates to Linear ${displayRef}`
           : isRespondIoSource && displayRef
             ? `Relates to Respond.io ${displayRef}`
-            : '';
+            : isJiraSource && displayRef
+              ? `Relates to Jira ${displayRef}`
+              : '';
 
       const headerRef = displayRef || (issueNum > 0 ? `#${issueNum}` : 'task');
       const prBody = `${issueLinkLine}
@@ -360,6 +389,17 @@ ${implementationSummary.slice(0, 1000)}
             `[build] Could not post PR link back on Respond.io: ${commentErr}`,
           );
         }
+      } else if (isJiraSource && jiraIssueKey) {
+        try {
+          await jiraAddComment(jiraIssueKey, prLinkComment);
+          await api.postLog(jobId, 'stdout', `[build] Posted PR link on Jira ${displayRef}`);
+        } catch (commentErr) {
+          await api.postLog(
+            jobId,
+            'stderr',
+            `[build] Could not post PR link back on Jira: ${commentErr}`,
+          );
+        }
       } else if (issueNum > 0) {
         try {
           await ghAddIssueComment(
@@ -393,6 +433,12 @@ ${implementationSummary.slice(0, 1000)}
         } catch {
           // best-effort
         }
+      } else if (isJiraSource && jiraIssueKey) {
+        try {
+          await jiraAddComment(jiraIssueKey, failComment);
+        } catch {
+          // best-effort
+        }
       }
     }
   } else {
@@ -410,6 +456,12 @@ ${implementationSummary.slice(0, 1000)}
         await respondioPostComment(respondioContactId, noChangesComment);
       } catch (err) {
         await api.postLog(jobId, 'stderr', `[build] Could not post no-changes comment on Respond.io: ${err}`);
+      }
+    } else if (isJiraSource && jiraIssueKey) {
+      try {
+        await jiraAddComment(jiraIssueKey, noChangesComment);
+      } catch (err) {
+        await api.postLog(jobId, 'stderr', `[build] Could not post no-changes comment on Jira: ${err}`);
       }
     }
   }

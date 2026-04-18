@@ -33,6 +33,11 @@ const envSchema = z.object({
   // Respond.io workspace bearer token. Same temporary bootstrap shape as
   // LINEAR_API_KEY; per-tenant secrets will move to Connector.config.
   RESPONDIO_API_KEY: z.string().optional(),
+  // Jira Cloud credentials for the worker. Same temporary bootstrap shape:
+  // per-tenant secrets will move to Connector.config once that path lands.
+  JIRA_BASE_URL: z.string().url().optional(),
+  JIRA_USER_EMAIL: z.string().optional(),
+  JIRA_API_TOKEN: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -21,6 +21,11 @@ import {
   respondioPostComment,
 } from '../lib/respondio-cli.js';
 import {
+  jiraAddComment,
+  jiraAuthAvailable,
+  jiraGetIssue,
+} from '../lib/jira-cli.js';
+import {
   buildTriageDiscoveryComment,
   confidenceNumeric,
   renderTriageReportMarkdown,
@@ -48,7 +53,8 @@ export async function handleTriageJob(
   const { jobId, workflowRunId, targetRepo, sourceConnectorKey } = job;
   const isLinearSource = sourceConnectorKey === 'linear';
   const isRespondIoSource = sourceConnectorKey === 'respondio';
-  const isExternalChannelSource = isLinearSource || isRespondIoSource;
+  const isJiraSource = sourceConnectorKey === 'jira';
+  const isExternalChannelSource = isLinearSource || isRespondIoSource || isJiraSource;
   const providerHints = (job as any).providerHints ?? {};
   const sourceExternalId: string | undefined = providerHints.sourceExternalId;
 
@@ -116,6 +122,18 @@ export async function handleTriageJob(
     return;
   }
 
+  if (isJiraSource && !sourceExternalId) {
+    await api.postLog(jobId, 'stderr', `[triage] ERROR: No jira issue key in job hints: ${JSON.stringify(providerHints)}`);
+    await api.submitReport(jobId, {
+      workflowRunId,
+      workflowType: 'triage',
+      status: 'failed',
+      summary: 'No Jira issue key found in job context',
+      stageResults: [{ stage: 'issue_fetch', status: 'failed' }],
+    });
+    return;
+  }
+
   const { owner, repo } = parseGitHubRef(targetRepo);
 
   // ── 3. Fetch source issue (GitHub, Linear, or Respond.io) ─────────
@@ -132,10 +150,49 @@ export async function handleTriageJob(
     linearIssueId?: string;
     /** Respond.io contact identifier for outbound comment posting */
     respondioContactId?: string;
+    /** Jira issue key for outbound comment posting */
+    jiraIssueKey?: string;
   };
 
   let issue: IssueShape;
-  if (isRespondIoSource) {
+  if (isJiraSource) {
+    await api.postProgress(jobId, 'issue_fetch', `Fetching Jira issue ${sourceExternalId}`);
+    await api.postLog(jobId, 'stdout', `[triage] Fetching Jira issue ${sourceExternalId}`);
+    if (!jiraAuthAvailable()) {
+      await api.postLog(jobId, 'stderr', '[triage] ERROR: JIRA_BASE_URL / JIRA_USER_EMAIL / JIRA_API_TOKEN not set on worker');
+      await api.submitReport(jobId, {
+        workflowRunId,
+        workflowType: 'triage',
+        status: 'failed',
+        summary: 'Jira credentials (JIRA_BASE_URL, JIRA_USER_EMAIL, JIRA_API_TOKEN) not configured on worker',
+        stageResults: [{ stage: 'auth', status: 'passed' }, { stage: 'issue_fetch', status: 'failed' }],
+      });
+      return;
+    }
+    try {
+      const jiraIssue = await jiraGetIssue(sourceExternalId!);
+      issue = {
+        number: 0,
+        title: jiraIssue.summary,
+        body: jiraIssue.description,
+        labels: jiraIssue.labels,
+        state: jiraIssue.status,
+        url: jiraIssue.url,
+        displayRef: jiraIssue.key,
+        jiraIssueKey: jiraIssue.key,
+      };
+    } catch (err) {
+      await api.postLog(jobId, 'stderr', `[triage] ERROR fetching Jira issue: ${err}`);
+      await api.submitReport(jobId, {
+        workflowRunId,
+        workflowType: 'triage',
+        status: 'failed',
+        summary: `Failed to fetch Jira issue ${sourceExternalId}: ${err}`,
+        stageResults: [{ stage: 'auth', status: 'passed' }, { stage: 'issue_fetch', status: 'failed' }],
+      });
+      return;
+    }
+  } else if (isRespondIoSource) {
     await api.postProgress(jobId, 'issue_fetch', `Fetching Respond.io conversation ${sourceExternalId}`);
     await api.postLog(jobId, 'stdout', `[triage] Fetching Respond.io conversation ${sourceExternalId}`);
     if (!respondioAuthAvailable()) {
@@ -377,7 +434,10 @@ You will produce a structured triage analysis. Each field has a specific purpose
     // ── 7. Post the discovery comment, then label the issue ────────────
     try {
       const commentBody = buildTriageDiscoveryComment({ output: triageOutput });
-      if (isRespondIoSource && issue.respondioContactId) {
+      if (isJiraSource && issue.jiraIssueKey) {
+        await jiraAddComment(issue.jiraIssueKey, commentBody);
+        await api.postLog(jobId, 'stdout', `[triage] Posted discovery comment on Jira ${issue.displayRef}`);
+      } else if (isRespondIoSource && issue.respondioContactId) {
         await respondioPostComment(issue.respondioContactId, commentBody);
         await api.postLog(jobId, 'stdout', `[triage] Posted discovery comment on Respond.io ${issue.displayRef}`);
       } else if (isLinearSource && issue.linearIssueId) {

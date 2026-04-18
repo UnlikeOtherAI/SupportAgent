@@ -15,6 +15,7 @@
     "@support-agent/contracts": "workspace:*",
     "@support-agent/executors-runtime": "workspace:*",
     "@support-agent/github-cli": "workspace:*",
+    "@support-agent/jira-client": "workspace:*",
     "@support-agent/linear-client": "workspace:*",
     "@support-agent/respondio-client": "workspace:*",
     "@support-agent/skills-executor-runtime": "workspace:*",

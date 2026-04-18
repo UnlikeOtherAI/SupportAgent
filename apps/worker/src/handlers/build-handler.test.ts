@@ -22,6 +22,11 @@ import {
   respondioGetConversation,
   respondioPostComment,
 } from '../lib/respondio-cli.js';
+import {
+  jiraAddComment,
+  jiraAuthAvailable,
+  jiraGetIssue,
+} from '../lib/jira-cli.js';
 import { codexExec } from '../utils/codex-exec.js';
 
 vi.mock('../lib/gh-cli.js', () => ({
@@ -46,6 +51,12 @@ vi.mock('../lib/respondio-cli.js', () => ({
   respondioAuthAvailable: vi.fn(),
   respondioGetConversation: vi.fn(),
   respondioPostComment: vi.fn(),
+}));
+
+vi.mock('../lib/jira-cli.js', () => ({
+  jiraAddComment: vi.fn(),
+  jiraAuthAvailable: vi.fn(),
+  jiraGetIssue: vi.fn(),
 }));
 
 vi.mock('../utils/codex-exec.js', () => ({
@@ -341,6 +352,103 @@ describe('handleBuildJob', () => {
         expect.objectContaining({
           status: 'failed',
           summary: expect.stringContaining('RESPONDIO_API_KEY'),
+        }),
+      );
+    });
+  });
+
+  describe('Jira-sourced builds', () => {
+    function makeJiraJob(): WorkerJob {
+      const job = makeJob();
+      return {
+        ...job,
+        sourceConnectorKey: 'jira',
+        providerHints: {
+          sourceExternalId: 'PROJ-42',
+          sourcePlatform: 'jira',
+        },
+      } as WorkerJob;
+    }
+
+    it('fetches the Jira issue and posts build-start + PR-link comments to Jira, never to GitHub', async () => {
+      vi.mocked(ghCheckAuth).mockResolvedValue(true);
+      vi.mocked(parseGitHubRef).mockReturnValue({ owner: 'rafiki270', repo: 'max-test' });
+      vi.mocked(ghCloneRepo).mockResolvedValue({ workDir: '/tmp/build-jira', branch: 'main' });
+      vi.mocked(jiraAuthAvailable).mockReturnValue(true);
+      vi.mocked(jiraGetIssue).mockResolvedValue({
+        id: '10001',
+        key: 'PROJ-42',
+        summary: 'Login crashes',
+        description: 'Steps inside',
+        url: 'https://acme.atlassian.net/browse/PROJ-42',
+        status: 'To Do',
+        priority: 'High',
+        labels: ['bug'],
+        assignee: 'Jane Doe',
+      });
+      vi.mocked(codexExec).mockResolvedValue({
+        ok: true,
+        stdout: 'fixed it',
+        stderr: '',
+        durationMs: 1000,
+        timedOut: false,
+        exitCode: 0,
+      });
+      vi.mocked(ghCreateBranch).mockResolvedValue(undefined);
+      vi.mocked(ghCommitAll).mockResolvedValue(undefined);
+      vi.mocked(ghCreatePR).mockResolvedValue({ number: 77, url: 'https://github.com/rafiki270/max-test/pull/77' });
+      vi.mocked(cleanupWorkDir).mockResolvedValue(undefined);
+
+      execMock.mockImplementation((cmd: string, opts: unknown, cb: unknown) => {
+        const callback = (typeof opts === 'function' ? opts : cb) as (err: Error | null, out: { stdout: string; stderr: string }) => void;
+        if (typeof cmd === 'string' && cmd.startsWith('git status')) {
+          callback(null, { stdout: ' M src/auth.ts\n', stderr: '' });
+        } else {
+          callback(null, { stdout: '', stderr: '' });
+        }
+        return {} as never;
+      });
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }));
+
+      try {
+        const { api } = makeApi();
+        await handleBuildJob(makeJiraJob(), api);
+
+        expect(jiraGetIssue).toHaveBeenCalledWith('PROJ-42');
+
+        const calls = vi.mocked(jiraAddComment).mock.calls;
+        expect(calls[0][0]).toBe('PROJ-42');
+        expect(calls[0][1]).toContain('SupportAgent is building');
+        expect(calls[0][1]).toContain('PROJ-42');
+        expect(calls[1][0]).toBe('PROJ-42');
+        expect(calls[1][1]).toContain('https://github.com/rafiki270/max-test/pull/77');
+
+        expect(ghAddIssueComment).not.toHaveBeenCalled();
+        expect(linearAddComment).not.toHaveBeenCalled();
+        expect(respondioPostComment).not.toHaveBeenCalled();
+
+        const prCall = vi.mocked(ghCreatePR).mock.calls[0];
+        expect(prCall[2]).toContain('PROJ-42');
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('fails fast when Jira credentials are missing', async () => {
+      vi.mocked(ghCheckAuth).mockResolvedValue(true);
+      vi.mocked(parseGitHubRef).mockReturnValue({ owner: 'rafiki270', repo: 'max-test' });
+      vi.mocked(jiraAuthAvailable).mockReturnValue(false);
+
+      const { api, submitReport } = makeApi();
+      await handleBuildJob(makeJiraJob(), api);
+
+      expect(jiraGetIssue).not.toHaveBeenCalled();
+      expect(submitReport).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          status: 'failed',
+          summary: expect.stringContaining('Jira credentials'),
         }),
       );
     });
