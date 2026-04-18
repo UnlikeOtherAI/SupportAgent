@@ -333,6 +333,22 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  packages/skills-executor-runtime:
+    dependencies:
+      '@support-agent/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@support-agent/executors-runtime':
+        specifier: workspace:*
+        version: link:../executors-runtime
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.4
+        version: 3.2.4(@types/node@24.12.0)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)
+
   packages/skills-runtime:
     dependencies:
       '@prisma/client':
