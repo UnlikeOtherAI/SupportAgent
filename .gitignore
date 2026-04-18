@@ -16,3 +16,4 @@ playwright-report/
 *.txt
 *-snapshot.yml
 apps/worker/[0-9]*
+.firecrawl/
