@@ -10,3 +10,4 @@ export * from './platform-registry.js';
 export * from './github-connector-config.js';
 export * from './trigger-matchers.js';
 export * from './scenario.js';
+export * from './skill-run-result.js';
