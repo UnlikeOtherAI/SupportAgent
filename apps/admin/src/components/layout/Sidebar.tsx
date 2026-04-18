@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   DashboardIcon, JobsIcon,
   ScenariosIcon, ChannelsIcon, ProvidersIcon,
-  ApiKeysIcon, ReviewIcon, SettingsIcon, BoltIcon,
+  ApiKeysIcon, ReviewIcon, SettingsIcon, BoltIcon, SkillIcon, ExecutorIcon,
 } from '@/components/icons/NavIcons'
 import { AppsIcon } from '@/components/icons/PlatformIcons'
 import { useAuth } from '@/lib/auth'
@@ -32,6 +32,8 @@ const NAV: NavSection[] = [
     label: 'Configuration',
     items: [
       { label: 'Apps', to: '/apps', icon: <AppsIcon /> },
+      { label: 'Skills', to: '/skills', icon: <SkillIcon /> },
+      { label: 'Executors', to: '/executors', icon: <ExecutorIcon /> },
       { label: 'Workflows', to: '/workflows', icon: <ScenariosIcon /> },
       { label: 'Channels', to: '/channels', icon: <ChannelsIcon /> },
     ],

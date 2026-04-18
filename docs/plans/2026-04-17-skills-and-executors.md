@@ -669,13 +669,13 @@ Once these three scenarios are seeded, the worker's three handlers are deleted a
 
 ### Phase D — Admin UI
 
-- [ ] D.1 Scaffold `/admin/skills` list + detail (CSR React, Tailwind).
-- [ ] D.2 Scaffold `/admin/executors` list + detail with YAML editor.
+- [x] D.1 Scaffold `/admin/skills` list + detail (CSR React, Tailwind).
+- [x] D.2 Scaffold `/admin/executors` list + detail with YAML editor.
 - [ ] D.3 Add executor + task-prompt fields to the Workflow Designer's action node inspector.
 - [ ] D.4 Render loop convergence timeline on the workflow run detail page.
 - [ ] D.5 Add a "Stop" control to the run detail page (control-plane cancel; SIGTERM to local subprocess, WebSocket `cancel` for remote runtimes).
-- [ ] D.6 Show "your clone is N edits behind builtin" advisory on cloned skill/executor detail pages (advisory only — no merge UI).
-- [ ] D.7 Skill picker on the executor edit page: one radio for `system_skill` (filtered to `role=SYSTEM`), checkboxes for `complementary[]` (filtered to `role=COMPLEMENTARY`).
+- [x] D.6 Show "your clone is N edits behind builtin" advisory on cloned skill/executor detail pages (advisory only — no merge UI).
+- [x] D.7 Skill picker on the executor edit page: one radio for `system_skill` (filtered to `role=SYSTEM`), checkboxes for `complementary[]` (filtered to `role=COMPLEMENTARY`).
 - [ ] D.8 Trigger allowlist editor on the scenario detail page (GitHub user/team list + default allow/deny).
 - [ ] D.9 Playwright clickthrough per page (headless), per the admin build loop.
 

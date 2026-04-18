@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Prisma, SkillRole, SkillSource, type PrismaClient } from '@prisma/client';
 import { parseSkillFrontmatter } from './frontmatter-parser.js';
 import { loadOutputSchema } from './output-schema-loader.js';
+import { hashSkillContent } from './skill-content-hash.js';
 
 export interface SeedBuiltinSkillsResult {
   created: number;
@@ -33,7 +33,12 @@ export async function seedBuiltinSkills(
         ? await loadOutputSchema(path.resolve(skillDir, parsedSkill.frontmatter.outputSchemaPath!))
         : null;
 
-    const contentHash = hashSkillContent(parsedSkill.body, outputSchema);
+    const contentHash = hashSkillContent({
+      role: parsedSkill.frontmatter.role,
+      description: parsedSkill.frontmatter.description,
+      body: parsedSkill.body,
+      outputSchema,
+    });
     const existing = await prisma.skill.findFirst({
       where: {
         tenantId: null,
@@ -80,35 +85,6 @@ export async function seedBuiltinSkills(
   }
 
   return result;
-}
-
-function hashSkillContent(
-  body: string,
-  outputSchemaJson: Record<string, unknown> | null,
-): string {
-  const canonicalPayload = JSON.stringify({
-    body,
-    outputSchemaJson: canonicalizeValue(outputSchemaJson),
-  });
-
-  return createHash('sha256').update(canonicalPayload).digest('hex');
-}
-
-function canonicalizeValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((entry) => canonicalizeValue(entry));
-  }
-
-  if (value && typeof value === 'object') {
-    return Object.keys(value as Record<string, unknown>)
-      .sort((left, right) => left.localeCompare(right))
-      .reduce<Record<string, unknown>>((accumulator, key) => {
-        accumulator[key] = canonicalizeValue((value as Record<string, unknown>)[key]);
-        return accumulator;
-      }, {});
-  }
-
-  return value;
 }
 
 function toPrismaJsonValue(

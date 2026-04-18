@@ -30,6 +30,12 @@ export function ProvidersIcon(p: IconProps) {
 export function ApiKeysIcon(p: IconProps) {
   return <svg {...defaults} {...p}><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
 }
+export function SkillIcon(p: IconProps) {
+  return <svg {...defaults} {...p}><path d="M4 19.5V4.5A1.5 1.5 0 0 1 5.5 3h10.38A1.5 1.5 0 0 1 17 3.46L20.54 7A1.5 1.5 0 0 1 21 8.12V19.5A1.5 1.5 0 0 1 19.5 21h-14A1.5 1.5 0 0 1 4 19.5Z"/><path d="M8 12h8"/><path d="M8 16h6"/><path d="M15 3v5h5"/></svg>
+}
+export function ExecutorIcon(p: IconProps) {
+  return <svg {...defaults} {...p}><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01"/><path d="M7 17h.01"/><path d="M11 7h6"/><path d="M11 17h6"/></svg>
+}
 export function ReviewIcon(p: IconProps) {
   return <svg {...defaults} {...p}><path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02"/></svg>
 }

@@ -2,6 +2,8 @@ import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { lazy, Suspense, type ComponentType } from 'react'
 import { AuthGuard } from './AuthGuard'
 import { Layout } from '@/components/layout/Layout'
+import { executorRoutes } from '@/features/executors/routes'
+import { skillRoutes } from '@/features/skills/routes'
 
 function load(factory: () => Promise<{ default: ComponentType }>) {
   const Lazy = lazy(factory)
@@ -32,6 +34,9 @@ export const router = createBrowserRouter([
         /* Workflow Runs */
         { path: 'runs',     element: load(() => import('@/pages/RunsPage')) },
         { path: 'runs/:id', element: load(() => import('@/pages/RunDetailPage')) },
+
+        ...skillRoutes,
+        ...executorRoutes,
 
         /* Apps */
         { path: 'apps',                                          element: load(() => import('@/pages/AppsPage')) },
