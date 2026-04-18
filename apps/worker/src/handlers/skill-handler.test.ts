@@ -30,12 +30,29 @@ function makeJob(): WorkerJob {
         url: 'http://localhost:4441/v1/skills/triage-issue/by-hash/skill-hash-1',
       },
     ],
-  };
+    providerHints: {
+      actionConfig: {
+        taskPrompt: 'Investigate {{trigger.issue.title}} at {{trigger.issue.url}} in {{trigger.repository.fullName}} (run {{run.id}})',
+      },
+      issueRef: 'https://github.com/example/repo/issues/123',
+    },
+    workItem: {
+      title: 'Crash on save',
+      body: 'Steps to reproduce',
+      externalUrl: 'https://github.com/example/repo/issues/123',
+    },
+  } as WorkerJob;
 }
 
-function makeApi(): { api: WorkerApiClient; submitReport: ReturnType<typeof vi.fn>; postCheckpoint: ReturnType<typeof vi.fn> } {
+function makeApi(): {
+  api: WorkerApiClient;
+  submitReport: ReturnType<typeof vi.fn>;
+  postCheckpoint: ReturnType<typeof vi.fn>;
+  postIterationState: ReturnType<typeof vi.fn>;
+} {
   const submitReport = vi.fn().mockResolvedValue(undefined);
   const postCheckpoint = vi.fn().mockResolvedValue(undefined);
+  const postIterationState = vi.fn().mockResolvedValue(undefined);
   const fetchExecutorByHash = vi.fn().mockResolvedValue({
     key: 'triage-default',
     contentHash: 'exec-hash-1',
@@ -94,11 +111,13 @@ loop:
       postProgress: vi.fn().mockResolvedValue(undefined),
       postLog: vi.fn().mockResolvedValue(undefined),
       postCheckpoint,
+      postIterationState,
       uploadArtifact: vi.fn(),
       submitReport,
     } as WorkerApiClient,
     submitReport,
     postCheckpoint,
+    postIterationState,
   };
 }
 
@@ -107,8 +126,8 @@ describe('handleSkillJob', () => {
     vi.clearAllMocks();
   });
 
-  it('resolves executor/skills, writes checkpoints, and submits leaf outputs', async () => {
-    const { api, submitReport, postCheckpoint } = makeApi();
+  it('uses scenario task prompts, persists iteration state, writes checkpoints, and submits leaf outputs', async () => {
+    const { api, submitReport, postCheckpoint, postIterationState } = makeApi();
     const executor = {
       key: 'mock-executor',
       run: vi.fn().mockResolvedValue({
@@ -124,6 +143,14 @@ describe('handleSkillJob', () => {
     };
 
     await handleSkillJob(makeJob(), api, { executor });
+
+    expect(executor.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining(
+          'Investigate Crash on save at https://github.com/example/repo/issues/123 in example/repo',
+        ),
+      }),
+    );
 
     expect(postCheckpoint.mock.calls).toEqual([
       [
@@ -160,6 +187,26 @@ describe('handleSkillJob', () => {
       ],
     ]);
 
+    expect(postIterationState).toHaveBeenCalledWith(
+      expect.any(String),
+      {
+        iteration: 1,
+        stages: {
+          investigate: {
+            spawn_outputs: [
+              {
+                delivery: [],
+                findings: {
+                  summary: 'Likely issue in src/example.ts',
+                },
+                reportSummary: 'Likely issue in src/example.ts',
+              },
+            ],
+          },
+        },
+      },
+    );
+
     expect(submitReport).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
@@ -173,6 +220,36 @@ describe('handleSkillJob', () => {
             reportSummary: 'Likely issue in src/example.ts',
           },
         ],
+      }),
+    );
+  });
+
+  it('retries checkpoint posts once before continuing', async () => {
+    const { api, submitReport, postCheckpoint } = makeApi();
+    postCheckpoint
+      .mockRejectedValueOnce(new Error('temporary checkpoint failure'))
+      .mockResolvedValue(undefined);
+    const executor = {
+      key: 'mock-executor',
+      run: vi.fn().mockResolvedValue({
+        stdout: '',
+        outputContent: JSON.stringify({
+          delivery: [],
+          findings: {
+            summary: 'Retried checkpoint',
+          },
+          reportSummary: 'Retried checkpoint',
+        }),
+      }),
+    };
+
+    await handleSkillJob(makeJob(), api, { executor });
+
+    expect(postCheckpoint).toHaveBeenCalledTimes(3);
+    expect(submitReport).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        status: 'succeeded',
       }),
     );
   });

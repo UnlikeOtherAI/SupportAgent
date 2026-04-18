@@ -6,6 +6,7 @@ declare module 'fastify' {
   interface FastifyRequest {
     workerDispatch?: {
       id: string;
+      tenantId: string;
       workflowRunId: string;
       attemptNumber: number;
     };
@@ -73,6 +74,7 @@ export async function verifyWorkerAuth(
 
   request.workerDispatch = {
     id: dispatch.id,
+    tenantId: run?.tenantId ?? '',
     workflowRunId: dispatch.workflowRunId,
     attemptNumber: dispatch.attemptNumber,
   };

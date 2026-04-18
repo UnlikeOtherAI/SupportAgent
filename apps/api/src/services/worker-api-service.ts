@@ -1,16 +1,83 @@
-import { type PrismaClient } from '@prisma/client';
-import { type SkillRunResult, SkillRunResultSchema } from '@support-agent/contracts';
+import { Prisma, type PrismaClient } from '@prisma/client';
+import {
+  type SkillRunResult,
+  SkillRunResultSchema,
+  type StructuredFindings,
+} from '@support-agent/contracts';
 import { createDeliveryResolverService } from './delivery-resolver-service.js';
+import { renderFindingsToComment } from './findings-renderer-service.js';
 import { createProgressCommentService } from './progress-comment-service.js';
 
 function pickFinalCommentBody(summary: string, leafOutputs: SkillRunResult[]) {
   for (const output of leafOutputs) {
-    const commentOp = output.delivery.find((op) => op.kind === 'comment');
+    const commentOp = output.delivery.find(
+      (op) => op.kind === 'comment' && (op.visibility ?? 'public') !== 'internal',
+    );
     if (commentOp?.kind === 'comment') {
       return commentOp.body;
     }
   }
-  return summary;
+  return leafOutputs.length > 0 ? 'Completed without public output.' : summary;
+}
+
+function confidenceToNumeric(confidence: StructuredFindings['confidence']): number | null {
+  switch (confidence) {
+    case 'low':
+      return 0.3;
+    case 'medium':
+      return 0.6;
+    case 'high':
+      return 0.85;
+    default:
+      return null;
+  }
+}
+
+function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return value as Prisma.InputJsonValue;
+}
+
+function synthesizeDeliveryFromFindings(leafOutput: SkillRunResult): SkillRunResult {
+  if (leafOutput.delivery.length > 0 || !leafOutput.findings) {
+    return leafOutput;
+  }
+
+  return {
+    ...leafOutput,
+    delivery: [
+      {
+        kind: 'comment',
+        body: renderFindingsToComment(leafOutput.findings, 'github'),
+      },
+    ],
+  };
+}
+
+function mapFindingsToRowData(leafOutput: SkillRunResult) {
+  const findings = leafOutput.findings;
+  if (!findings) {
+    return null;
+  }
+
+  return {
+    summary: findings.summary ?? leafOutput.reportSummary ?? 'No findings summary provided',
+    rootCauseHypothesis: findings.rootCause ?? null,
+    confidence: confidenceToNumeric(findings.confidence),
+    reproductionStatus: null,
+    affectedAreas: toJsonValue(findings.affectedAreas),
+    evidenceRefs: toJsonValue(findings.custom),
+    recommendedNextAction: findings.proposedFix ?? null,
+    outboundSummary:
+      leafOutput.delivery.length === 0
+        ? renderFindingsToComment(findings, 'github')
+        : null,
+    suspectFiles: toJsonValue(findings.affectedAreas),
+    userVisibleImpact: findings.summary ?? null,
+    designNotes: null,
+  };
 }
 
 export function createWorkerApiService(prisma: PrismaClient) {
@@ -133,6 +200,25 @@ export function createWorkerApiService(prisma: PrismaClient) {
       });
     },
 
+    async postIterationState(
+      workflowRunId: string,
+      dispatchId: string,
+      iterationState: {
+        iteration: number;
+        stages: Record<string, { spawn_outputs: SkillRunResult[] }>;
+      },
+    ) {
+      await assertAcceptedDispatchAttempt(workflowRunId, dispatchId);
+
+      await prisma.workflowRunIteration.create({
+        data: {
+          workflowRunId,
+          iteration: iterationState.iteration,
+          stages: iterationState.stages as any,
+        },
+      });
+    },
+
     async submitReport(
       workflowRunId: string,
       dispatchId: string,
@@ -185,9 +271,10 @@ export function createWorkerApiService(prisma: PrismaClient) {
         },
       });
 
-      const leafOutputs = (report.leafOutputs ?? []).map((output) =>
+      const parsedLeafOutputs = (report.leafOutputs ?? []).map((output) =>
         SkillRunResultSchema.parse(output),
       );
+      const leafOutputs = parsedLeafOutputs.map(synthesizeDeliveryFromFindings);
 
       try {
         await progressCommentService.finalize(
@@ -198,6 +285,20 @@ export function createWorkerApiService(prisma: PrismaClient) {
         console.warn('[worker-api] Failed to finalize progress comment', {
           workflowRunId,
           error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      for (const leafOutput of parsedLeafOutputs) {
+        const findingRowData = mapFindingsToRowData(leafOutput);
+        if (!findingRowData) {
+          continue;
+        }
+
+        await prisma.finding.create({
+          data: {
+            workflowRun: { connect: { id: workflowRunId } },
+            ...findingRowData,
+          },
         });
       }
 

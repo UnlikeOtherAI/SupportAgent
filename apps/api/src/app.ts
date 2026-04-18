@@ -29,6 +29,7 @@ import { pollingRoutes } from './routes/polling.js';
 import { reviewProfileRoutes } from './routes/review-profiles.js';
 import { workflowScenarioRoutes } from './routes/workflow-scenarios.js';
 import { workflowRunProgressCommentRoutes } from './routes/workflow-run-progress-comments.js';
+import { workflowRunIterationRoutes } from './routes/workflow-run-iterations.js';
 import { workflowRunControlRoutes } from './routes/workflow-run-controls.js';
 import { dispatchAttemptCheckpointRoutes } from './routes/dispatch-attempt-checkpoints.js';
 import { workerFetchRoutes } from './routes/worker-fetches.js';
@@ -74,6 +75,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(reviewProfileRoutes, { prefix: '/v1/review-profiles' });
   await app.register(workflowScenarioRoutes, { prefix: '/v1/workflow-scenarios' });
   await app.register(workflowRunProgressCommentRoutes, { prefix: '/v1/workflow-runs' });
+  await app.register(workflowRunIterationRoutes, { prefix: '/v1/workflow-runs' });
   await app.register(workflowRunControlRoutes, { prefix: '/v1/workflow-runs' });
   await app.register(
     async function workerScope(instance) {

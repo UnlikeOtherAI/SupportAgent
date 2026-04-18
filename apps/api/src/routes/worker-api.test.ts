@@ -17,6 +17,11 @@ describe('Worker API routes', () => {
   let dispatchId: string;
   let executionProviderId: string;
   let staleDispatchId: string;
+  let otherTenantConnectorId: string;
+  let otherTenantRepoMappingId: string;
+  let otherTenantWorkItemId: string;
+  let otherTenantWorkflowRunId: string;
+  let otherTenantDispatchId: string;
 
   beforeAll(async () => {
     parseEnv({
@@ -129,34 +134,150 @@ describe('Worker API routes', () => {
       },
     });
     staleDispatchId = staleDispatch.id;
+
+    const otherTenantId = 'c0000000-0000-0000-0000-000000000099';
+    const otherConnector = await app.prisma.connector.create({
+      data: {
+        tenantId: otherTenantId,
+        platformTypeId: pt.id,
+        name: 'Other Tenant Worker Connector',
+        direction: 'inbound',
+        configuredIntakeMode: 'webhook',
+        effectiveIntakeMode: 'webhook',
+      },
+    });
+    otherTenantConnectorId = otherConnector.id;
+
+    const otherRepoMapping = await app.prisma.repositoryMapping.create({
+      data: {
+        tenantId: otherTenantId,
+        connectorId: otherTenantConnectorId,
+        repositoryUrl: 'https://github.com/test/other-worker-repo',
+        defaultBranch: 'main',
+      },
+    });
+    otherTenantRepoMappingId = otherRepoMapping.id;
+
+    const otherWorkItem = await app.prisma.inboundWorkItem.create({
+      data: {
+        connectorInstanceId: otherTenantConnectorId,
+        platformType: 'test-worker-api',
+        workItemKind: 'issue',
+        externalItemId: 'WORKER-TEST-2',
+        title: 'Other tenant work item',
+        repositoryMappingId: otherTenantRepoMappingId,
+      },
+    });
+    otherTenantWorkItemId = otherWorkItem.id;
+
+    const otherRun = await app.prisma.workflowRun.create({
+      data: {
+        tenantId: otherTenantId,
+        workflowType: 'triage',
+        status: 'running',
+        workItemId: otherTenantWorkItemId,
+        repositoryMappingId: otherTenantRepoMappingId,
+        startedAt: new Date(),
+      },
+    });
+    otherTenantWorkflowRunId = otherRun.id;
+
+    const otherDispatch = await app.prisma.workerDispatch.create({
+      data: {
+        workflowRunId: otherTenantWorkflowRunId,
+        executionProviderId,
+        workerSharedSecret: 'worker-test-secret-other-456',
+        jobPayload: { type: 'triage' },
+        status: 'running',
+        attemptNumber: 1,
+      },
+    });
+    otherTenantDispatchId = otherDispatch.id;
+
+    await app.prisma.workflowRun.update({
+      where: { id: otherTenantWorkflowRunId },
+      data: { acceptedDispatchAttempt: otherTenantDispatchId },
+    });
   });
 
   afterAll(async () => {
     try {
       // Clean up in strict FK-safe order using raw SQL to avoid constraint issues
       await app.prisma.$executeRawUnsafe(
+        `DELETE FROM action_delivery_attempts WHERE "workflowRunId" IN (SELECT id FROM workflow_runs WHERE "tenantId" IN ($1, $2))`,
+        TEST_TENANT_ID,
+        'c0000000-0000-0000-0000-000000000099',
+      );
+      await app.prisma.$executeRawUnsafe(
+        `DELETE FROM action_outputs WHERE "workflowRunId" IN (SELECT id FROM workflow_runs WHERE "tenantId" IN ($1, $2))`,
+        TEST_TENANT_ID,
+        'c0000000-0000-0000-0000-000000000099',
+      );
+      await app.prisma.$executeRawUnsafe(
+        `DELETE FROM findings WHERE "workflowRunId" IN (SELECT id FROM workflow_runs WHERE "tenantId" IN ($1, $2))`,
+        TEST_TENANT_ID,
+        'c0000000-0000-0000-0000-000000000099',
+      );
+      await app.prisma.$executeRawUnsafe(
+        `DELETE FROM workflow_run_iterations WHERE "workflowRunId" IN (SELECT id FROM workflow_runs WHERE "tenantId" IN ($1, $2))`,
+        TEST_TENANT_ID,
+        'c0000000-0000-0000-0000-000000000099',
+      );
+      await app.prisma.$executeRawUnsafe(
         `DELETE FROM dispatch_attempt_checkpoints WHERE "dispatchAttemptId" IN (SELECT id FROM worker_dispatches WHERE "workflowRunId" IN (SELECT id FROM workflow_runs WHERE "tenantId" = $1))`,
         TEST_TENANT_ID,
+      );
+      await app.prisma.$executeRawUnsafe(
+        `DELETE FROM dispatch_attempt_checkpoints WHERE "dispatchAttemptId" IN (SELECT id FROM worker_dispatches WHERE "workflowRunId" IN (SELECT id FROM workflow_runs WHERE "tenantId" = $1))`,
+        'c0000000-0000-0000-0000-000000000099',
       );
       await app.prisma.$executeRawUnsafe(
         `DELETE FROM workflow_log_events WHERE "workflowRunId" IN (SELECT id FROM workflow_runs WHERE "tenantId" = $1)`,
         TEST_TENANT_ID,
       );
       await app.prisma.$executeRawUnsafe(
+        `DELETE FROM workflow_log_events WHERE "workflowRunId" IN (SELECT id FROM workflow_runs WHERE "tenantId" = $1)`,
+        'c0000000-0000-0000-0000-000000000099',
+      );
+      await app.prisma.$executeRawUnsafe(
         `DELETE FROM worker_dispatches WHERE "workflowRunId" IN (SELECT id FROM workflow_runs WHERE "tenantId" = $1)`,
         TEST_TENANT_ID,
       );
+      await app.prisma.$executeRawUnsafe(
+        `DELETE FROM worker_dispatches WHERE "workflowRunId" IN (SELECT id FROM workflow_runs WHERE "tenantId" = $1)`,
+        'c0000000-0000-0000-0000-000000000099',
+      );
       await app.prisma.$executeRawUnsafe(`DELETE FROM workflow_runs WHERE "tenantId" = $1`, TEST_TENANT_ID);
+      await app.prisma.$executeRawUnsafe(
+        `DELETE FROM workflow_runs WHERE "tenantId" = $1`,
+        'c0000000-0000-0000-0000-000000000099',
+      );
       await app.prisma.$executeRawUnsafe(
         `DELETE FROM inbound_work_items WHERE "connectorInstanceId" IN (SELECT id FROM connectors WHERE "tenantId" = $1)`,
         TEST_TENANT_ID,
       );
+      await app.prisma.$executeRawUnsafe(
+        `DELETE FROM inbound_work_items WHERE "connectorInstanceId" IN (SELECT id FROM connectors WHERE "tenantId" = $1)`,
+        'c0000000-0000-0000-0000-000000000099',
+      );
       await app.prisma.$executeRawUnsafe(`DELETE FROM repository_mappings WHERE "tenantId" = $1`, TEST_TENANT_ID);
+      await app.prisma.$executeRawUnsafe(
+        `DELETE FROM repository_mappings WHERE "tenantId" = $1`,
+        'c0000000-0000-0000-0000-000000000099',
+      );
       await app.prisma.$executeRawUnsafe(
         `DELETE FROM connector_capabilities WHERE "connectorId" IN (SELECT id FROM connectors WHERE "tenantId" = $1)`,
         TEST_TENANT_ID,
       );
+      await app.prisma.$executeRawUnsafe(
+        `DELETE FROM connector_capabilities WHERE "connectorId" IN (SELECT id FROM connectors WHERE "tenantId" = $1)`,
+        'c0000000-0000-0000-0000-000000000099',
+      );
       await app.prisma.$executeRawUnsafe(`DELETE FROM connectors WHERE "tenantId" = $1`, TEST_TENANT_ID);
+      await app.prisma.$executeRawUnsafe(
+        `DELETE FROM connectors WHERE "tenantId" = $1`,
+        'c0000000-0000-0000-0000-000000000099',
+      );
       await app.prisma.$executeRawUnsafe(`DELETE FROM execution_providers WHERE "tenantId" = $1`, TEST_TENANT_ID);
       await app.prisma.platformType.deleteMany({ where: { key: 'test-worker-api' } });
     } catch (e) {
@@ -255,6 +376,57 @@ describe('Worker API routes', () => {
     });
 
     expect(res.statusCode).toBe(204);
+  });
+
+  it('POST /v1/workflow-runs/:runId/iterations stores iteration state', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/workflow-runs/${workflowRunId}/iterations`,
+      headers: { authorization: `Bearer ${WORKER_SECRET}` },
+      payload: {
+        iteration: 1,
+        stages: {
+          investigate: {
+            spawn_outputs: [
+              {
+                delivery: [],
+                reportSummary: 'Iteration output',
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(res.statusCode).toBe(204);
+
+    const iteration = await app.prisma.workflowRunIteration.findFirst({
+      where: { workflowRunId, iteration: 1 },
+    });
+    expect(iteration?.stages).toEqual({
+      investigate: {
+        spawn_outputs: [
+          {
+            delivery: [],
+            reportSummary: 'Iteration output',
+          },
+        ],
+      },
+    });
+  });
+
+  it('POST /v1/workflow-runs/:runId/iterations rejects cross-tenant writes', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/workflow-runs/${otherTenantWorkflowRunId}/iterations`,
+      headers: { authorization: `Bearer ${WORKER_SECRET}` },
+      payload: {
+        iteration: 1,
+        stages: {},
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
   });
 
   it('POST /:jobId/report updates run status to succeeded', async () => {
@@ -363,5 +535,116 @@ describe('Worker API routes', () => {
       where: { id: run.id },
     });
     expect(updatedRun?.status).toBe('canceled');
+  });
+
+  it('POST /:jobId/report synthesizes comment delivery and writes findings rows', async () => {
+    const numericWorkItem = await app.prisma.inboundWorkItem.create({
+      data: {
+        connectorInstanceId: connectorId,
+        platformType: 'test-worker-api',
+        workItemKind: 'issue',
+        externalItemId: '123',
+        title: 'Numeric work item',
+        repositoryMappingId: repoMappingId,
+      },
+    });
+
+    const run = await app.prisma.workflowRun.create({
+      data: {
+        tenantId: TEST_TENANT_ID,
+        workflowType: 'triage',
+        status: 'running',
+        workItemId: numericWorkItem.id,
+        repositoryMappingId: repoMappingId,
+        startedAt: new Date(),
+      },
+    });
+
+    const findingsDispatch = await app.prisma.workerDispatch.create({
+      data: {
+        workflowRunId: run.id,
+        executionProviderId,
+        workerSharedSecret: 'worker-test-secret-findings-654',
+        jobPayload: { type: 'triage' },
+        status: 'running',
+        attemptNumber: 1,
+      },
+    });
+
+    await app.prisma.workflowRun.update({
+      where: { id: run.id },
+      data: { acceptedDispatchAttempt: findingsDispatch.id },
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/worker/jobs/${findingsDispatch.id}/report`,
+      headers: { authorization: 'Bearer worker-test-secret-findings-654' },
+      payload: {
+        status: 'succeeded',
+        summary: 'Triage completed successfully',
+        leafOutputs: [
+          {
+            delivery: [],
+            findings: {
+              summary: 'Issue summary',
+              rootCause: 'Likely code path',
+              reproductionSteps: '1. Reproduce',
+              proposedFix: '1. Fix',
+              affectedAreas: ['src/example.ts'],
+              severity: 'high',
+              confidence: 'medium',
+              custom: {
+                severityJustification: 'Breaks core flow',
+                confidenceReason: 'Stack trace matches',
+                logsExcerpt: 'error stack',
+                sources: ['src/example.ts'],
+              },
+            },
+            reportSummary: 'Issue summary',
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+
+    const findingRows = await app.prisma.finding.findMany({
+      where: { workflowRunId: run.id },
+    });
+    expect(findingRows).toHaveLength(1);
+    expect(findingRows[0].summary).toBe('Issue summary');
+
+    const actionOutputs = await app.prisma.actionOutput.findMany({
+      where: { workflowRunId: run.id },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(actionOutputs).toHaveLength(1);
+    expect(actionOutputs[0].outputType).toBe('comment');
+    expect(actionOutputs[0].payload).toMatchObject({
+      kind: 'comment',
+      body: expect.stringContaining('## Summary'),
+    });
+  });
+
+  it('GET /worker/jobs/run/:runId returns 403 for a run in another tenant', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/worker/jobs/run/${otherTenantWorkflowRunId}`,
+      headers: { authorization: `Bearer ${WORKER_SECRET}` },
+    });
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('GET /worker/jobs/run/:runId returns 200 for the owning run', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/worker/jobs/run/${workflowRunId}`,
+      headers: { authorization: `Bearer ${WORKER_SECRET}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().id).toBe(workflowRunId);
   });
 });

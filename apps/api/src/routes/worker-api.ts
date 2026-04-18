@@ -18,6 +18,30 @@ export async function workerApiRoutes(app: FastifyInstance) {
     }
   }
 
+  async function assertRunReadable(runId: string, request: import('fastify').FastifyRequest) {
+    const run = await app.prisma.workflowRun.findUnique({
+      where: { id: runId },
+      include: {
+        workItem: true,
+        repositoryMapping: true,
+        parentWorkflowRun: true,
+      },
+    });
+
+    if (!run) {
+      return null;
+    }
+
+    if (
+      run.id !== request.workerDispatch!.workflowRunId
+      && run.tenantId !== request.workerDispatch!.tenantId
+    ) {
+      throw Object.assign(new Error('Run access forbidden'), { statusCode: 403 });
+    }
+
+    return run;
+  }
+
   // Get job context
   app.get<{ Params: { jobId: string } }>('/:jobId/context', async (request) => {
     assertJobIdMatch(request);
@@ -122,20 +146,17 @@ export async function workerApiRoutes(app: FastifyInstance) {
 
   // GET /worker/run/:runId — get any run by ID (worker auth only, no JWT)
   app.get<{ Params: { runId: string } }>('/run/:runId', async (request) => {
-    const run = await app.prisma.workflowRun.findUnique({
-      where: { id: request.params.runId },
-      include: {
-        workItem: true,
-        repositoryMapping: true,
-        parentWorkflowRun: true,
-      },
-    });
+    const run = await assertRunReadable(request.params.runId, request);
     return run ?? { error: 'not_found' };
   });
 
   // GET /worker/jobs/:jobId/run/findings — get findings for the parent triage run
   app.get<{ Params: { jobId: string; runId: string } }>('/:jobId/run/:runId/findings', async (request) => {
-    // Allow workers to look up any run's findings (for build/merge to find triage findings)
+    assertJobIdMatch(request);
+    const run = await assertRunReadable(request.params.runId, request);
+    if (!run) {
+      return [];
+    }
     const findings = await app.prisma.finding.findMany({
       where: { workflowRunId: request.params.runId },
       orderBy: { createdAt: 'desc' },

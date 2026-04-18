@@ -524,6 +524,7 @@ model WorkflowRun {
   parentWorkflowRun      WorkflowRun?              @relation("WorkflowRunChildren", fields: [parentWorkflowRunId], references: [id])
   childWorkflowRuns      WorkflowRun[]             @relation("WorkflowRunChildren")
   logEvents              WorkflowLogEvent[]
+  iterations             WorkflowRunIteration[]
   findings               Finding[]
   deliveryAttempts       OutboundDeliveryAttempt[]
   actionOutputs          ActionOutput[]
@@ -559,7 +560,22 @@ model WorkflowLogEvent {
   @@map("workflow_log_events")
 }
 
-// 20. Finding
+// 20. WorkflowRunIteration
+model WorkflowRunIteration {
+  id            String   @id @default(uuid())
+  workflowRunId String
+  iteration     Int
+  stages        Json
+  createdAt     DateTime @default(now())
+
+  workflowRun WorkflowRun @relation(fields: [workflowRunId], references: [id])
+
+  @@index([workflowRunId])
+  @@unique([workflowRunId, iteration])
+  @@map("workflow_run_iterations")
+}
+
+// 21. Finding
 model Finding {
   id                    String   @id @default(uuid())
   workflowRunId         String
@@ -584,7 +600,7 @@ model Finding {
   @@map("findings")
 }
 
-// 21. OutboundDestination
+// 22. OutboundDestination
 model OutboundDestination {
   id              String   @id @default(uuid())
   tenantId        String
@@ -605,7 +621,7 @@ model OutboundDestination {
   @@map("outbound_destinations")
 }
 
-// 22. OutboundDeliveryAttempt
+// 23. OutboundDeliveryAttempt
 model OutboundDeliveryAttempt {
   id                    String         @id @default(uuid())
   outboundDestinationId String
@@ -628,7 +644,7 @@ model OutboundDeliveryAttempt {
   @@map("outbound_delivery_attempts")
 }
 
-// 23. ActionOutput
+// 24. ActionOutput
 model ActionOutput {
   id              String           @id @default(uuid())
   tenantId        String
@@ -651,7 +667,7 @@ model ActionOutput {
   @@map("action_outputs")
 }
 
-// 24. ActionDeliveryAttempt
+// 25. ActionDeliveryAttempt
 model ActionDeliveryAttempt {
   id                   String               @id @default(uuid())
   tenantId             String

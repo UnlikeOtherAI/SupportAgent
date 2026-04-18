@@ -11,9 +11,11 @@ import {
 } from '@support-agent/executors-runtime';
 import {
   CanceledError,
+  findTemplatePlaceholders,
   type RuntimeResolvedStageAst,
   composePrompt,
   runWithLoop,
+  substitutePlaceholders,
 } from '@support-agent/skills-executor-runtime';
 import { loadSkillFromRow } from '@support-agent/skills-runtime';
 import { getExecutorByKey, runWithJsonOutput, type Executor } from '../executors/index.js';
@@ -35,6 +37,10 @@ export interface SkillHandlerOptions {
   executor?: Executor;
 }
 
+// TODO: This runner still executes in a fresh temp dir without a repo checkout.
+// Build- or code-reading skills may require a checked-out repository once the
+// local orchestrator path is defined clearly enough to implement it here.
+
 type SkillManifestEntry = NonNullable<WorkerJob['resolvedSkillManifest']>[number];
 type SkillFetchEntry = NonNullable<WorkerJob['skillFetches']>[number];
 type SkillRow = {
@@ -53,6 +59,152 @@ type ExecutorRow = {
 type RuntimeResolvedExecutor = ResolvedExecutor & { stages: RuntimeResolvedStageAst[] };
 
 const CANCEL_POLL_INTERVAL_MS = 2_000;
+
+type WorkerJobWithContext = WorkerJob & {
+  workItem?: {
+    externalUrl?: string | null;
+    title?: string | null;
+    body?: string | null;
+  };
+  repositoryMapping?: {
+    repositoryUrl?: string | null;
+  };
+  providerHints?: Record<string, unknown>;
+};
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+}
+
+function parseRepositoryFullName(repositoryUrl: string): string {
+  const normalized = repositoryUrl.endsWith('.git')
+    ? repositoryUrl.slice(0, -4)
+    : repositoryUrl;
+  const match = normalized.match(/github\.com[:/](.+?)\/(.+)$/);
+  return match ? `${match[1]}/${match[2]}` : normalized;
+}
+
+function buildPromptContext(job: WorkerJobWithContext): Record<string, unknown> {
+  const providerHints = readRecord(job.providerHints);
+  const triggerContext = readRecord(providerHints.triggerContext);
+  const actionConfig = readRecord(providerHints.actionConfig);
+  const workItem = readRecord(job.workItem);
+  const repositoryUrl =
+    typeof job.repositoryMapping?.repositoryUrl === 'string'
+      ? job.repositoryMapping.repositoryUrl
+      : job.targetRepo;
+  const repositoryFullName = repositoryUrl ? parseRepositoryFullName(repositoryUrl) : '';
+  const issueUrl = typeof providerHints.issueRef === 'string'
+    ? providerHints.issueRef
+    : workItem.externalUrl;
+  const prUrl = typeof providerHints.prRef === 'string'
+    ? providerHints.prRef
+    : workItem.externalUrl;
+  const pullRequestTitle =
+    typeof triggerContext.title === 'string'
+      ? triggerContext.title
+      : typeof workItem.title === 'string'
+        ? workItem.title
+        : undefined;
+  const pullRequestBody =
+    typeof triggerContext.body === 'string'
+      ? triggerContext.body
+      : typeof workItem.body === 'string'
+        ? workItem.body
+        : undefined;
+
+  return {
+    action: actionConfig,
+    job: {
+      id: job.jobId,
+    },
+    repository: {
+      fullName: repositoryFullName,
+      url: repositoryUrl,
+    },
+    run: {
+      id: job.workflowRunId,
+    },
+    trigger: {
+      ...(readRecord((job as Record<string, unknown>).trigger)),
+      issue: {
+        url: issueUrl,
+        title: typeof workItem.title === 'string' ? workItem.title : undefined,
+        body: typeof workItem.body === 'string' ? workItem.body : undefined,
+      },
+      pull_request: {
+        url: prUrl,
+        title: pullRequestTitle,
+        body: pullRequestBody,
+      },
+      repository: {
+        fullName: repositoryFullName,
+        url: repositoryUrl,
+      },
+    },
+  };
+}
+
+async function warnOnMissingPlaceholders(
+  api: WorkerApiClient,
+  jobId: string,
+  template: string,
+  context: Record<string, unknown>,
+): Promise<void> {
+  const missing = findTemplatePlaceholders(template).filter((placeholder) => {
+    const substituted = substitutePlaceholders(`{{${placeholder}}}`, context);
+    return substituted === `{{${placeholder}}}`;
+  });
+
+  for (const placeholder of missing) {
+    await api.postLog(
+      jobId,
+      'stderr',
+      `[skill] Missing placeholder context for {{${placeholder}}}; leaving token intact`,
+    );
+  }
+}
+
+async function postCheckpointWithRetry(
+  api: WorkerApiClient,
+  jobId: string,
+  dispatchAttemptId: string,
+  payload: {
+    kind: 'stage_complete' | 'iteration_complete';
+    stageId?: string;
+    iteration?: number;
+    payload: SkillRunResult[];
+  },
+): Promise<void> {
+  try {
+    await api.postCheckpoint(dispatchAttemptId, payload);
+    return;
+  } catch (error) {
+    try {
+      await api.postLog(
+        jobId,
+        'stderr',
+        `[skill] Checkpoint post failed (${payload.kind}); retrying once: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } catch (logError) {
+      console.warn('[skill] Failed to log checkpoint retry warning', logError);
+    }
+  }
+
+  try {
+    await api.postCheckpoint(dispatchAttemptId, payload);
+  } catch (error) {
+    try {
+      await api.postLog(
+        jobId,
+        'stderr',
+        `[skill] Checkpoint post failed after retry (${payload.kind}); continuing without persisted checkpoint: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } catch (logError) {
+      console.warn('[skill] Failed to log final checkpoint failure', logError);
+    }
+  }
+}
 
 export async function handleSkillJob(
   job: WorkerJob,
@@ -90,8 +242,19 @@ export async function handleSkillJob(
   const workDir = await mkdtemp(join(tmpdir(), `support-agent-skill-${jobId}-`));
   const abortController = new AbortController();
   registerDispatchAbortController(jobId, abortController);
+  const promptContext = buildPromptContext(job as WorkerJobWithContext);
+  const actionConfig = readRecord((job as WorkerJobWithContext).providerHints?.actionConfig);
 
   try {
+    for (const stage of resolvedExecutor.stages) {
+      const runtimeStage = stage as RuntimeResolvedStageAst;
+      const configuredTaskPrompt = typeof actionConfig.taskPrompt === 'string'
+        && actionConfig.taskPrompt.trim() !== ''
+        ? actionConfig.taskPrompt
+        : runtimeStage.task_prompt;
+      await warnOnMissingPlaceholders(api, jobId, configuredTaskPrompt, promptContext);
+    }
+
     const buildStagePrompt = (
       stage: ResolvedStageAst,
       outputsByStage: Map<string, SkillRunResult[]>,
@@ -99,11 +262,15 @@ export async function handleSkillJob(
       prevIterationOutputs?: Map<string, SkillRunResult[]>,
     ) => {
       const runtimeStage = stage as RuntimeResolvedStageAst;
+      const configuredTaskPrompt = typeof actionConfig.taskPrompt === 'string'
+        && actionConfig.taskPrompt.trim() !== ''
+        ? actionConfig.taskPrompt
+        : runtimeStage.task_prompt;
       return (
       composePrompt({
         executor: resolvedExecutor,
         stage: runtimeStage,
-        taskPrompt: runtimeStage.task_prompt,
+        taskPrompt: substitutePlaceholders(configuredTaskPrompt, promptContext),
         inputsByStage: outputsByStage,
         iteration,
         prevIterationOutputs,
@@ -117,7 +284,7 @@ export async function handleSkillJob(
         stageId?: string;
         iteration?: number;
         payload: SkillRunResult[];
-      }) => api.postCheckpoint(jobId, args),
+      }) => postCheckpointWithRetry(api, jobId, jobId, args),
     };
 
     const cancelChecker = createCancelChecker(api, jobId, workflowRunId);
@@ -166,6 +333,16 @@ export async function handleSkillJob(
       signal: abortController.signal,
       persistIteration: async (iteration, outputsByStage) => {
         const leafOutputs = outputsByStage.get(resolvedExecutor.leafStageId) ?? [];
+        const stages = Object.fromEntries(
+          Array.from(outputsByStage.entries()).map(([stageId, outputs]) => [
+            stageId,
+            { spawn_outputs: outputs },
+          ]),
+        );
+        await api.postIterationState(workflowRunId, {
+          iteration,
+          stages,
+        });
         await api.postProgress(
           jobId,
           'skill_iteration',

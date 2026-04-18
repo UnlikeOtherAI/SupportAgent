@@ -5,6 +5,7 @@ import { type FastifyInstance } from 'fastify';
 import { buildApp } from '../app.js';
 
 const TEST_TENANT_ID = 'd0000000-0000-0000-0000-000000000001';
+const OTHER_TENANT_ID = 'd0000000-0000-0000-0000-000000000099';
 const WORKER_SECRET = 'worker-fetch-secret-abc123';
 
 describe('Worker fetch routes', () => {
@@ -117,6 +118,18 @@ loop:
       },
     });
 
+    await app.prisma.executor.create({
+      data: {
+        tenantId: OTHER_TENANT_ID,
+        key: 'triage-default',
+        description: 'Other tenant executor',
+        yaml,
+        parsed: parseExecutorYaml(yaml),
+        contentHash: 'executor-hash-other-1',
+        source: 'USER',
+      },
+    });
+
     await app.prisma.skill.create({
       data: {
         tenantId: TEST_TENANT_ID,
@@ -132,6 +145,25 @@ loop:
           required: ['delivery'],
         },
         contentHash: 'skill-hash-1',
+        source: 'USER',
+      },
+    });
+
+    await app.prisma.skill.create({
+      data: {
+        tenantId: OTHER_TENANT_ID,
+        name: 'triage-issue',
+        role: 'SYSTEM',
+        description: 'Other tenant skill',
+        body: '# Triage issue\nReturn JSON.',
+        outputSchema: {
+          type: 'object',
+          properties: {
+            delivery: { type: 'array' },
+          },
+          required: ['delivery'],
+        },
+        contentHash: 'skill-hash-other-1',
         source: 'USER',
       },
     });
@@ -177,6 +209,8 @@ loop:
       await app.prisma.$executeRawUnsafe(`DELETE FROM execution_providers WHERE "tenantId" = $1`, TEST_TENANT_ID);
       await app.prisma.skill.deleteMany({ where: { tenantId: TEST_TENANT_ID } });
       await app.prisma.executor.deleteMany({ where: { tenantId: TEST_TENANT_ID } });
+      await app.prisma.skill.deleteMany({ where: { tenantId: OTHER_TENANT_ID } });
+      await app.prisma.executor.deleteMany({ where: { tenantId: OTHER_TENANT_ID } });
       await app.prisma.platformType.deleteMany({ where: { key: 'test-worker-fetch' } });
     } finally {
       await app.close();
@@ -195,12 +229,23 @@ loop:
       key: 'triage-default',
       contentHash: 'executor-hash-1',
     });
+    expect(res.json().contentHash).toBe('executor-hash-1');
   });
 
   it('returns 404 for executor hash mismatch', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/v1/executors/triage-default/by-hash/wrong-hash',
+      headers: { authorization: `Bearer ${WORKER_SECRET}` },
+    });
+
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('returns 404 when the requested executor hash only exists in another tenant', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/executors/triage-default/by-hash/executor-hash-other-1',
       headers: { authorization: `Bearer ${WORKER_SECRET}` },
     });
 
@@ -220,6 +265,7 @@ loop:
       contentHash: 'skill-hash-1',
       role: 'SYSTEM',
     });
+    expect(res.json().contentHash).toBe('skill-hash-1');
   });
 
   it('returns 404 for skill hash mismatch', async () => {
@@ -230,5 +276,25 @@ loop:
     });
 
     expect(res.statusCode).toBe(404);
+  });
+
+  it('returns 404 when the requested skill hash only exists in another tenant', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/skills/triage-issue/by-hash/skill-hash-other-1',
+      headers: { authorization: `Bearer ${WORKER_SECRET}` },
+    });
+
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('returns 401 with bad worker auth', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/executors/triage-default/by-hash/executor-hash-1',
+      headers: { authorization: 'Bearer wrong-worker-secret' },
+    });
+
+    expect(res.statusCode).toBe(401);
   });
 });

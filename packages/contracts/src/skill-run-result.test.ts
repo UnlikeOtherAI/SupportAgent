@@ -50,17 +50,18 @@ describe('SkillRunResultSchema', () => {
     ).toThrow();
   });
 
-  it('rejects findings when a comment delivery op is also present', () => {
-    expect(() =>
-      SkillRunResultSchema.parse({
-        delivery: [{ kind: 'comment', body: 'Human-readable summary.' }],
-        findings: {
-          summary: 'The null check is missing.',
-          rootCause: 'The handler assumes metadata is always populated.',
-          confidence: 'high',
-        },
-      }),
-    ).toThrow(/both findings and comment delivery ops/i);
+  it('accepts findings when a comment delivery op is also present', () => {
+    const result = SkillRunResultSchema.parse({
+      delivery: [{ kind: 'comment', body: 'Human-readable summary.' }],
+      findings: {
+        summary: 'The null check is missing.',
+        rootCause: 'The handler assumes metadata is always populated.',
+        confidence: 'high',
+      },
+    });
+
+    expect(result.delivery).toHaveLength(1);
+    expect(result.findings?.summary).toBe('The null check is missing.');
   });
 
   it('accepts findings with non-comment delivery ops', () => {

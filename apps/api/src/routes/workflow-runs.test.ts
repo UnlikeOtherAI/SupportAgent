@@ -330,12 +330,21 @@ describe('Workflow Run API', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toHaveLength(2);
-    expect(res.json()[0]).toMatchObject({
-      dispatchAttemptId: dispatch.id,
-      kind: 'stage_complete',
-      iteration: 1,
-      stageId: 'investigate',
-    });
+    expect(res.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          dispatchAttemptId: dispatch.id,
+          kind: 'stage_complete',
+          iteration: 1,
+          stageId: 'investigate',
+        }),
+        expect.objectContaining({
+          dispatchAttemptId: dispatch.id,
+          kind: 'iteration_complete',
+          iteration: 1,
+        }),
+      ]),
+    );
   });
 
   it('POST /v1/runs/:id/retry retries a failed run and increments attemptNumber', async () => {

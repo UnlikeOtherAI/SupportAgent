@@ -65,37 +65,6 @@ export const SkillRunResultSchema = z.object({
   reportSummary: z.string().optional(),
   loop: SkillRunLoopSchema.optional(),
   extras: z.record(z.unknown()).optional(),
-}).superRefine((value, context) => {
-  const hasRenderedFindings =
-    !!value.findings &&
-    Object.values(value.findings).some((field) => {
-      if (field === undefined) {
-        return false;
-      }
-
-      if (Array.isArray(field)) {
-        return field.length > 0;
-      }
-
-      if (field && typeof field === 'object') {
-        return Object.keys(field).length > 0;
-      }
-
-      return true;
-    });
-
-  if (!hasRenderedFindings) {
-    return;
-  }
-
-  const commentIndex = value.delivery.findIndex((op) => op.kind === 'comment');
-  if (commentIndex >= 0) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['delivery', commentIndex],
-      message: 'SkillRunResult leaf output cannot contain both findings and comment delivery ops',
-    });
-  }
 });
 
 export type PrSpec = z.infer<typeof PrSpecSchema>;

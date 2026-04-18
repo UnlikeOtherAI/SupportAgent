@@ -30,6 +30,13 @@ export interface WorkerApiClient {
       payload: SkillRunResult[];
     },
   ): Promise<void>;
+  postIterationState(
+    workflowRunId: string,
+    payload: {
+      iteration: number;
+      stages: Record<string, { spawn_outputs: SkillRunResult[] }>;
+    },
+  ): Promise<void>;
   uploadArtifact(jobId: string, name: string, data: Uint8Array): Promise<string>;
   submitReport(jobId: string, report: FinalReport): Promise<void>;
 }
@@ -103,6 +110,14 @@ export function createWorkerApiClient(baseUrl: string, workerSharedSecret: strin
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error(`Failed to post checkpoint: ${res.status}`);
+    },
+    async postIterationState(workflowRunId, payload) {
+      const res = await fetch(`${baseUrl}/v1/workflow-runs/${workflowRunId}/iterations`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(`Failed to post iteration state: ${res.status}`);
     },
     async uploadArtifact(jobId, name, data) {
       const res = await fetch(`${baseUrl}/worker/jobs/${jobId}/artifacts`, {
