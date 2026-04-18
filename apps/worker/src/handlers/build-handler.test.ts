@@ -17,6 +17,11 @@ import {
   linearAuthAvailable,
   linearGetIssue,
 } from '../lib/linear-cli.js';
+import {
+  respondioAuthAvailable,
+  respondioGetConversation,
+  respondioPostComment,
+} from '../lib/respondio-cli.js';
 import { codexExec } from '../utils/codex-exec.js';
 
 vi.mock('../lib/gh-cli.js', () => ({
@@ -35,6 +40,12 @@ vi.mock('../lib/linear-cli.js', () => ({
   linearAddComment: vi.fn(),
   linearAuthAvailable: vi.fn(),
   linearGetIssue: vi.fn(),
+}));
+
+vi.mock('../lib/respondio-cli.js', () => ({
+  respondioAuthAvailable: vi.fn(),
+  respondioGetConversation: vi.fn(),
+  respondioPostComment: vi.fn(),
 }));
 
 vi.mock('../utils/codex-exec.js', () => ({
@@ -212,6 +223,124 @@ describe('handleBuildJob', () => {
         expect.objectContaining({
           status: 'failed',
           summary: expect.stringContaining('LINEAR_API_KEY'),
+        }),
+      );
+    });
+  });
+
+  describe('Respond.io-sourced builds', () => {
+    function makeRespondIoJob(): WorkerJob {
+      const job = makeJob();
+      return {
+        ...job,
+        sourceConnectorKey: 'respondio',
+        providerHints: {
+          sourceExternalId: '12345',
+          sourcePlatform: 'respondio',
+        },
+      } as WorkerJob;
+    }
+
+    it('fetches the conversation, posts build-start + PR-link comments to Respond.io, never to GitHub', async () => {
+      vi.mocked(ghCheckAuth).mockResolvedValue(true);
+      vi.mocked(parseGitHubRef).mockReturnValue({ owner: 'rafiki270', repo: 'max-test' });
+      vi.mocked(ghCloneRepo).mockResolvedValue({ workDir: '/tmp/build-respondio', branch: 'main' });
+      vi.mocked(respondioAuthAvailable).mockReturnValue(true);
+      vi.mocked(respondioGetConversation).mockResolvedValue({
+        contact: {
+          id: 12345,
+          firstName: 'Jane',
+          lastName: 'Smith',
+          email: 'jane@example.com',
+          phone: null,
+          language: null,
+          countryCode: null,
+          tags: [],
+          lifecycle: null,
+          status: 'open',
+          assignee: null,
+          customFields: [],
+          createdAt: 1700000000,
+        },
+        recentMessages: [
+          {
+            messageId: 1,
+            channelId: 5,
+            channelSource: 'whatsapp',
+            type: 'text',
+            text: 'login broken',
+            traffic: 'incoming',
+            senderSource: 'user',
+            createdAt: 1700000001,
+          },
+        ],
+      });
+      vi.mocked(codexExec).mockResolvedValue({
+        ok: true,
+        stdout: 'fixed it',
+        stderr: '',
+        durationMs: 1000,
+        timedOut: false,
+        exitCode: 0,
+      });
+      vi.mocked(ghCreateBranch).mockResolvedValue(undefined);
+      vi.mocked(ghCommitAll).mockResolvedValue(undefined);
+      vi.mocked(ghCreatePR).mockResolvedValue({ number: 88, url: 'https://github.com/rafiki270/max-test/pull/88' });
+      vi.mocked(cleanupWorkDir).mockResolvedValue(undefined);
+
+      execMock.mockImplementation((cmd: string, opts: unknown, cb: unknown) => {
+        const callback = (typeof opts === 'function' ? opts : cb) as (err: Error | null, out: { stdout: string; stderr: string }) => void;
+        if (typeof cmd === 'string' && cmd.startsWith('git status')) {
+          callback(null, { stdout: ' M src/login.ts\n', stderr: '' });
+        } else {
+          callback(null, { stdout: '', stderr: '' });
+        }
+        return {} as never;
+      });
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }));
+
+      try {
+        const { api } = makeApi();
+        await handleBuildJob(makeRespondIoJob(), api);
+
+        expect(respondioGetConversation).toHaveBeenCalledWith('12345');
+
+        const calls = vi.mocked(respondioPostComment).mock.calls;
+        // build-start
+        expect(calls[0][0]).toBe('id:12345');
+        expect(calls[0][1]).toContain('SupportAgent is building');
+        expect(calls[0][1]).toContain('respondio:12345');
+        // PR-link
+        expect(calls[1][0]).toBe('id:12345');
+        expect(calls[1][1]).toContain('https://github.com/rafiki270/max-test/pull/88');
+
+        // Must never post comments to GitHub or Linear when Respond.io-sourced.
+        expect(ghAddIssueComment).not.toHaveBeenCalled();
+        expect(linearAddComment).not.toHaveBeenCalled();
+
+        // Branch slug must be filesystem-safe (no colons).
+        const branchArg = vi.mocked(ghCreateBranch).mock.calls[0][1];
+        expect(branchArg).not.toContain(':');
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('fails fast when RESPONDIO_API_KEY is missing', async () => {
+      vi.mocked(ghCheckAuth).mockResolvedValue(true);
+      vi.mocked(parseGitHubRef).mockReturnValue({ owner: 'rafiki270', repo: 'max-test' });
+      vi.mocked(respondioAuthAvailable).mockReturnValue(false);
+
+      const { api, submitReport } = makeApi();
+      await handleBuildJob(makeRespondIoJob(), api);
+
+      expect(respondioGetConversation).not.toHaveBeenCalled();
+      expect(submitReport).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          status: 'failed',
+          summary: expect.stringContaining('RESPONDIO_API_KEY'),
         }),
       );
     });

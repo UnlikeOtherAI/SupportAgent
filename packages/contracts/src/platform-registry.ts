@@ -12,7 +12,7 @@ export interface PlatformRegistryEntry {
   key: string;
   displayName: string;
   description: string;
-  category: 'issue-tracker' | 'error-monitoring' | 'version-control' | 'project-management';
+  category: 'issue-tracker' | 'error-monitoring' | 'version-control' | 'project-management' | 'communication';
   iconSlug: string;
   defaultDirection: 'inbound' | 'outbound' | 'both';
   defaultIntakeMode: 'webhook' | 'polling' | 'manual';
@@ -445,6 +445,44 @@ export const PLATFORM_REGISTRY: Record<string, PlatformRegistryEntry> = {
       },
     ],
   },
+  respondio: {
+    key: 'respondio',
+    displayName: 'Respond.io',
+    description: 'Triage customer conversations across WhatsApp, Messenger, Email and other channels via Respond.io.',
+    category: 'communication',
+    iconSlug: 'respondio',
+    defaultDirection: 'both',
+    defaultIntakeMode: 'webhook',
+    supportsCustomServer: false,
+    supportsOAuth: false,
+    configFields: [
+      {
+        key: 'api_key',
+        label: 'API Token',
+        type: 'password',
+        placeholder: 'Paste a Respond.io API token',
+        helpText: 'Generate a token in Respond.io → Settings → Integrations → Developer API. The token has workspace-wide scope.',
+        required: true,
+        secretType: 'api_key',
+      },
+      {
+        key: 'workspace_id',
+        label: 'Workspace ID',
+        type: 'text',
+        placeholder: '123',
+        helpText: 'Optional. Used for multi-workspace deployments to disambiguate which Respond.io workspace this connector targets.',
+        required: false,
+      },
+      {
+        key: 'default_channel_id',
+        label: 'Default Channel ID',
+        type: 'text',
+        placeholder: '5678',
+        helpText: 'Optional. Channel to send outbound messages on when the contact has no recent inbound channel.',
+        required: false,
+      },
+    ],
+  },
 };
 
 export const PLATFORM_CATEGORIES = [
@@ -452,4 +490,5 @@ export const PLATFORM_CATEGORIES = [
   { key: 'issue-tracker', label: 'Issue Trackers' },
   { key: 'version-control', label: 'Version Control' },
   { key: 'project-management', label: 'Project Management' },
+  { key: 'communication', label: 'Communication' },
 ] as const;

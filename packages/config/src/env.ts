@@ -30,6 +30,9 @@ const envSchema = z.object({
   // Per-tenant secret should eventually live in Connector.config; this env var
   // is the temporary bootstrap path while we wire that through.
   LINEAR_API_KEY: z.string().optional(),
+  // Respond.io workspace bearer token. Same temporary bootstrap shape as
+  // LINEAR_API_KEY; per-tenant secrets will move to Connector.config.
+  RESPONDIO_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

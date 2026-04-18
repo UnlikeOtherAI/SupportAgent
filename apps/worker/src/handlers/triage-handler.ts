@@ -16,6 +16,11 @@ import {
   linearGetIssue,
 } from '../lib/linear-cli.js';
 import {
+  respondioAuthAvailable,
+  respondioGetConversation,
+  respondioPostComment,
+} from '../lib/respondio-cli.js';
+import {
   buildTriageDiscoveryComment,
   confidenceNumeric,
   renderTriageReportMarkdown,
@@ -42,6 +47,8 @@ export async function handleTriageJob(
   const executor = options.executor ?? getDefaultExecutor();
   const { jobId, workflowRunId, targetRepo, sourceConnectorKey } = job;
   const isLinearSource = sourceConnectorKey === 'linear';
+  const isRespondIoSource = sourceConnectorKey === 'respondio';
+  const isExternalChannelSource = isLinearSource || isRespondIoSource;
   const providerHints = (job as any).providerHints ?? {};
   const sourceExternalId: string | undefined = providerHints.sourceExternalId;
 
@@ -73,7 +80,7 @@ export async function handleTriageJob(
     if (m) issueNum = parseInt(m[1]);
   }
 
-  if (!isLinearSource && !issueNum) {
+  if (!isExternalChannelSource && !issueNum) {
     await api.postLog(jobId, 'stderr', `[triage] ERROR: No issue number in job hints: ${JSON.stringify(providerHints)}`);
     await api.submitReport(jobId, {
       workflowRunId,
@@ -97,9 +104,21 @@ export async function handleTriageJob(
     return;
   }
 
+  if (isRespondIoSource && !sourceExternalId) {
+    await api.postLog(jobId, 'stderr', `[triage] ERROR: No respond.io contact id in job hints: ${JSON.stringify(providerHints)}`);
+    await api.submitReport(jobId, {
+      workflowRunId,
+      workflowType: 'triage',
+      status: 'failed',
+      summary: 'No Respond.io contact id found in job context',
+      stageResults: [{ stage: 'issue_fetch', status: 'failed' }],
+    });
+    return;
+  }
+
   const { owner, repo } = parseGitHubRef(targetRepo);
 
-  // ── 3. Fetch source issue (GitHub or Linear) ──────────────────────
+  // ── 3. Fetch source issue (GitHub, Linear, or Respond.io) ─────────
   type IssueShape = {
     number: number;
     title: string;
@@ -107,14 +126,62 @@ export async function handleTriageJob(
     labels: string[];
     state: string;
     url: string;
-    /** Display ref like "#42" (github) or "ENG-123" (linear) */
+    /** Display ref like "#42" (github), "ENG-123" (linear), or "respondio:12345" */
     displayRef: string;
     /** Linear UUID needed for outbound comment posting; undefined for github */
     linearIssueId?: string;
+    /** Respond.io contact identifier for outbound comment posting */
+    respondioContactId?: string;
   };
 
   let issue: IssueShape;
-  if (isLinearSource) {
+  if (isRespondIoSource) {
+    await api.postProgress(jobId, 'issue_fetch', `Fetching Respond.io conversation ${sourceExternalId}`);
+    await api.postLog(jobId, 'stdout', `[triage] Fetching Respond.io conversation ${sourceExternalId}`);
+    if (!respondioAuthAvailable()) {
+      await api.postLog(jobId, 'stderr', '[triage] ERROR: RESPONDIO_API_KEY not set on worker');
+      await api.submitReport(jobId, {
+        workflowRunId,
+        workflowType: 'triage',
+        status: 'failed',
+        summary: 'RESPONDIO_API_KEY not configured on worker',
+        stageResults: [{ stage: 'auth', status: 'passed' }, { stage: 'issue_fetch', status: 'failed' }],
+      });
+      return;
+    }
+    try {
+      const conv = await respondioGetConversation(sourceExternalId!);
+      const customerName = [conv.contact.firstName, conv.contact.lastName].filter(Boolean).join(' ').trim()
+        || conv.contact.email
+        || conv.contact.phone
+        || `contact ${conv.contact.id}`;
+      const transcript = conv.recentMessages
+        .slice()
+        .reverse() // chronological order — API returns newest first
+        .map((m) => `[${m.traffic === 'incoming' ? 'customer' : 'agent'}] ${m.text ?? `(${m.type})`}`)
+        .join('\n');
+      issue = {
+        number: 0,
+        title: `Conversation with ${customerName}`,
+        body: transcript || '(no message history)',
+        labels: conv.contact.tags,
+        state: conv.contact.status ?? 'open',
+        url: '',
+        displayRef: `respondio:${conv.contact.id}`,
+        respondioContactId: `id:${conv.contact.id}`,
+      };
+    } catch (err) {
+      await api.postLog(jobId, 'stderr', `[triage] ERROR fetching Respond.io conversation: ${err}`);
+      await api.submitReport(jobId, {
+        workflowRunId,
+        workflowType: 'triage',
+        status: 'failed',
+        summary: `Failed to fetch Respond.io conversation ${sourceExternalId}: ${err}`,
+        stageResults: [{ stage: 'auth', status: 'passed' }, { stage: 'issue_fetch', status: 'failed' }],
+      });
+      return;
+    }
+  } else if (isLinearSource) {
     await api.postProgress(jobId, 'issue_fetch', `Fetching Linear issue ${sourceExternalId}`);
     await api.postLog(jobId, 'stdout', `[triage] Fetching Linear issue ${sourceExternalId}`);
     if (!linearAuthAvailable()) {
@@ -310,7 +377,10 @@ You will produce a structured triage analysis. Each field has a specific purpose
     // ── 7. Post the discovery comment, then label the issue ────────────
     try {
       const commentBody = buildTriageDiscoveryComment({ output: triageOutput });
-      if (isLinearSource && issue.linearIssueId) {
+      if (isRespondIoSource && issue.respondioContactId) {
+        await respondioPostComment(issue.respondioContactId, commentBody);
+        await api.postLog(jobId, 'stdout', `[triage] Posted discovery comment on Respond.io ${issue.displayRef}`);
+      } else if (isLinearSource && issue.linearIssueId) {
         await linearAddComment(issue.linearIssueId, commentBody);
         await api.postLog(jobId, 'stdout', `[triage] Posted discovery comment on Linear ${issue.displayRef}`);
       } else {
@@ -337,7 +407,7 @@ You will produce a structured triage analysis. Each field has a specific purpose
 
     const severityLabel = `severity-${triageOutput.severity.level.toLowerCase()}`;
     const labels = ['triaged', severityLabel];
-    if (!isLinearSource) {
+    if (!isExternalChannelSource) {
       try {
         await ghAddIssueLabels(owner, repo, issueNum, labels);
       } catch (err) {

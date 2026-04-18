@@ -72,6 +72,13 @@ const PLATFORM_SUPPORT_DEFINITIONS: PlatformSupportDefinition[] = [
     supportsInbound: true,
     supportsOutbound: true,
   },
+  {
+    key: 'respondio',
+    supportsWebhook: true,
+    supportsPolling: true,
+    supportsInbound: true,
+    supportsOutbound: true,
+  },
 ];
 
 export const PLATFORM_TYPE_CATALOG = PLATFORM_SUPPORT_DEFINITIONS.map((definition) => {

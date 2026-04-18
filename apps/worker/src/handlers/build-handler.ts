@@ -18,6 +18,11 @@ import {
   linearAuthAvailable,
   linearGetIssue,
 } from '../lib/linear-cli.js';
+import {
+  respondioAuthAvailable,
+  respondioGetConversation,
+  respondioPostComment,
+} from '../lib/respondio-cli.js';
 import { buildBuildPrompt } from './build-prompt.js';
 import { codexExec, summarizeResult } from '../utils/codex-exec.js';
 
@@ -40,6 +45,7 @@ Execution requirements:
 export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Promise<void> {
   const { jobId, workflowRunId, targetRepo, targetBranch, sourceConnectorKey } = job;
   const isLinearSource = sourceConnectorKey === 'linear';
+  const isRespondIoSource = sourceConnectorKey === 'respondio';
 
   await api.postProgress(jobId, 'auth', 'Checking GitHub authentication');
   await api.postLog(jobId, 'stdout', `[build] Starting build for ${targetRepo}`);
@@ -68,13 +74,35 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
   let repo = '';
   let displayRef = '';
   let linearIssueId: string | undefined;
+  let respondioContactId: string | undefined;
 
   try {
     const parsed = parseGitHubRef(targetRepo);
     owner = parsed.owner;
     repo = parsed.repo;
 
-    if (isLinearSource) {
+    if (isRespondIoSource) {
+      if (!sourceExternalId) {
+        throw new Error('Respond.io-sourced build job missing sourceExternalId in providerHints');
+      }
+      if (!respondioAuthAvailable()) {
+        throw new Error('RESPONDIO_API_KEY not configured on worker');
+      }
+      const conv = await respondioGetConversation(sourceExternalId);
+      const customerName = [conv.contact.firstName, conv.contact.lastName].filter(Boolean).join(' ').trim()
+        || conv.contact.email
+        || conv.contact.phone
+        || `contact ${conv.contact.id}`;
+      issueTitle = `Conversation with ${customerName}`;
+      issueBody = conv.recentMessages
+        .slice()
+        .reverse()
+        .map((m) => `[${m.traffic === 'incoming' ? 'customer' : 'agent'}] ${m.text ?? `(${m.type})`}`)
+        .join('\n') || '(no message history)';
+      displayRef = `respondio:${conv.contact.id}`;
+      respondioContactId = `id:${conv.contact.id}`;
+      await api.postLog(jobId, 'stdout', `[build] Fetched Respond.io conversation ${displayRef}: ${issueTitle}`);
+    } else if (isLinearSource) {
       if (!sourceExternalId) {
         throw new Error('Linear-sourced build job missing sourceExternalId in providerHints');
       }
@@ -103,12 +131,12 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
     }
   } catch (err) {
     await api.postLog(jobId, 'stderr', `[build] Could not fetch issue: ${err}`);
-    if (isLinearSource) {
+    if (isLinearSource || isRespondIoSource) {
       await api.submitReport(jobId, {
         workflowRunId,
         workflowType: 'build',
         status: 'failed',
-        summary: `Failed to fetch Linear issue ${sourceExternalId}: ${err}`,
+        summary: `Failed to fetch ${isLinearSource ? 'Linear' : 'Respond.io'} source ${sourceExternalId}: ${err}`,
         stageResults: [
           { stage: 'auth', status: 'passed' },
           { stage: 'issue_fetch', status: 'failed' },
@@ -118,15 +146,19 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
     }
   }
 
-  // Notify Linear that build is starting (matches "comment back with each step").
+  // Notify the source that build is starting (matches "comment back with each step").
+  const buildStartComment = `<!-- supportagent:build-start -->\n🔨 SupportAgent is building a fix for **${displayRef}** on \`${owner}/${repo}\`. PR link will follow.`;
   if (isLinearSource && linearIssueId) {
     try {
-      await linearAddComment(
-        linearIssueId,
-        `<!-- supportagent:build-start -->\n🔨 SupportAgent is building a fix for **${displayRef}** on \`${owner}/${repo}\`. PR link will follow.`,
-      );
+      await linearAddComment(linearIssueId, buildStartComment);
     } catch (err) {
       await api.postLog(jobId, 'stderr', `[build] Could not post build-start comment on Linear: ${err}`);
+    }
+  } else if (isRespondIoSource && respondioContactId) {
+    try {
+      await respondioPostComment(respondioContactId, buildStartComment);
+    } catch (err) {
+      await api.postLog(jobId, 'stderr', `[build] Could not post build-start comment on Respond.io: ${err}`);
     }
   }
 
@@ -224,8 +256,8 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
 
   if (changedFiles.length > 0) {
     // Commit and create PR
-    const branchSlug = isLinearSource && displayRef
-      ? displayRef.toLowerCase()
+    const branchSlug = (isLinearSource || isRespondIoSource) && displayRef
+      ? displayRef.toLowerCase().replace(/[^a-z0-9-]+/g, '-')
       : `issue-${issueNum}`;
     const branchName = `max-fix/${branchSlug}-${Date.now().toString(36)}`;
 
@@ -268,13 +300,15 @@ export async function handleBuildJob(job: WorkerJob, api: WorkerApiClient): Prom
     try {
       const actionConfig = ((job as any).providerHints?.actionConfig ?? {}) as Record<string, unknown>;
       const issueLinkMode = actionConfig.issueLinkMode === 'mentions' ? 'mentions' : 'fixes';
-      const issueLinkLine = !isLinearSource && issueNum > 0
+      const issueLinkLine = !isLinearSource && !isRespondIoSource && issueNum > 0
         ? issueLinkMode === 'fixes'
           ? `Fixes #${issueNum}`
           : `Relates to #${issueNum}`
         : isLinearSource && displayRef
           ? `Relates to Linear ${displayRef}`
-          : '';
+          : isRespondIoSource && displayRef
+            ? `Relates to Respond.io ${displayRef}`
+            : '';
 
       const headerRef = displayRef || (issueNum > 0 ? `#${issueNum}` : 'task');
       const prBody = `${issueLinkLine}
@@ -303,18 +337,27 @@ ${implementationSummary.slice(0, 1000)}
       await api.postLog(jobId, 'stdout', `[build] PR created: ${prUrl}`);
       await api.postProgress(jobId, 'pr_create', `PR opened: ${prUrl}`);
 
+      const prLinkComment = `<!-- supportagent:pr-link -->\n🚀 Draft PR opened on \`${owner}/${repo}\`: ${prUrl}\n\nPR title: **${prTitle}**`;
       if (isLinearSource && linearIssueId) {
         try {
-          await linearAddComment(
-            linearIssueId,
-            `<!-- supportagent:pr-link -->\n🚀 Draft PR opened on \`${owner}/${repo}\`: ${prUrl}\n\nPR title: **${prTitle}**`,
-          );
+          await linearAddComment(linearIssueId, prLinkComment);
           await api.postLog(jobId, 'stdout', `[build] Posted PR link on Linear ${displayRef}`);
         } catch (commentErr) {
           await api.postLog(
             jobId,
             'stderr',
             `[build] Could not post PR link back on Linear: ${commentErr}`,
+          );
+        }
+      } else if (isRespondIoSource && respondioContactId) {
+        try {
+          await respondioPostComment(respondioContactId, prLinkComment);
+          await api.postLog(jobId, 'stdout', `[build] Posted PR link on Respond.io ${displayRef}`);
+        } catch (commentErr) {
+          await api.postLog(
+            jobId,
+            'stderr',
+            `[build] Could not post PR link back on Respond.io: ${commentErr}`,
           );
         }
       } else if (issueNum > 0) {
@@ -337,12 +380,16 @@ ${implementationSummary.slice(0, 1000)}
     } catch (err) {
       await api.postLog(jobId, 'stderr', `[build] PR creation failed: ${err}`);
       await api.postProgress(jobId, 'pr_create', `PR creation failed: ${err}`);
+      const failComment = `<!-- supportagent:pr-fail -->\n⚠️ SupportAgent failed to open a PR for **${displayRef}** on \`${owner}/${repo}\`: \`${String(err).slice(0, 300)}\``;
       if (isLinearSource && linearIssueId) {
         try {
-          await linearAddComment(
-            linearIssueId,
-            `<!-- supportagent:pr-fail -->\n⚠️ SupportAgent failed to open a PR for **${displayRef}** on \`${owner}/${repo}\`: \`${String(err).slice(0, 300)}\``,
-          );
+          await linearAddComment(linearIssueId, failComment);
+        } catch {
+          // best-effort
+        }
+      } else if (isRespondIoSource && respondioContactId) {
+        try {
+          await respondioPostComment(respondioContactId, failComment);
         } catch {
           // best-effort
         }
@@ -351,14 +398,18 @@ ${implementationSummary.slice(0, 1000)}
   } else {
     await api.postLog(jobId, 'stdout', `[build] No files changed — no PR to create`);
     await api.postProgress(jobId, 'pr_create', 'No changes needed');
+    const noChangesComment = `<!-- supportagent:no-changes -->\nℹ️ SupportAgent ran but produced no code changes for **${displayRef}**. ${implementationFailed ? `Reason: ${implementationSummary.slice(0, 300)}` : 'The fix may already be in place, or the executor returned no patch.'}`;
     if (isLinearSource && linearIssueId) {
       try {
-        await linearAddComment(
-          linearIssueId,
-          `<!-- supportagent:no-changes -->\nℹ️ SupportAgent ran but produced no code changes for **${displayRef}**. ${implementationFailed ? `Reason: ${implementationSummary.slice(0, 300)}` : 'The fix may already be in place, or the executor returned no patch.'}`,
-        );
+        await linearAddComment(linearIssueId, noChangesComment);
       } catch (err) {
         await api.postLog(jobId, 'stderr', `[build] Could not post no-changes comment on Linear: ${err}`);
+      }
+    } else if (isRespondIoSource && respondioContactId) {
+      try {
+        await respondioPostComment(respondioContactId, noChangesComment);
+      } catch (err) {
+        await api.postLog(jobId, 'stderr', `[build] Could not post no-changes comment on Respond.io: ${err}`);
       }
     }
   }
