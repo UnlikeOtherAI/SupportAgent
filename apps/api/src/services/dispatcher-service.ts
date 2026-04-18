@@ -232,6 +232,7 @@ export function createDispatcherService(
      * Returns the dispatch record or null if nothing to dispatch.
      */
     async dispatchNext(): Promise<{ dispatchId: string; workflowRunId: string } | null> {
+      await getBotLogin();
       const claimed = await prisma
         .$transaction(async (tx) => {
           const claimedRuns = await tx.$queryRawUnsafe<Array<{ id: string }>>(
