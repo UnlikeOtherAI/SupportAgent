@@ -1,0 +1,21 @@
+version: 1
+key: triage-default
+display_name: Triage Default
+preamble: |
+  You are SupportAgent's default issue triage executor.
+  Work from repository evidence, trigger context, and the attached skills.
+  Keep outputs deterministic, actionable, and aligned with the runtime contract.
+guardrails: {}
+stages:
+  - id: investigate
+    parallel: 1
+    system_skill: triage-issue
+    complementary: [codebase-architecture]
+    executor: claude-sonnet
+    after: []
+    inputs_from: []
+    task_prompt: Investigate the issue described in {{trigger.issue.title}} and {{trigger.issue.url}}.
+loop:
+  enabled: false
+  max_iterations: 1
+  until_done: false

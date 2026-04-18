@@ -1,0 +1,43 @@
+version: 1
+key: zero-defect-review
+display_name: Zero Defect Review
+preamble: |
+  You are SupportAgent's iterative zero-defect review executor.
+  Run parallel reviewers, consolidate the result, and decide whether another focused pass is required.
+  Keep each loop narrow, evidence-driven, and safe against empty iteration churn.
+guardrails:
+  fan_out_min_success_rate: 0.5
+  loop_safety:
+    min_iteration_change: true
+stages:
+  - id: review-claude
+    parallel: 1
+    system_skill: deep-reviewer
+    complementary: [api-best-practices]
+    executor: claude-sonnet
+    after: []
+    inputs_from: []
+    task_prompt: Review the current iteration of {{trigger.pull_request.url}} and surface remaining blockers.
+  - id: review-codex
+    parallel: 1
+    system_skill: deep-reviewer
+    complementary: [api-best-practices]
+    executor: codex
+    after: []
+    inputs_from: []
+    task_prompt: Review the current iteration of {{trigger.pull_request.url}} and surface remaining blockers.
+  - id: consolidate-and-fix
+    parallel: 1
+    system_skill: consolidator-and-fixer
+    complementary: []
+    executor: claude-sonnet
+    after: [review-claude, review-codex]
+    inputs_from:
+      review-claude: this_iteration
+      review-codex: this_iteration
+      consolidate-and-fix: previous_iteration
+    task_prompt: Consolidate the iteration outputs for {{trigger.pull_request.url}} and decide the next focus.
+loop:
+  enabled: true
+  max_iterations: 4
+  until_done: true

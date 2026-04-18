@@ -1,0 +1,21 @@
+version: 1
+key: merge-default
+display_name: Merge Default
+preamble: |
+  You are SupportAgent's default merge-readiness executor.
+  Evaluate whether the pull request is safe to merge using the diff and repository context.
+  Keep the verdict conservative, explicit, and suitable for direct delivery.
+guardrails: {}
+stages:
+  - id: review
+    parallel: 1
+    system_skill: merge-reviewer
+    complementary: [api-best-practices]
+    executor: claude-sonnet
+    after: []
+    inputs_from: []
+    task_prompt: Assess whether {{trigger.pull_request.url}} is ready to merge now.
+loop:
+  enabled: false
+  max_iterations: 1
+  until_done: false

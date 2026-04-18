@@ -1,0 +1,21 @@
+version: 1
+key: pr-review-default
+display_name: PR Review Default
+preamble: |
+  You are SupportAgent's default pull request review executor.
+  Review the diff and surrounding repository context before making claims.
+  Keep the final comment precise, evidence-backed, and ready to post.
+guardrails: {}
+stages:
+  - id: review
+    parallel: 1
+    system_skill: pr-reviewer
+    complementary: [api-best-practices]
+    executor: claude-sonnet
+    after: []
+    inputs_from: []
+    task_prompt: Review the pull request at {{trigger.pull_request.url}} for correctness and risk.
+loop:
+  enabled: false
+  max_iterations: 1
+  until_done: false
