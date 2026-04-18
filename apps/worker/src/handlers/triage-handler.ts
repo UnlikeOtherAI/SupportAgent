@@ -11,6 +11,11 @@ import {
   parseGitHubRef,
 } from '../lib/gh-cli.js';
 import {
+  linearAddComment,
+  linearAuthAvailable,
+  linearGetIssue,
+} from '../lib/linear-cli.js';
+import {
   buildTriageDiscoveryComment,
   confidenceNumeric,
   renderTriageReportMarkdown,
@@ -35,7 +40,10 @@ export async function handleTriageJob(
   options: TriageHandlerOptions = {},
 ): Promise<void> {
   const executor = options.executor ?? getDefaultExecutor();
-  const { jobId, workflowRunId, targetRepo } = job;
+  const { jobId, workflowRunId, targetRepo, sourceConnectorKey } = job;
+  const isLinearSource = sourceConnectorKey === 'linear';
+  const providerHints = (job as any).providerHints ?? {};
+  const sourceExternalId: string | undefined = providerHints.sourceExternalId;
 
   // ── 1. Auth check ────────────────────────────────────────────────
   await api.postProgress(jobId, 'auth', 'Checking GitHub authentication');
@@ -55,18 +63,17 @@ export async function handleTriageJob(
   }
   await api.postProgress(jobId, 'auth', 'GitHub authenticated');
 
-  // ── 2. Extract issue number from job context ──────────────────────
-  const providerHints = (job as any).providerHints ?? {};
+  // ── 2. Extract issue identity from job context ────────────────────
   const issueNumber = providerHints.issueNumber ?? parseInt(providerHints.issueRef ?? '0');
-  const issueRef = providerHints.issueRef ?? '';
+  const issueRefHint = providerHints.issueRef ?? '';
 
   let issueNum = issueNumber;
-  if (!issueNum && issueRef) {
-    const m = issueRef.match(/(?:issues?|pull)\/(\d+)/);
+  if (!issueNum && issueRefHint) {
+    const m = issueRefHint.match(/(?:issues?|pull)\/(\d+)/);
     if (m) issueNum = parseInt(m[1]);
   }
 
-  if (!issueNum) {
+  if (!isLinearSource && !issueNum) {
     await api.postLog(jobId, 'stderr', `[triage] ERROR: No issue number in job hints: ${JSON.stringify(providerHints)}`);
     await api.submitReport(jobId, {
       workflowRunId,
@@ -78,25 +85,97 @@ export async function handleTriageJob(
     return;
   }
 
-  const { owner, repo } = parseGitHubRef(targetRepo);
-
-  // ── 3. Fetch issue ─────────────────────────────────────────────────
-  await api.postProgress(jobId, 'issue_fetch', `Fetching issue #${issueNum}`);
-  await api.postLog(jobId, 'stdout', `[triage] Fetching issue ${owner}/${repo}#${issueNum}`);
-
-  let issue: Awaited<ReturnType<typeof ghGetIssue>>;
-  try {
-    issue = await ghGetIssue(owner, repo, issueNum);
-  } catch (err) {
-    await api.postLog(jobId, 'stderr', `[triage] ERROR fetching issue: ${err}`);
+  if (isLinearSource && !sourceExternalId) {
+    await api.postLog(jobId, 'stderr', `[triage] ERROR: No linear issue id in job hints: ${JSON.stringify(providerHints)}`);
     await api.submitReport(jobId, {
       workflowRunId,
       workflowType: 'triage',
       status: 'failed',
-      summary: `Failed to fetch issue #${issueNum}: ${err}`,
+      summary: 'No Linear issue id found in job context',
       stageResults: [{ stage: 'issue_fetch', status: 'failed' }],
     });
     return;
+  }
+
+  const { owner, repo } = parseGitHubRef(targetRepo);
+
+  // ── 3. Fetch source issue (GitHub or Linear) ──────────────────────
+  type IssueShape = {
+    number: number;
+    title: string;
+    body: string | null;
+    labels: string[];
+    state: string;
+    url: string;
+    /** Display ref like "#42" (github) or "ENG-123" (linear) */
+    displayRef: string;
+    /** Linear UUID needed for outbound comment posting; undefined for github */
+    linearIssueId?: string;
+  };
+
+  let issue: IssueShape;
+  if (isLinearSource) {
+    await api.postProgress(jobId, 'issue_fetch', `Fetching Linear issue ${sourceExternalId}`);
+    await api.postLog(jobId, 'stdout', `[triage] Fetching Linear issue ${sourceExternalId}`);
+    if (!linearAuthAvailable()) {
+      await api.postLog(jobId, 'stderr', '[triage] ERROR: LINEAR_API_KEY not set on worker');
+      await api.submitReport(jobId, {
+        workflowRunId,
+        workflowType: 'triage',
+        status: 'failed',
+        summary: 'LINEAR_API_KEY not configured on worker',
+        stageResults: [{ stage: 'auth', status: 'passed' }, { stage: 'issue_fetch', status: 'failed' }],
+      });
+      return;
+    }
+    try {
+      const linearIssue = await linearGetIssue(sourceExternalId!);
+      issue = {
+        number: 0,
+        title: linearIssue.title,
+        body: linearIssue.body,
+        labels: linearIssue.labels,
+        state: linearIssue.state,
+        url: linearIssue.url,
+        displayRef: linearIssue.identifier,
+        linearIssueId: linearIssue.id,
+      };
+    } catch (err) {
+      await api.postLog(jobId, 'stderr', `[triage] ERROR fetching Linear issue: ${err}`);
+      await api.submitReport(jobId, {
+        workflowRunId,
+        workflowType: 'triage',
+        status: 'failed',
+        summary: `Failed to fetch Linear issue ${sourceExternalId}: ${err}`,
+        stageResults: [{ stage: 'auth', status: 'passed' }, { stage: 'issue_fetch', status: 'failed' }],
+      });
+      return;
+    }
+  } else {
+    await api.postProgress(jobId, 'issue_fetch', `Fetching issue #${issueNum}`);
+    await api.postLog(jobId, 'stdout', `[triage] Fetching issue ${owner}/${repo}#${issueNum}`);
+    try {
+      const gh = await ghGetIssue(owner, repo, issueNum);
+      issue = {
+        number: gh.number,
+        title: gh.title,
+        body: gh.body,
+        labels: gh.labels,
+        state: gh.state,
+        url: gh.url,
+        displayRef: `#${gh.number}`,
+      };
+    } catch (err) {
+      await api.postLog(jobId, 'stderr', `[triage] ERROR fetching issue: ${err}`);
+      await api.submitReport(jobId, {
+        workflowRunId,
+        workflowType: 'triage',
+        status: 'failed',
+        summary: `Failed to fetch issue #${issueNum}: ${err}`,
+        stageResults: [{ stage: 'issue_fetch', status: 'failed' }],
+      });
+      return;
+    }
   }
 
   await api.postLog(jobId, 'stdout', `[triage] Issue: "${issue.title}" (${issue.state})`);
@@ -129,10 +208,10 @@ export async function handleTriageJob(
     await api.postProgress(jobId, 'investigation', `Running triage analysis (${executor.key})`);
     await api.postLog(jobId, 'stdout', `[triage] Running ${executor.key} triage analysis`);
 
-    const promptBody = `You are a senior software engineer doing triage analysis for a GitHub issue.
+    const promptBody = `You are a senior software engineer doing triage analysis for an issue.
 
 Repository: ${owner}/${repo}
-Issue #${issue.number}: ${issue.title}
+Issue ${issue.displayRef}: ${issue.title}
 Issue Body:
 ${issue.body ?? '(no description)'}
 Labels: ${issue.labels.join(', ')}
@@ -199,8 +278,8 @@ You will produce a structured triage analysis. Each field has a specific purpose
     const reportMarkdown = renderTriageReportMarkdown(triageOutput);
     const findingPayload = {
       summary: triageOutput.summary
-        ? `Triage for #${issue.number}: ${triageOutput.summary.slice(0, 200)}`
-        : `Triage for #${issue.number}: ${issue.title}`,
+        ? `Triage for ${issue.displayRef}: ${triageOutput.summary.slice(0, 200)}`
+        : `Triage for ${issue.displayRef}: ${issue.title}`,
       rootCauseHypothesis: triageOutput.rootCause || reportMarkdown.slice(0, 500),
       confidence: confidenceNumeric(triageOutput.confidence.label),
       reproductionStatus: 'not_started',
@@ -230,20 +309,21 @@ You will produce a structured triage analysis. Each field has a specific purpose
 
     // ── 7. Post the discovery comment, then label the issue ────────────
     try {
-      await ghAddIssueComment(
-        owner,
-        repo,
-        issueNum,
-        buildTriageDiscoveryComment({ output: triageOutput }),
-      );
-      await api.postLog(jobId, 'stdout', `[triage] Posted discovery comment on issue #${issueNum}`);
+      const commentBody = buildTriageDiscoveryComment({ output: triageOutput });
+      if (isLinearSource && issue.linearIssueId) {
+        await linearAddComment(issue.linearIssueId, commentBody);
+        await api.postLog(jobId, 'stdout', `[triage] Posted discovery comment on Linear ${issue.displayRef}`);
+      } else {
+        await ghAddIssueComment(owner, repo, issueNum, commentBody);
+        await api.postLog(jobId, 'stdout', `[triage] Posted discovery comment on issue #${issueNum}`);
+      }
     } catch (err) {
       await api.postLog(jobId, 'stderr', `[triage] Could not post discovery comment: ${err}`);
       await api.submitReport(jobId, {
         workflowRunId,
         workflowType: 'triage',
         status: 'failed',
-        summary: `Triage for #${issue.number} failed while posting the discovery comment`,
+        summary: `Triage for ${issue.displayRef} failed while posting the discovery comment`,
         stageResults: [
           { stage: 'auth', status: 'passed' },
           { stage: 'issue_fetch', status: 'passed' },
@@ -257,10 +337,12 @@ You will produce a structured triage analysis. Each field has a specific purpose
 
     const severityLabel = `severity-${triageOutput.severity.level.toLowerCase()}`;
     const labels = ['triaged', severityLabel];
-    try {
-      await ghAddIssueLabels(owner, repo, issueNum, labels);
-    } catch (err) {
-      await api.postLog(jobId, 'stderr', `[triage] Could not label issue: ${err}`);
+    if (!isLinearSource) {
+      try {
+        await ghAddIssueLabels(owner, repo, issueNum, labels);
+      } catch (err) {
+        await api.postLog(jobId, 'stderr', `[triage] Could not label issue: ${err}`);
+      }
     }
 
     // ── 8. Done ────────────────────────────────────────────────────────
@@ -270,7 +352,7 @@ You will produce a structured triage analysis. Each field has a specific purpose
       workflowRunId,
       workflowType: 'triage',
       status: 'succeeded',
-      summary: `Triage for #${issue.number}: ${issue.title}`,
+      summary: `Triage for ${issue.displayRef}: ${issue.title}`,
       stageResults: [
         { stage: 'auth', status: 'passed' },
         { stage: 'issue_fetch', status: 'passed' },

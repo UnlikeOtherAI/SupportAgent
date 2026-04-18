@@ -236,6 +236,9 @@ importers:
       '@support-agent/github-cli':
         specifier: workspace:*
         version: link:../../packages/github-cli
+      '@support-agent/linear-client':
+        specifier: workspace:*
+        version: link:../../packages/linear-client
       '@support-agent/skills-executor-runtime':
         specifier: workspace:*
         version: link:../../packages/skills-executor-runtime

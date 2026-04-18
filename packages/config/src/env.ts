@@ -26,6 +26,10 @@ const envSchema = z.object({
   GITLAB_OAUTH_CLIENT_SECRET: z.string().optional(),
   LINEAR_OAUTH_CLIENT_ID: z.string().optional(),
   LINEAR_OAUTH_CLIENT_SECRET: z.string().optional(),
+  // Direct API key path used by the worker for posting comments back to Linear.
+  // Per-tenant secret should eventually live in Connector.config; this env var
+  // is the temporary bootstrap path while we wire that through.
+  LINEAR_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

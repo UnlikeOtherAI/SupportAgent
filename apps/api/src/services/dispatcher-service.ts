@@ -335,8 +335,16 @@ export function createDispatcherService(
           const hashedSecret = createHash('sha256').update(rawSecret).digest('hex');
 
           const repoUrl = run.repositoryMapping?.repositoryUrl ?? '';
+          const sourcePlatform = run.workItem.platformType;
+          const isGithubSourced =
+            sourcePlatform === 'github' || sourcePlatform === 'github_issues';
+          const githubIssueNumber = isGithubSourced
+            ? Number.parseInt(run.workItem.externalItemId, 10)
+            : NaN;
           const issueRef = run.workItem.externalUrl
-            ?? `${repoUrl.replace('.git', '')}/issues/${run.workItem.externalItemId}`;
+            ?? (isGithubSourced && Number.isFinite(githubIssueNumber)
+              ? `${repoUrl.replace('.git', '')}/issues/${githubIssueNumber}`
+              : `${sourcePlatform}:${run.workItem.externalItemId}`);
 
           const job: WorkerDispatchJob = {
             jobId: '', // Will be set after dispatch record is created
@@ -344,7 +352,7 @@ export function createDispatcherService(
             workflowType: run.workflowType,
             apiBaseUrl,
             workerSharedSecret: rawSecret,
-            sourceConnectorKey: 'github',
+            sourceConnectorKey: sourcePlatform,
             targetRepo: repoUrl,
             targetBranch: run.repositoryMapping?.defaultBranch ?? 'main',
             executionProfile: 'analysis-only',
@@ -373,17 +381,22 @@ export function createDispatcherService(
               scenarioKey: scenarioContext.scenarioKey,
               actionConfig: scenarioContext.actionConfig,
               outputConfigs: scenarioContext.outputConfigs,
+              sourcePlatform,
+              sourceExternalId: run.workItem.externalItemId,
+              sourceExternalUrl: run.workItem.externalUrl ?? undefined,
+              sourceTitle: run.workItem.title,
+              sourceBody: run.workItem.body ?? undefined,
               // Pass issue/PR context based on workflow type
               ...(run.workflowType === 'triage' && {
                 issueRef,
-                issueNumber: parseInt(run.workItem.externalItemId),
+                issueNumber: Number.isFinite(githubIssueNumber) ? githubIssueNumber : undefined,
               }),
               ...(run.workflowType === 'build' && {
                 workItemId: run.workItemId,
                 parentTriageRunId: run.parentWorkflowRunId,
                 issueRef,
-                issueNumber: run.workItem.workItemKind === 'issue'
-                  ? parseInt(run.workItem.externalItemId)
+                issueNumber: run.workItem.workItemKind === 'issue' && Number.isFinite(githubIssueNumber)
+                  ? githubIssueNumber
                   : undefined,
               }),
               ...(run.workflowType === 'merge' && {
