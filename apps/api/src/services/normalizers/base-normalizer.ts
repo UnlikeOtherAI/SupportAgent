@@ -24,6 +24,7 @@ export interface NormalizedWorkItem {
   }>;
   dependencyRefs?: string[];
   dedupeKey: string;
+  triggerLabel?: string;
   // review target fields
   repositoryRef?: string;
   baseRef?: string;

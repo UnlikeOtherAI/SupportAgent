@@ -509,6 +509,7 @@ model WorkflowRun {
   acceptedDispatchAttempt  String?
   resolvedExecutorRevision String?
   resolvedSkillRevisions   Json?
+  config                   Json?
   progressCommentId        String?
   lastProgressEditAt       DateTime?
   cancelRequestedAt        DateTime?

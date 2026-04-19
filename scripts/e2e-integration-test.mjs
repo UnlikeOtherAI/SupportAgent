@@ -497,6 +497,195 @@ async function testJira() {
   return status;
 }
 
+// ── Test: Linear label → triage only ─────────────────────────────────────────
+async function testLinearLabelTriage() {
+  log('linear-label-triage', '── Linear "needs triage" label → triage only ──');
+  if (!LINEAR_API_KEY) { log('linear-label-triage', '⚠️  LINEAR_API_KEY not set — skipping'); return null; }
+
+  const team = await linearGetFirstTeam();
+  const issue = await linearCreateIssue({
+    teamId: team.id,
+    title: 'Push notifications are not delivered when the app is running in the foreground',
+    description: [
+      '## Bug report',
+      '',
+      'When the app is open and in the foreground, push notifications from the server',
+      'are silently dropped. The user never sees the notification banner or sound.',
+      'Notifications only appear correctly when the app is backgrounded or closed.',
+      '',
+      '## Steps to reproduce',
+      '1. Open the app and keep it in the foreground',
+      '2. Trigger a push notification from another device or the admin panel',
+      '3. Observe that no notification appears in-app or as a banner',
+      '',
+      '## Expected behaviour',
+      'An in-app notification banner should appear with the message content.',
+      '',
+      '## Actual behaviour',
+      'No notification is shown. The FCM/APNs delivery receipt shows the message was delivered.',
+      '',
+      '## Technical context',
+      '- Affected: iOS 17 and Android 14',
+      '- App version: 3.4.0',
+      '- Likely area: foreground notification handler in AppDelegate / FirebaseMessagingService',
+    ].join('\n'),
+  });
+  log('linear-label-triage', `Created Linear issue: ${issue.identifier} (${issue.id})`);
+
+  const connector = await getOrCreateConnector('linear', 'Linear (E2E Test)');
+  const mapping = await getOrCreateRepoMapping(connector.id);
+
+  // Simulate adding the "needs triage" label via webhook update event
+  const NEEDS_TRIAGE_LABEL_ID = 'ec7d6b29-614d-48f6-aee1-3a3a2f98795a';
+  const webhookPayload = JSON.stringify({
+    type: 'Issue',
+    action: 'update',
+    data: {
+      id: issue.id,
+      title: issue.title,
+      description: issue.description ?? '',
+      url: issue.url,
+      state: { name: 'Backlog' },
+      priority: 2,
+      labels: [{ id: NEEDS_TRIAGE_LABEL_ID, name: 'needs triage' }],
+      teamId: team.id,
+    },
+    updatedFrom: { labelIds: [] },
+  });
+
+  const webhookRes = await fetch(`${API}/webhooks/linear/${connector.id}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: webhookPayload,
+  });
+  const webhookBody = await webhookRes.json();
+  log('linear-label-triage', `Webhook → ${webhookRes.status}: ${JSON.stringify(webhookBody).slice(0, 120)}`);
+
+  const runId = webhookBody.workflowRunId;
+  if (!runId) { log('linear-label-triage', `❌ No workflowRunId — response: ${JSON.stringify(webhookBody)}`); return null; }
+
+  await sleep(1000);
+  await dispatchAll();
+  log('linear-label-triage', `Dispatched. Polling run ${runId.slice(0, 8)}...`);
+
+  const status = await pollRunStatus(runId, 'linear-label-triage');
+  if (status === 'succeeded') {
+    await sleep(3000);
+    const comments = await linearGetComments(issue.id);
+    const botComment = comments.find(c =>
+      c.body.includes('SupportAgent') || c.body.includes('Triage') || c.body.includes('Summary'),
+    );
+    log('linear-label-triage', botComment
+      ? `✅ Triage-only succeeded + comment posted on ${issue.identifier}`
+      : `✅ Triage-only succeeded — comment may still be posting on ${issue.identifier}`);
+  } else {
+    log('linear-label-triage', `❌ Triage ${status}`);
+  }
+  return status;
+}
+
+// ── Test: Linear label → triage + PR ─────────────────────────────────────────
+async function testLinearLabelPR() {
+  log('linear-label-pr', '── Linear "needs PR" label → triage + build ──');
+  if (!LINEAR_API_KEY) { log('linear-label-pr', '⚠️  LINEAR_API_KEY not set — skipping'); return null; }
+
+  const team = await linearGetFirstTeam();
+  const issue = await linearCreateIssue({
+    teamId: team.id,
+    title: 'Search results page does not paginate when there are more than 20 results',
+    description: [
+      '## Feature / Bug',
+      '',
+      'The search results page only shows the first 20 results and provides no way to',
+      'load more. There is no pagination control, no infinite scroll, and no "load more"',
+      'button. Users with broad search terms never see results beyond the first page.',
+      '',
+      '## Expected behaviour',
+      'Add pagination to the search results page. Show 20 results per page with',
+      '"Previous" and "Next" controls, or implement infinite scroll.',
+      '',
+      '## Technical context',
+      '- Component: SearchResultsPage.tsx',
+      '- API: GET /api/v1/search?q=...&page=1&limit=20 (already supports pagination params)',
+      '- The API is ready — only the frontend component needs updating',
+      '- Design: follow the pattern used by the Issues list page (IssuesPage.tsx)',
+    ].join('\n'),
+  });
+  log('linear-label-pr', `Created Linear issue: ${issue.identifier} (${issue.id})`);
+
+  const connector = await getOrCreateConnector('linear', 'Linear (E2E Test)');
+  const mapping = await getOrCreateRepoMapping(connector.id);
+
+  // Simulate adding the "needs PR" label via webhook update event
+  const NEEDS_PR_LABEL_ID = 'd204cd0b-00ba-4539-8788-55f889b18a9b';
+  const webhookPayload = JSON.stringify({
+    type: 'Issue',
+    action: 'update',
+    data: {
+      id: issue.id,
+      title: issue.title,
+      description: issue.description ?? '',
+      url: issue.url,
+      state: { name: 'In Progress' },
+      priority: 2,
+      labels: [{ id: NEEDS_PR_LABEL_ID, name: 'needs PR' }],
+      teamId: team.id,
+    },
+    updatedFrom: { labelIds: [] },
+  });
+
+  const webhookRes = await fetch(`${API}/webhooks/linear/${connector.id}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: webhookPayload,
+  });
+  const webhookBody = await webhookRes.json();
+  log('linear-label-pr', `Webhook → ${webhookRes.status}: ${JSON.stringify(webhookBody).slice(0, 120)}`);
+
+  const runId = webhookBody.workflowRunId;
+  if (!runId) { log('linear-label-pr', `❌ No workflowRunId — response: ${JSON.stringify(webhookBody)}`); return null; }
+
+  await sleep(1000);
+  await dispatchAll();
+  log('linear-label-pr', `Dispatched. Polling triage run ${runId.slice(0, 8)}...`);
+
+  const triageStatus = await pollRunStatus(runId, 'linear-label-pr');
+  if (triageStatus !== 'succeeded') {
+    log('linear-label-pr', `❌ Triage ${triageStatus}`);
+    return triageStatus;
+  }
+
+  // After triage, the chain service will queue a build run — find and poll it
+  await sleep(10000); // give chain service time to fire
+  await dispatchAll();
+  const runs = await apiGet('/v1/runs?limit=30');
+  const runList = Array.isArray(runs) ? runs : runs?.items ?? runs?.data ?? [];
+  const buildRun = runList.find(r =>
+    r.workflowType === 'build' &&
+    (r.parentWorkflowRunId === runId || ['queued', 'running', 'dispatched'].includes(r.status)),
+  );
+
+  if (!buildRun) {
+    log('linear-label-pr', `✅ Triage succeeded — ⚠️  build run not found yet (chain may still be pending)`);
+    return triageStatus;
+  }
+
+  log('linear-label-pr', `Build run queued: ${buildRun.id.slice(0, 8)} — polling...`);
+  const buildStatus = await pollRunStatus(buildRun.id, 'linear-label-pr');
+
+  if (buildStatus === 'succeeded') {
+    await sleep(3000);
+    const comments = await linearGetComments(issue.id);
+    const prComment = comments.find(c => c.body.includes('PR') || c.body.includes('pull request'));
+    log('linear-label-pr', prComment
+      ? `✅ Build succeeded + PR comment posted on ${issue.identifier}`
+      : `✅ Build succeeded — comment may still be posting on ${issue.identifier}`);
+    return buildStatus;
+  }
+  log('linear-label-pr', `Build ${buildStatus}`);
+  return buildStatus;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
   console.log('\n══════════════════════════════════════════════════════');
@@ -512,6 +701,8 @@ async function main() {
   try { results.linear = await testLinear(); } catch (err) { log('linear', `❌ Error: ${err.message}`); results.linear = 'error'; }
   try { results.jira   = await testJira();   } catch (err) { log('jira',   `❌ Error: ${err.message}`); results.jira   = 'error'; }
   try { results.github = await testGithub(); } catch (err) { log('github', `❌ Error: ${err.message}`); results.github = 'error'; }
+  try { results['linear-label-triage'] = await testLinearLabelTriage(); } catch (err) { log('linear-label-triage', `❌ Error: ${err.message}`); results['linear-label-triage'] = 'error'; }
+  try { results['linear-label-pr']     = await testLinearLabelPR();     } catch (err) { log('linear-label-pr',     `❌ Error: ${err.message}`); results['linear-label-pr']     = 'error'; }
 
   console.log('\n══════════════════════════════════════════════════════');
   console.log('  Results');

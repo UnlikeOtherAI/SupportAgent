@@ -24,6 +24,9 @@ export function createWorkflowChainService(prisma: PrismaClient) {
     if (triageRun.workflowType !== 'triage') return null;
     if (triageRun.status !== 'succeeded') return null;
 
+    const runConfig = triageRun.config as Record<string, unknown> | null;
+    if (runConfig?.skipBuildChain === true) return null;
+
     // Check if build already exists for this work item
     const existingBuild = await prisma.workflowRun.findFirst({
       where: {

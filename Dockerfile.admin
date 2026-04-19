@@ -9,8 +9,18 @@ WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/admin/package.json apps/admin/
+COPY packages/contracts/package.json packages/contracts/
+COPY packages/executors-runtime/package.json packages/executors-runtime/
 
 RUN pnpm install --frozen-lockfile
+
+COPY packages/contracts/src/ packages/contracts/src/
+COPY packages/contracts/tsconfig.json packages/contracts/
+COPY packages/executors-runtime/src/ packages/executors-runtime/src/
+COPY packages/executors-runtime/tsconfig.json packages/executors-runtime/
+
+RUN pnpm -F @support-agent/contracts build && \
+    pnpm -F @support-agent/executors-runtime build
 
 COPY apps/admin/index.html apps/admin/
 COPY apps/admin/public/ apps/admin/public/
