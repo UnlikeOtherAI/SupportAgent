@@ -140,43 +140,13 @@ function WorkflowDesignerWorkspace({
           <Link className="text-xs font-medium text-[#7b6b83] hover:text-[#2b2430]" to="/workflows">
             &larr; Back to workflows
           </Link>
-          <div className="mt-2 flex flex-wrap items-center gap-3">
+          <div className="mt-2">
             <input
               aria-label="Workflow name"
               className="min-w-[260px] rounded-xl border border-black/10 bg-white px-3 py-2 text-lg font-semibold text-[#2b2430] outline-none focus:border-[#7445c7] focus:ring-1 focus:ring-[#7445c7]"
-              onChange={(event) => {
-                setWorkflowName(event.target.value)
-              }}
+              onChange={(event) => { setWorkflowName(event.target.value) }}
               value={workflowName}
             />
-            <select
-              aria-label="Workflow type"
-              className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-medium text-[#433349] outline-none focus:border-[#7445c7] focus:ring-1 focus:ring-[#7445c7]"
-              onChange={(event) => {
-                setWorkflowType(event.target.value as WorkflowScenario['workflowType'])
-              }}
-              value={workflowType}
-            >
-              <option value="triage">triage</option>
-              <option value="build">build</option>
-              <option value="merge">merge</option>
-              <option value="review">review</option>
-            </select>
-            <select
-              aria-label="Connector binding"
-              className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-medium text-[#433349] outline-none focus:border-[#7445c7] focus:ring-1 focus:ring-[#7445c7]"
-              onChange={(event) => {
-                setAllowedConnectors(event.target.value ? [event.target.value] : [])
-              }}
-              value={allowedConnectors[0] ?? ''}
-            >
-              <option value="">No connector bound</option>
-              {connectorOptions.map((connector) => (
-                <option key={connector.id} value={connector.id}>
-                  {connector.name} ({connector.platformType.displayName})
-                </option>
-              ))}
-            </select>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -185,9 +155,7 @@ function WorkflowDesignerWorkspace({
           </Button>
           <Button
             disabled={saveMutation.isPending || nodes.length === 0}
-            onClick={() => {
-              saveMutation.mutate()
-            }}
+            onClick={() => { saveMutation.mutate() }}
             type="button"
             variant="primary"
           >
@@ -197,7 +165,14 @@ function WorkflowDesignerWorkspace({
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <WorkflowDesignerPalette onAddItem={addItem} />
+        <WorkflowDesignerPalette
+          allowedConnectors={allowedConnectors}
+          connectorOptions={connectorOptions}
+          onAddItem={addItem}
+          onAllowedConnectorsChange={setAllowedConnectors}
+          onWorkflowTypeChange={setWorkflowType}
+          workflowType={workflowType}
+        />
         <div className="flex min-w-0 flex-1 overflow-auto" ref={canvasElementRef}>
           <WorkflowDesignerCanvas
             connections={connections}

@@ -43,6 +43,13 @@ export const triggerItems: DesignerPaletteItem[] = [
     config: { event: 'github.issue.labeled', labelName: 'needs-triage' },
   },
   {
+    key: 'linear.issue.labeled',
+    label: 'Linear issue labeled',
+    description: 'Start when a specific label is added to a Linear issue.',
+    type: 'trigger',
+    config: { event: 'linear.issue.labeled', labelName: 'ready-to-build' },
+  },
+  {
     key: 'github.pull_request.opened',
     label: 'Pull request opened',
     description: 'Start review or validation for incoming pull requests.',

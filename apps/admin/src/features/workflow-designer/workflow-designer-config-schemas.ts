@@ -18,6 +18,18 @@ export interface DesignerNodeConfigSchema {
 
 const schemasBySourceKey: Record<string, DesignerNodeConfigSchema> = {
   'github.issue.opened': { fields: [] },
+  'linear.issue.labeled': {
+    fields: [
+      {
+        key: 'labelName',
+        label: 'Trigger label',
+        kind: 'text',
+        description: 'Run this scenario when this label is added to a Linear issue.',
+        placeholder: 'ready-to-build',
+        defaultValue: 'ready-to-build',
+      },
+    ],
+  },
   'github.issue.labeled': {
     fields: [
       {
