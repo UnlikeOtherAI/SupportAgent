@@ -3,12 +3,14 @@ import { type WebhookNormalizer } from './normalizers/base-normalizer.js';
 import { githubNormalizer } from './normalizers/github-normalizer.js';
 import { sentryNormalizer } from './normalizers/sentry-normalizer.js';
 import { linearNormalizer } from './normalizers/linear-normalizer.js';
+import { jiraNormalizer } from './normalizers/jira-normalizer.js';
 
 const normalizers: Record<string, WebhookNormalizer> = {
   github: githubNormalizer,
   github_issues: githubNormalizer,
   sentry: sentryNormalizer,
   linear: linearNormalizer,
+  jira: jiraNormalizer,
 };
 
 export function createIntakeService(prisma: PrismaClient) {
