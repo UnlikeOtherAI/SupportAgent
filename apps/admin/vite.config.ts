@@ -8,6 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
+      '@support-agent/executors-runtime': resolve(__dirname, '../../packages/executors-runtime/src/index.ts'),
     },
   },
   server: {
