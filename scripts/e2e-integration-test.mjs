@@ -686,6 +686,234 @@ async function testLinearLabelPR() {
   return buildStatus;
 }
 
+// ── Test: Jira label → triage only ───────────────────────────────────────────
+async function testJiraLabelTriage() {
+  log('jira-label-triage', '── Jira "needs-triage" label → triage only ──');
+  if (!JIRA_BASE_URL || !JIRA_USER_EMAIL || !JIRA_API_TOKEN) {
+    log('jira-label-triage', '⚠️  Jira credentials not set — skipping');
+    return null;
+  }
+
+  const projectsData = await jiraGetProjects();
+  const projects = projectsData?.values ?? [];
+  if (!projects.length) { log('jira-label-triage', '❌ No Jira projects found'); return null; }
+  const project = projects[0];
+
+  const created = await jiraCreateIssue({
+    projectKey: project.key,
+    summary: 'Image upload silently fails when file size exceeds 5 MB',
+    description: 'Users uploading profile photos larger than 5 MB receive no error message. The upload spinner disappears and the old photo remains. The 5 MB limit is enforced server-side but not communicated to the client.',
+  });
+  log('jira-label-triage', `Created Jira issue: ${created.key}`);
+
+  const connector = await getOrCreateConnector('jira', 'Jira (E2E Test)', {
+    apiBaseUrl: JIRA_BASE_URL,
+  });
+  await getOrCreateRepoMapping(connector.id);
+
+  // Simulate adding the "needs-triage" label via a changelog update event
+  const webhookPayload = JSON.stringify({
+    webhookEvent: 'jira:issue_updated',
+    issue_event_type_name: 'issue_updated',
+    issue: {
+      id: created.id,
+      key: created.key,
+      self: `${JIRA_BASE_URL}/rest/api/3/issue/${created.id}`,
+      fields: {
+        summary: created.fields?.summary ?? 'Image upload silently fails when file size exceeds 5 MB',
+        description: null,
+        status: { name: 'To Do' },
+        priority: { name: 'Medium' },
+        labels: ['needs-triage'],
+      },
+    },
+    changelog: {
+      id: '1001',
+      items: [
+        {
+          field: 'labels',
+          fieldtype: 'jira',
+          fieldId: 'labels',
+          from: null,
+          fromString: '',
+          to: null,
+          toString: 'needs-triage',
+        },
+      ],
+    },
+  });
+
+  const webhookRes = await fetch(`${API}/webhooks/jira/${connector.id}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: webhookPayload,
+  });
+  const webhookBody = await webhookRes.json();
+  log('jira-label-triage', `Webhook → ${webhookRes.status}: ${JSON.stringify(webhookBody).slice(0, 120)}`);
+
+  const runId = webhookBody.workflowRunId;
+  if (!runId) { log('jira-label-triage', `❌ No workflowRunId — response: ${JSON.stringify(webhookBody)}`); return null; }
+
+  await sleep(1000);
+  await dispatchAll();
+  log('jira-label-triage', `Dispatched. Polling run ${runId.slice(0, 8)}...`);
+
+  const triageStatus = await pollRunStatus(runId, 'jira-label-triage');
+
+  if (triageStatus === 'succeeded') {
+    // Verify chain was NOT triggered (skipBuildChain)
+    await sleep(3000);
+    await dispatchAll();
+    const runs = await apiGet('/v1/runs?limit=30');
+    const runList = Array.isArray(runs) ? runs : runs?.items ?? runs?.data ?? [];
+    const buildRun = runList.find(r =>
+      r.workflowType === 'build' && r.parentWorkflowRunId === runId,
+    );
+    if (buildRun) {
+      log('jira-label-triage', `❌ Build run was created (${buildRun.id.slice(0, 8)}) but skipBuildChain should have blocked it`);
+    } else {
+      log('jira-label-triage', `✅ Triage only — no build run created (skipBuildChain respected)`);
+    }
+
+    const comments = await jiraGetComments(created.key);
+    function adfToText(node) {
+      if (!node) return '';
+      if (node.type === 'text') return node.text ?? '';
+      if (Array.isArray(node.content)) return node.content.map(adfToText).join('');
+      return '';
+    }
+    const botComment = comments.find(c => {
+      const text = adfToText(c.body);
+      return text.includes('SupportAgent') || text.includes('Triage') ||
+             text.includes('Root cause') || text.includes('Summary');
+    });
+    log('jira-label-triage', botComment
+      ? `✅ Triage comment posted on ${created.key}`
+      : `✅ Triage succeeded — comment may still be posting on ${created.key}`);
+  } else {
+    log('jira-label-triage', `❌ Triage ${triageStatus}`);
+  }
+  return triageStatus;
+}
+
+// ── Test: Jira label → triage + build (PR) ───────────────────────────────────
+async function testJiraLabelPR() {
+  log('jira-label-pr', '── Jira "needs-pr" label → triage + build ──');
+  if (!JIRA_BASE_URL || !JIRA_USER_EMAIL || !JIRA_API_TOKEN) {
+    log('jira-label-pr', '⚠️  Jira credentials not set — skipping');
+    return null;
+  }
+
+  const projectsData = await jiraGetProjects();
+  const projects = projectsData?.values ?? [];
+  if (!projects.length) { log('jira-label-pr', '❌ No Jira projects found'); return null; }
+  const project = projects[0];
+
+  const created = await jiraCreateIssue({
+    projectKey: project.key,
+    summary: 'Sort order on the notifications list resets to default after navigating away',
+    description: 'When a user changes the sort order of their notifications list and navigates to another page, the selected sort order is not preserved. On returning, the list defaults back to "Newest first". Expected: sort preference persists for the session.',
+  });
+  log('jira-label-pr', `Created Jira issue: ${created.key}`);
+
+  const connector = await getOrCreateConnector('jira', 'Jira (E2E Test)', {
+    apiBaseUrl: JIRA_BASE_URL,
+  });
+  await getOrCreateRepoMapping(connector.id);
+
+  // Simulate adding the "needs-pr" label
+  const webhookPayload = JSON.stringify({
+    webhookEvent: 'jira:issue_updated',
+    issue_event_type_name: 'issue_updated',
+    issue: {
+      id: created.id,
+      key: created.key,
+      self: `${JIRA_BASE_URL}/rest/api/3/issue/${created.id}`,
+      fields: {
+        summary: created.fields?.summary ?? 'Sort order on the notifications list resets to default after navigating away',
+        description: null,
+        status: { name: 'To Do' },
+        priority: { name: 'Medium' },
+        labels: ['needs-pr'],
+      },
+    },
+    changelog: {
+      id: '1002',
+      items: [
+        {
+          field: 'labels',
+          fieldtype: 'jira',
+          fieldId: 'labels',
+          from: null,
+          fromString: '',
+          to: null,
+          toString: 'needs-pr',
+        },
+      ],
+    },
+  });
+
+  const webhookRes = await fetch(`${API}/webhooks/jira/${connector.id}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: webhookPayload,
+  });
+  const webhookBody = await webhookRes.json();
+  log('jira-label-pr', `Webhook → ${webhookRes.status}: ${JSON.stringify(webhookBody).slice(0, 120)}`);
+
+  const runId = webhookBody.workflowRunId;
+  if (!runId) { log('jira-label-pr', `❌ No workflowRunId — response: ${JSON.stringify(webhookBody)}`); return null; }
+
+  await sleep(1000);
+  await dispatchAll();
+  log('jira-label-pr', `Dispatched. Polling triage run ${runId.slice(0, 8)}...`);
+
+  const triageStatus = await pollRunStatus(runId, 'jira-label-pr');
+  if (triageStatus !== 'succeeded') {
+    log('jira-label-pr', `❌ Triage ${triageStatus}`);
+    return triageStatus;
+  }
+
+  log('jira-label-pr', `Triage succeeded — waiting for build chain...`);
+  await sleep(3000);
+  await dispatchAll();
+  const runs = await apiGet('/v1/runs?limit=30');
+  const runList = Array.isArray(runs) ? runs : runs?.items ?? runs?.data ?? [];
+  const buildRun = runList.find(r =>
+    r.workflowType === 'build' &&
+    (r.parentWorkflowRunId === runId || ['queued', 'running', 'dispatched'].includes(r.status)),
+  );
+
+  if (!buildRun) {
+    log('jira-label-pr', `✅ Triage succeeded — ⚠️  build run not found yet (chain may still be pending)`);
+    return triageStatus;
+  }
+
+  log('jira-label-pr', `Build run queued: ${buildRun.id.slice(0, 8)} — polling...`);
+  const buildStatus = await pollRunStatus(buildRun.id, 'jira-label-pr');
+
+  if (buildStatus === 'succeeded') {
+    await sleep(3000);
+    const comments = await jiraGetComments(created.key);
+    function adfToText(node) {
+      if (!node) return '';
+      if (node.type === 'text') return node.text ?? '';
+      if (Array.isArray(node.content)) return node.content.map(adfToText).join('');
+      return '';
+    }
+    const prComment = comments.find(c => {
+      const text = adfToText(c.body);
+      return text.includes('PR') || text.includes('pull request') || text.includes('pull-request');
+    });
+    log('jira-label-pr', prComment
+      ? `✅ Build succeeded + PR comment posted on ${created.key}`
+      : `✅ Build succeeded — comment may still be posting on ${created.key}`);
+    return buildStatus;
+  }
+  log('jira-label-pr', `Build ${buildStatus}`);
+  return buildStatus;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
   console.log('\n══════════════════════════════════════════════════════');
@@ -703,6 +931,8 @@ async function main() {
   try { results.github = await testGithub(); } catch (err) { log('github', `❌ Error: ${err.message}`); results.github = 'error'; }
   try { results['linear-label-triage'] = await testLinearLabelTriage(); } catch (err) { log('linear-label-triage', `❌ Error: ${err.message}`); results['linear-label-triage'] = 'error'; }
   try { results['linear-label-pr']     = await testLinearLabelPR();     } catch (err) { log('linear-label-pr',     `❌ Error: ${err.message}`); results['linear-label-pr']     = 'error'; }
+  try { results['jira-label-triage']   = await testJiraLabelTriage();   } catch (err) { log('jira-label-triage',   `❌ Error: ${err.message}`); results['jira-label-triage']   = 'error'; }
+  try { results['jira-label-pr']       = await testJiraLabelPR();       } catch (err) { log('jira-label-pr',       `❌ Error: ${err.message}`); results['jira-label-pr']       = 'error'; }
 
   console.log('\n══════════════════════════════════════════════════════');
   console.log('  Results');

@@ -108,9 +108,11 @@ export function createIntakeService(prisma: PrismaClient) {
           // 7. Create workflow run if repo mapping exists
           let workflowRun = null;
           if (repoMapping) {
-            const runConfig = normalized.triggerLabel === 'needs triage'
-              ? { skipBuildChain: true }
-              : null;
+            const runConfig =
+              normalized.triggerLabel === 'needs triage' ||
+              normalized.triggerLabel === 'needs-triage'
+                ? { skipBuildChain: true }
+                : null;
             workflowRun = await tx.workflowRun.create({
               data: {
                 tenantId: connector.tenantId,

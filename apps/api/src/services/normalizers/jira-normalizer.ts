@@ -1,6 +1,9 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { type WebhookNormalizer, type NormalizedWorkItem } from './base-normalizer.js';
 
+const TRIGGER_LABELS = ['needs-triage', 'needs-pr'] as const;
+type TriggerLabel = (typeof TRIGGER_LABELS)[number];
+
 function adfToPlainText(node: unknown): string {
   if (!node || typeof node !== 'object') return '';
   const n = node as { type?: string; text?: string; content?: unknown[] };
@@ -37,7 +40,6 @@ export const jiraNormalizer: WebhookNormalizer = {
     const payload = rawPayload as any;
     const event: string = payload.webhookEvent ?? '';
 
-    // Only handle issue creation and updates for now
     if (!event.includes('jira:issue_created') && !event.includes('jira:issue_updated')) {
       return null;
     }
@@ -51,11 +53,49 @@ export const jiraNormalizer: WebhookNormalizer = {
     const statusName: string = fields.status?.name ?? 'Unknown';
     const priorityName: string | undefined = fields.priority?.name;
     const labels: string[] = fields.labels ?? [];
-    const baseUrl = issue.self
-      ? new URL(issue.self).origin
-      : undefined;
+    const baseUrl = issue.self ? new URL(issue.self).origin : undefined;
     const externalUrl = baseUrl ? `${baseUrl}/browse/${issue.key}` : undefined;
 
+    if (event.includes('jira:issue_updated') && payload.changelog) {
+      const items = (payload.changelog?.items ?? []) as Array<{
+        field: string;
+        fromString?: string;
+        toString?: string;
+      }>;
+      const labelItem = items.find((i) => i.field === 'labels');
+
+      if (labelItem) {
+        const previousLabels = labelItem.fromString?.split(' ').filter(Boolean) ?? [];
+        const currentLabels = labelItem.toString?.split(' ').filter(Boolean) ?? [];
+
+        const addedTrigger = currentLabels.find(
+          (l) =>
+            (TRIGGER_LABELS as readonly string[]).includes(l) && !previousLabels.includes(l),
+        );
+
+        if (addedTrigger) {
+          const triggerLabel = addedTrigger as TriggerLabel;
+          return {
+            platformType: 'jira',
+            workItemKind: 'issue',
+            externalItemId: issue.key,
+            externalUrl,
+            title: summary,
+            body: description,
+            priority: priorityName,
+            status: statusName,
+            taxonomy: { labels: currentLabels, projectKey: issue.key.split('-')[0] },
+            triggerLabel,
+            dedupeKey: `jira:issue:${issue.key}:labeled:${triggerLabel}`,
+          };
+        }
+      }
+
+      // Non-label update with no trigger — ignore
+      return null;
+    }
+
+    // jira:issue_created
     return {
       platformType: 'jira',
       workItemKind: 'issue',
@@ -66,7 +106,7 @@ export const jiraNormalizer: WebhookNormalizer = {
       priority: priorityName,
       status: statusName,
       taxonomy: { labels, projectKey: issue.key.split('-')[0] },
-      dedupeKey: `jira:issue:${issue.key}:${event}`,
+      dedupeKey: `jira:issue:${issue.key}:create`,
     };
   },
 };
