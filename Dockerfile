@@ -64,6 +64,8 @@ COPY --from=build /app/packages/queue/dist/ packages/queue/dist/
 COPY --from=build /app/packages/skills-runtime/dist/ packages/skills-runtime/dist/
 COPY --from=build /app/apps/api/dist/ apps/api/dist/
 COPY --from=build /app/apps/api/prisma/ apps/api/prisma/
+COPY packages/skills/builtin/ packages/skills/builtin/
+COPY packages/executors/builtin/ packages/executors/builtin/
 
 ENV NODE_ENV=production
 ENV PORT=8080
