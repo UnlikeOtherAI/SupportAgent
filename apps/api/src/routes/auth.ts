@@ -1,5 +1,5 @@
 import { type FastifyInstance, type FastifyReply } from 'fastify';
-import { SignJWT, jwtVerify } from 'jose';
+import { SignJWT, decodeJwt, jwtVerify } from 'jose';
 import { getEnv } from '@support-agent/config';
 import {
   computeClientHash,
@@ -24,26 +24,38 @@ interface SsoStatePayload {
   providerKey: string;
 }
 
+interface UoaOrgMembership {
+  orgId?: string;
+  role?: string;
+}
+
 interface UoaTokenResponse {
-  accessToken: string;
-  refreshToken?: string;
-  expiresIn?: number;
-  user?: {
-    id?: string;
-    email?: string;
-    name?: string;
-    displayName?: string;
-    picture?: string;
-    avatar?: string;
-    avatar_url?: string;
-    avatarUrl?: string;
-    org?: {
-      org_id?: string;
-      org_role?: string;
-      org_name?: string;
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+  refresh_token_expires_in?: number;
+  token_type?: string;
+  // Present on authorization_code exchange when org_features.enabled=true.
+  // Field names inside `firstLogin` are camelCase even though the outer
+  // response is snake_case — this is UOA's canonical shape.
+  firstLogin?: {
+    memberships?: {
+      orgs?: UoaOrgMembership[];
+      teams?: Array<{ teamId?: string; orgId?: string; role?: string }>;
     };
+    pending_invites?: unknown[];
+    capabilities?: { can_create_org?: boolean; can_accept_invite?: boolean };
   };
-  firstLogin?: unknown;
+}
+
+interface UoaAccessTokenClaims {
+  sub?: string;
+  email?: string;
+  role?: string;
+  domain?: string;
+  client_id?: string;
+  iss?: string;
+  aud?: string;
 }
 
 /* ── State cookie helpers ─────────────────────────────────────────────── */
@@ -88,14 +100,6 @@ function clearStateCookie(reply: FastifyReply) {
 }
 
 /* ── Helpers ──────────────────────────────────────────────────────────── */
-
-function getString(record: Record<string, unknown>, keys: string[]): string | null {
-  for (const key of keys) {
-    const val = record[key];
-    if (typeof val === 'string' && val.trim()) return val.trim();
-  }
-  return null;
-}
 
 function buildConfigJwtPayload() {
   const env = getEnv();
@@ -335,23 +339,36 @@ export async function authRoutes(app: FastifyInstance) {
         return reply.redirect(`${adminUrl}/login?error=token_exchange_failed`);
       }
 
-      const user = token.user ?? {};
-      const userRecord = user as Record<string, unknown>;
-      const externalUserId = String(user.id ?? '');
-      if (!externalUserId) {
-        app.log.error({ token }, 'UOA token response missing user.id');
+      // UOA carries user identity inside the access_token JWT; the outer
+      // body has no `user` field. The token arrived over our authenticated
+      // backend channel (client_hash bearer on a TLS call to UOA), so we
+      // trust the claims without re-verifying the HS256 signature — UOA
+      // keeps the HMAC secret and does not publish it to relying parties.
+      let claims: UoaAccessTokenClaims;
+      try {
+        claims = decodeJwt(token.access_token) as UoaAccessTokenClaims;
+      } catch (err) {
+        app.log.error({ err, token }, 'UOA access_token could not be decoded');
         return reply.redirect(`${adminUrl}/login?error=invalid_token`);
       }
 
-      const email = getString(userRecord, ['email']) ?? '';
-      const displayName =
-        getString(userRecord, ['name', 'displayName']) ?? email.split('@')[0];
-      const avatarUrl =
-        getString(userRecord, ['picture', 'avatar', 'avatar_url', 'avatarUrl']) ?? '';
-      const org = user.org ?? {};
-      const tenantId = org.org_id ?? 'default';
-      const role = org.org_role ?? 'member';
-      const orgName = org.org_name ?? email.split('@')[1] ?? 'My Organization';
+      const externalUserId = typeof claims.sub === 'string' ? claims.sub : '';
+      if (!externalUserId) {
+        app.log.error({ claims }, 'UOA access_token missing sub claim');
+        return reply.redirect(`${adminUrl}/login?error=invalid_token`);
+      }
+
+      const email = typeof claims.email === 'string' ? claims.email : '';
+      const displayName = email.split('@')[0] || externalUserId;
+      const avatarUrl = '';
+
+      // UOA does not return org_name; fall back to the email domain. When
+      // the user has no org membership yet, use 'default' so the request
+      // still lands on a tenant record and the operator can complete setup.
+      const firstOrg = token.firstLogin?.memberships?.orgs?.[0];
+      const tenantId = firstOrg?.orgId ?? 'default';
+      const role = firstOrg?.role ?? claims.role ?? 'member';
+      const orgName = email.split('@')[1] ?? 'My Organization';
 
       // Find or create identity provider record (acts as tenant record).
       let idp = await app.prisma.identityProvider.findFirst({

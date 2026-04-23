@@ -63,8 +63,15 @@ the UOA superuser to register the new JWK under the same domain.
 - `/v1/auth/providers/unlikeotherai/callback` — verifies the cookie, calls
   `POST <SSO_BASE_URL>/auth/token?config_url=...` with
   `Authorization: Bearer <client_hash>` and body
-  `{ code, redirect_url, code_verifier }`. Consumes the JSON response
-  directly and mints the internal session JWT.
+  `{ code, redirect_url, code_verifier }`. The response body carries
+  `{ access_token, refresh_token, expires_in, refresh_token_expires_in,
+  token_type, firstLogin }` — **no top-level `user` field**. User identity
+  is decoded from `access_token` claims (`sub`, `email`, `role`). Tenant is
+  read from `firstLogin.memberships.orgs[0].orgId` when present. The
+  access token is HS256-signed by UOA and cannot be verified by the RP;
+  trust is established by the authenticated backend channel. See
+  `sso-uoa-doc-gaps.md` for the full shape and open questions reported
+  back to UOA.
 
 ## Operational Notes
 
