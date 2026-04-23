@@ -284,10 +284,11 @@ export async function authRoutes(app: FastifyInstance) {
         return reply.redirect(`${adminUrl}/login?error=missing_code`);
       }
 
-      if (!env.UOA_CLIENT_SECRET) {
+      if (!env.UOA_CLIENT_SECRET || !env.UOA_CLIENT_SECRET.startsWith('uoa_sec_')) {
         // Integration has not been approved yet; the Phase-1 claim link has
-        // not been consumed. Surface a deterministic error instead of a
-        // cryptic 401 from `/auth/token`.
+        // not been consumed. (During onboarding the secret is deployed as a
+        // placeholder to satisfy Cloud Run's version requirement.) Surface a
+        // deterministic error instead of a cryptic 401 from `/auth/token`.
         clearStateCookie(reply);
         return reply.redirect(`${adminUrl}/login?error=integration_pending`);
       }
