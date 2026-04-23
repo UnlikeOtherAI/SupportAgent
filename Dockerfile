@@ -71,4 +71,4 @@ ENV NODE_ENV=production
 ENV PORT=8080
 EXPOSE 8080
 
-CMD ["node", "apps/api/dist/src/index.js"]
+CMD ["sh", "-c", "pnpm --filter @support-agent/api exec prisma migrate deploy && node apps/api/dist/src/index.js"]
