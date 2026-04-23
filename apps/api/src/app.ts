@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import cookie from '@fastify/cookie';
 import { getEnv } from '@support-agent/config';
 import { prismaPlugin } from './plugins/prisma.js';
 import { errorHandler } from './plugins/error-handler.js';
@@ -22,6 +23,7 @@ import {
 import { dispatcherRoutes } from './routes/dispatcher.js';
 import { workflowChainRoutes } from './routes/workflow-chain.js';
 import { authRoutes } from './routes/auth.js';
+import { jwksRoutes } from './routes/jwks.js';
 import { connectorOAuthRoutes } from './routes/connector-oauth.js';
 import { settingsRoutes } from './routes/settings.js';
 import { syncPlatformTypes } from './lib/sync-platform-types.js';
@@ -53,6 +55,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   }
 
   await app.register(cors, { origin: corsOrigin });
+  await app.register(cookie);
   await app.register(prismaPlugin);
   await syncPlatformTypes(app.prisma);
   await app.register(authPlugin);
@@ -60,6 +63,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.setErrorHandler(errorHandler);
 
   await app.register(healthRoutes, { prefix: '/health' });
+  await app.register(jwksRoutes);
   await app.register(authRoutes, { prefix: '/v1/auth' });
   await app.register(connectorRoutes, { prefix: '/v1/connectors' });
   await app.register(executorRoutes, { prefix: '/v1/executors' });

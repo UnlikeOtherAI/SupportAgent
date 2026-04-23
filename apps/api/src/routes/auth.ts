@@ -1,52 +1,93 @@
-import crypto from 'node:crypto';
-import { type FastifyInstance } from 'fastify';
+import { type FastifyInstance, type FastifyReply } from 'fastify';
 import { SignJWT, jwtVerify } from 'jose';
 import { getEnv } from '@support-agent/config';
+import {
+  computeClientHash,
+  createPkcePair,
+  getCallbackUrl,
+  getConfigUrl,
+  getJwksUrl,
+  isSsoConfigured,
+  signConfigJwt,
+} from '../lib/uoa.js';
 
-/* ── SSO helpers ──────────────────────────────────────────── */
+const PROVIDER_KEY = 'unlikeotherai';
+// `__Host-` requires Path=/, so we use `__Secure-` to scope the cookie to
+// the callback route only. Both prefixes enforce HTTPS-only delivery.
+const STATE_COOKIE = '__Secure-sso_state';
+const STATE_COOKIE_PATH = '/v1/auth/providers';
+const STATE_TTL_SECONDS = 600;
 
-function getDomainHash(domain: string, secret: string): string {
-  return crypto.createHash('sha256').update(domain + secret).digest('hex');
+interface SsoStatePayload {
+  codeVerifier: string;
+  next: string;
+  providerKey: string;
 }
 
-function getConfigUrl(apiBaseUrl: string): string {
-  return `${apiBaseUrl}/v1/auth/sso-config`;
+interface UoaTokenResponse {
+  accessToken: string;
+  refreshToken?: string;
+  expiresIn?: number;
+  user?: {
+    id?: string;
+    email?: string;
+    name?: string;
+    displayName?: string;
+    picture?: string;
+    avatar?: string;
+    avatar_url?: string;
+    avatarUrl?: string;
+    org?: {
+      org_id?: string;
+      org_role?: string;
+      org_name?: string;
+    };
+  };
+  firstLogin?: unknown;
 }
 
-async function ssoFetch<T>(
-  path: string,
-  opts: {
-    baseUrl: string;
-    domain: string;
-    secret: string;
-    configUrl: string;
-    method?: 'GET' | 'POST';
-    body?: unknown;
-    includeDomain?: boolean;
-  },
-): Promise<T> {
-  const url = new URL(path, opts.baseUrl);
-  url.searchParams.set('config_url', opts.configUrl);
-  if (opts.includeDomain !== false) {
-    url.searchParams.set('domain', opts.domain);
+/* ── State cookie helpers ─────────────────────────────────────────────── */
+
+async function signStateCookie(
+  secret: string,
+  payload: SsoStatePayload,
+): Promise<string> {
+  const key = new TextEncoder().encode(secret);
+  return new SignJWT({ ...payload })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(`${STATE_TTL_SECONDS}s`)
+    .sign(key);
+}
+
+async function verifyStateCookie(
+  secret: string,
+  token: string,
+): Promise<SsoStatePayload | null> {
+  try {
+    const key = new TextEncoder().encode(secret);
+    const { payload } = await jwtVerify(token, key);
+    const { codeVerifier, next, providerKey } = payload as Record<string, unknown>;
+    if (typeof codeVerifier !== 'string' || typeof next !== 'string' || typeof providerKey !== 'string') {
+      return null;
+    }
+    return { codeVerifier, next, providerKey };
+  } catch {
+    return null;
   }
+}
 
-  const res = await fetch(url.toString(), {
-    method: opts.method ?? 'GET',
-    headers: {
-      Authorization: `Bearer ${getDomainHash(opts.domain, opts.secret)}`,
-      ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
+function clearStateCookie(reply: FastifyReply) {
+  reply.setCookie(STATE_COOKIE, '', {
+    path: STATE_COOKIE_PATH,
+    maxAge: 0,
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
   });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`SSO ${path} failed (${res.status}): ${text}`);
-  }
-
-  return (await res.json()) as T;
 }
+
+/* ── Helpers ──────────────────────────────────────────────────────────── */
 
 function getString(record: Record<string, unknown>, keys: string[]): string | null {
   for (const key of keys) {
@@ -56,14 +97,64 @@ function getString(record: Record<string, unknown>, keys: string[]): string | nu
   return null;
 }
 
-/* ── Routes ───────────────────────────────────────────────── */
+function buildConfigJwtPayload() {
+  const env = getEnv();
+  return {
+    domain: env.SSO_DOMAIN,
+    jwks_url: getJwksUrl(env.API_BASE_URL),
+    contact_email: env.UOA_CONTACT_EMAIL!,
+    redirect_urls: [getCallbackUrl(env.API_BASE_URL, PROVIDER_KEY)],
+    enabled_auth_methods: ['email_password', 'google'],
+    org_features: {
+      enabled: true,
+      org_roles: ['owner', 'admin', 'member'],
+      user_needs_team: false,
+    },
+    ui_theme: {
+      colors: {
+        bg: '#F6F7F8',
+        surface: '#FFFFFF',
+        text: '#111827',
+        muted: '#6B7280',
+        primary: '#10B981',
+        primary_text: '#FFFFFF',
+        border: '#E5E7EB',
+        danger: '#EF4444',
+        danger_text: '#FFFFFF',
+      },
+      radii: { card: '12px', button: '8px', input: '8px' },
+      density: 'comfortable',
+      button: { style: 'solid' },
+      card: { style: 'shadow' },
+      typography: {
+        font_family: 'DM Sans',
+        base_text_size: 'md',
+        font_import_url:
+          'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap',
+      },
+      logo: {
+        url: '',
+        alt: 'AppBuildBox',
+        text: 'AppBuildBox',
+        font_size: '18px',
+        color: '#111827',
+      },
+    },
+    language_config: 'en',
+  };
+}
+
+/* ── Routes ───────────────────────────────────────────────────────────── */
 
 export async function authRoutes(app: FastifyInstance) {
-  /* GET /dev-login — mint a dev JWT; only active in non-production without SSO */
+  /* GET /dev-login — mint a dev JWT; only active when SSO is not live. */
   app.get('/dev-login', async (_request, reply) => {
     const env = getEnv();
 
-    if (env.NODE_ENV === 'production' || env.SSO_SHARED_SECRET) {
+    // Offer dev login whenever the relying party cannot yet exchange real
+    // tokens — i.e. non-production AND no claimed client secret. Once the
+    // claim is in place the only entry point is the real SSO flow.
+    if (env.NODE_ENV === 'production' || env.UOA_CLIENT_SECRET) {
       return reply.status(404).send({ error: 'Not found' });
     }
 
@@ -85,7 +176,8 @@ export async function authRoutes(app: FastifyInstance) {
     };
   });
 
-  /* GET /providers — list available identity providers */
+  /* GET /providers — list identity providers. Surfaces during onboarding
+     (before claim) so an operator can kick off auto-discovery. */
   app.get('/providers', async () => {
     const env = getEnv();
     const providers: Array<{
@@ -98,14 +190,17 @@ export async function authRoutes(app: FastifyInstance) {
       enabled: boolean;
     }> = [];
 
-    if (env.SSO_SHARED_SECRET) {
+    if (isSsoConfigured()) {
       providers.push({
-        key: 'unlikeotherai',
+        key: PROVIDER_KEY,
         label: 'UnlikeOtherAI',
         buttonText: 'Sign in with SSO',
         kind: 'oauth',
         iconUrl: null,
-        startUrl: `${env.API_BASE_URL}/v1/auth/providers/unlikeotherai/start`,
+        startUrl: `${env.API_BASE_URL}/v1/auth/providers/${PROVIDER_KEY}/start`,
+        // Once UOA_CLIENT_SECRET lands the full login flow works end-to-end.
+        // Before that the button still renders so the operator can trigger
+        // Phase-1 auto-discovery.
         enabled: true,
       });
     }
@@ -113,162 +208,160 @@ export async function authRoutes(app: FastifyInstance) {
     return { providers };
   });
 
-  /* GET /sso-config — JWT config consumed by the SSO service */
-  app.get('/sso-config', async (request, reply) => {
-    const env = getEnv();
-    if (!env.SSO_SHARED_SECRET) {
+  /* GET /sso-config — RS256-signed config JWT fetched by UOA. */
+  app.get('/sso-config', async (_request, reply) => {
+    if (!isSsoConfigured()) {
       return reply.status(404).send({ error: 'SSO not configured' });
     }
 
-    const secret = new TextEncoder().encode(env.SSO_SHARED_SECRET);
-    const callbackUrl = `${env.API_BASE_URL}/v1/auth/providers/unlikeotherai/callback`;
-
-    const token = await new SignJWT({
-      domain: env.SSO_DOMAIN,
-      redirect_urls: [callbackUrl],
-      enabled_auth_methods: ['email_password', 'google'],
-      allowed_social_providers: ['google'],
-      org_features: {
-        enabled: true,
-        org_roles: ['owner', 'admin', 'member'],
-        user_needs_team: false,
-      },
-      ui_theme: {
-        colors: {
-          bg: '#F6F7F8',
-          surface: '#FFFFFF',
-          text: '#111827',
-          muted: '#6B7280',
-          primary: '#10B981',
-          primary_text: '#FFFFFF',
-          border: '#E5E7EB',
-          danger: '#EF4444',
-          danger_text: '#FFFFFF',
-        },
-        radii: { card: '12px', button: '8px', input: '8px' },
-        density: 'comfortable',
-        button: { style: 'solid' },
-        card: { style: 'shadow' },
-        typography: {
-          font_family: 'DM Sans',
-          base_text_size: 'md',
-          font_import_url: 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap',
-        },
-        logo: {
-          url: '',
-          alt: 'AppBuildBox',
-          text: 'AppBuildBox',
-          font_size: '18px',
-          color: '#111827',
-        },
-      },
-      language_config: 'en',
-    })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setAudience(env.SSO_IDENTIFIER)
-      .setIssuedAt()
-      .setExpirationTime('5m')
-      .sign(secret);
-
-    reply.header('Content-Type', 'text/plain');
-    return token;
+    const jwt = await signConfigJwt(buildConfigJwtPayload());
+    reply.header('Content-Type', 'application/jwt');
+    return jwt;
   });
 
-  /* GET /providers/:key/start — redirect to SSO auth UI */
-  app.get<{ Params: { key: string } }>('/providers/:key/start', async (request, reply) => {
-    const env = getEnv();
-    const { key } = request.params;
+  /* GET /providers/:key/start — PKCE + state cookie + redirect to UOA. */
+  app.get<{ Params: { key: string }; Querystring: { next?: string } }>(
+    '/providers/:key/start',
+    async (request, reply) => {
+      const env = getEnv();
+      const { key } = request.params;
+      const next = typeof request.query.next === 'string' ? request.query.next : '/';
 
-    if (key !== 'unlikeotherai' || !env.SSO_SHARED_SECRET) {
-      return reply.status(404).send({ error: 'Unknown provider' });
-    }
+      if (key !== PROVIDER_KEY || !isSsoConfigured()) {
+        return reply.status(404).send({ error: 'Unknown provider' });
+      }
 
-    const callbackUrl = `${env.API_BASE_URL}/v1/auth/providers/unlikeotherai/callback`;
-    const configUrl = getConfigUrl(env.API_BASE_URL);
+      const callbackUrl = getCallbackUrl(env.API_BASE_URL, PROVIDER_KEY);
+      const configUrl = getConfigUrl(env.API_BASE_URL);
+      const { verifier, challenge } = createPkcePair();
 
-    const authUrl = new URL('/auth', env.SSO_BASE_URL);
-    authUrl.searchParams.set('config_url', configUrl);
-    authUrl.searchParams.set('redirect_url', callbackUrl);
-    authUrl.searchParams.set('state', JSON.stringify({ next: '/' }));
+      const stateToken = await signStateCookie(env.JWT_SECRET, {
+        codeVerifier: verifier,
+        next,
+        providerKey: key,
+      });
 
-    return reply.redirect(authUrl.toString());
-  });
+      // __Host- requires Secure + Path + no Domain. UOA redirects back via
+      // the browser, so the browser replays this cookie on the callback.
+      reply.setCookie(STATE_COOKIE, stateToken, {
+        path: STATE_COOKIE_PATH,
+        maxAge: STATE_TTL_SECONDS,
+        httpOnly: true,
+        secure: true,
+        sameSite: 'lax',
+      });
 
-  /* GET /providers/:key/callback — exchange code, mint JWT, redirect to admin */
+      const authUrl = new URL('/auth', env.SSO_BASE_URL);
+      authUrl.searchParams.set('config_url', configUrl);
+      authUrl.searchParams.set('redirect_url', callbackUrl);
+      authUrl.searchParams.set('code_challenge', challenge);
+      authUrl.searchParams.set('code_challenge_method', 'S256');
+
+      return reply.redirect(authUrl.toString());
+    },
+  );
+
+  /* GET /providers/:key/callback — exchange code server-to-server. */
   app.get<{ Params: { key: string }; Querystring: Record<string, string> }>(
     '/providers/:key/callback',
     async (request, reply) => {
       const env = getEnv();
       const { key } = request.params;
       const { code, error } = request.query;
+      const adminUrl = env.ADMIN_APP_URL;
 
-      if (key !== 'unlikeotherai' || !env.SSO_SHARED_SECRET) {
+      if (key !== PROVIDER_KEY || !isSsoConfigured()) {
         return reply.status(404).send({ error: 'Unknown provider' });
       }
 
-      const adminUrl = env.ADMIN_APP_URL;
-
       if (error) {
+        clearStateCookie(reply);
         return reply.redirect(`${adminUrl}/login?error=${encodeURIComponent(error)}`);
       }
 
       if (!code) {
+        clearStateCookie(reply);
         return reply.redirect(`${adminUrl}/login?error=missing_code`);
       }
 
-      const configUrl = getConfigUrl(env.API_BASE_URL);
+      if (!env.UOA_CLIENT_SECRET) {
+        // Integration has not been approved yet; the Phase-1 claim link has
+        // not been consumed. Surface a deterministic error instead of a
+        // cryptic 401 from `/auth/token`.
+        clearStateCookie(reply);
+        return reply.redirect(`${adminUrl}/login?error=integration_pending`);
+      }
 
-      // Exchange authorization code for access token JWT
-      let tokenData: { access_token: string };
+      const stateCookie = request.cookies[STATE_COOKIE];
+      if (!stateCookie) {
+        return reply.redirect(`${adminUrl}/login?error=missing_state`);
+      }
+
+      const state = await verifyStateCookie(env.JWT_SECRET, stateCookie);
+      clearStateCookie(reply);
+      if (!state || state.providerKey !== key) {
+        return reply.redirect(`${adminUrl}/login?error=invalid_state`);
+      }
+
+      const callbackUrl = getCallbackUrl(env.API_BASE_URL, PROVIDER_KEY);
+      const configUrl = getConfigUrl(env.API_BASE_URL);
+      const clientHash = computeClientHash(env.SSO_DOMAIN, env.UOA_CLIENT_SECRET);
+
+      const tokenUrl = new URL('/auth/token', env.SSO_BASE_URL);
+      tokenUrl.searchParams.set('config_url', configUrl);
+
+      let token: UoaTokenResponse;
       try {
-        tokenData = await ssoFetch<{ access_token: string }>('/auth/token', {
-          baseUrl: env.SSO_BASE_URL,
-          domain: env.SSO_DOMAIN,
-          secret: env.SSO_SHARED_SECRET,
-          configUrl,
+        const res = await fetch(tokenUrl.toString(), {
           method: 'POST',
-          includeDomain: false,
-          body: { code, grant_type: 'authorization_code' },
+          headers: {
+            Authorization: `Bearer ${clientHash}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            code,
+            redirect_url: callbackUrl,
+            code_verifier: state.codeVerifier,
+          }),
         });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new Error(`status ${res.status}: ${text.slice(0, 512)}`);
+        }
+        token = (await res.json()) as UoaTokenResponse;
       } catch (err) {
-        app.log.error({ err }, 'SSO token exchange failed');
+        app.log.error({ err }, 'UOA token exchange failed');
         return reply.redirect(`${adminUrl}/login?error=token_exchange_failed`);
       }
 
-      // Verify the access token JWT with shared secret
-      const secret = new TextEncoder().encode(env.SSO_SHARED_SECRET);
-      let payload: Record<string, unknown>;
-      try {
-        const result = await jwtVerify(tokenData.access_token, secret);
-        payload = result.payload as Record<string, unknown>;
-      } catch (err) {
-        app.log.error({ err }, 'SSO token verification failed');
+      const user = token.user ?? {};
+      const userRecord = user as Record<string, unknown>;
+      const externalUserId = String(user.id ?? '');
+      if (!externalUserId) {
+        app.log.error({ token }, 'UOA token response missing user.id');
         return reply.redirect(`${adminUrl}/login?error=invalid_token`);
       }
 
-      const externalUserId = String(payload.sub ?? '');
-      const email = getString(payload, ['email']) ?? '';
-      const displayName = getString(payload, ['name', 'displayName']) ?? email.split('@')[0];
-      const avatarUrl = getString(payload, ['picture', 'avatar', 'avatar_url', 'avatarUrl']) ?? '';
-      const orgPayload = payload.org as {
-        org_id?: string;
-        org_role?: string;
-        org_name?: string;
-      } | undefined;
-      const tenantId = orgPayload?.org_id ?? 'default';
-      const role = orgPayload?.org_role ?? 'member';
-      const orgName = orgPayload?.org_name ?? email.split('@')[1] ?? 'My Organization';
+      const email = getString(userRecord, ['email']) ?? '';
+      const displayName =
+        getString(userRecord, ['name', 'displayName']) ?? email.split('@')[0];
+      const avatarUrl =
+        getString(userRecord, ['picture', 'avatar', 'avatar_url', 'avatarUrl']) ?? '';
+      const org = user.org ?? {};
+      const tenantId = org.org_id ?? 'default';
+      const role = org.org_role ?? 'member';
+      const orgName = org.org_name ?? email.split('@')[1] ?? 'My Organization';
 
-      // Find or create identity provider record (acts as tenant record)
+      // Find or create identity provider record (acts as tenant record).
       let idp = await app.prisma.identityProvider.findFirst({
-        where: { tenantId, providerType: 'unlikeotherai' },
+        where: { tenantId, providerType: PROVIDER_KEY },
       });
 
       if (!idp) {
         idp = await app.prisma.identityProvider.create({
           data: {
             tenantId,
-            providerType: 'unlikeotherai',
+            providerType: PROVIDER_KEY,
             displayName: orgName,
             config: { baseUrl: env.SSO_BASE_URL },
             isEnabled: true,
@@ -276,7 +369,6 @@ export async function authRoutes(app: FastifyInstance) {
         });
       }
 
-      // Upsert federated identity link
       const existingLink = await app.prisma.federatedIdentityLink.findFirst({
         where: { identityProviderId: idp.id, externalUserId },
       });
@@ -301,13 +393,11 @@ export async function authRoutes(app: FastifyInstance) {
         });
       }
 
-      // Mint our own JWT for the admin app
       const jwt = app.jwt.sign(
         { sub: externalUserId, tenantId, role },
         { expiresIn: '24h' },
       );
 
-      // Redirect to admin app with auth data
       const redirectUrl = new URL('/auth/callback', adminUrl);
       redirectUrl.searchParams.set('token', jwt);
       redirectUrl.searchParams.set('userId', externalUserId);

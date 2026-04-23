@@ -640,7 +640,7 @@ The current auth service already exposes:
 - a current-user org context endpoint
 - org and team concepts that can supply the external tenant id
 
-The provider-specific HMAC-signed config JWT and domain-hash bearer token logic must live only inside this adapter.
+The provider-specific RS256-signed config JWT (with published JWKS) and `client_hash` bearer token logic must live only inside this adapter. See [`sso-uoa-onboarding.md`](./sso-uoa-onboarding.md) for the keypair, claim, and env-var runbook.
 
 The adapter should also define:
 

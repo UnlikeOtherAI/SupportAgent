@@ -37,9 +37,9 @@ jobs:
           region: ${{ env.REGION }}
           image: ${{ env.REGISTRY }}/supportagent-api:${{ github.sha }}
           env_vars: |
-            NODE_ENV=production,QUEUE_BACKEND=bullmq,API_BASE_URL=https://api.appbuildbox.com,CORS_ORIGIN=https://app.appbuildbox.com,GCP_PROJECT_ID=${{ env.PROJECT }},ADMIN_APP_URL=https://app.appbuildbox.com
+            NODE_ENV=production,QUEUE_BACKEND=bullmq,API_BASE_URL=https://api.appbuildbox.com,CORS_ORIGIN=https://app.appbuildbox.com,GCP_PROJECT_ID=${{ env.PROJECT }},ADMIN_APP_URL=https://app.appbuildbox.com,SSO_DOMAIN=api.appbuildbox.com,UOA_JWK_KID=supportagent-2026-04,UOA_CONTACT_EMAIL=ondrej.rafaj@gmail.com
           secrets: |
-            DATABASE_URL=${{ secrets.DATABASE_URL_SECRET_NAME }}:latest,JWT_SECRET=${{ secrets.JWT_SECRET_NAME }}:latest
+            DATABASE_URL=${{ secrets.DATABASE_URL_SECRET_NAME }}:latest,JWT_SECRET=${{ secrets.JWT_SECRET_NAME }}:latest,UOA_CONFIG_SIGNING_PRIVATE_KEY_PEM=${{ secrets.UOA_CONFIG_SIGNING_PRIVATE_KEY_PEM_NAME }}:latest,UOA_CLIENT_SECRET=${{ secrets.UOA_CLIENT_SECRET_NAME }}:latest
 
   deploy-admin:
     runs-on: ubuntu-latest
