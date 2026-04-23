@@ -34,7 +34,9 @@ export async function getUoaKeyMaterial(): Promise<UoaKeyMaterial> {
     throw new Error('UOA_CONFIG_SIGNING_PRIVATE_KEY_PEM is not set');
   }
 
-  const privateKey = await importPKCS8(env.UOA_CONFIG_SIGNING_PRIVATE_KEY_PEM, 'RS256');
+  const privateKey = await importPKCS8(env.UOA_CONFIG_SIGNING_PRIVATE_KEY_PEM, 'RS256', {
+    extractable: true,
+  });
 
   // Derive the public JWK from the private key so operators only have to
   // manage one secret. Stripping the private components is defense in depth:
