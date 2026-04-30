@@ -3,8 +3,10 @@ import { parseEnv } from '@support-agent/config';
 import { type FastifyInstance } from 'fastify';
 
 const ghListAccessibleRepos = vi.fn();
+const ghListAccessibleOwners = vi.fn();
 
 vi.mock('@support-agent/github-cli', () => ({
+  ghListAccessibleOwners,
   ghListAccessibleRepos,
 }));
 
@@ -32,6 +34,7 @@ describe('Connector routes', () => {
         url: 'https://github.com/UnlikeOtherAI/SupportAgent',
       },
     ]);
+    ghListAccessibleOwners.mockResolvedValue([{ login: 'UnlikeOtherAI', type: 'organization' }]);
   });
 
   afterAll(async () => {
@@ -202,6 +205,46 @@ describe('Connector routes', () => {
           url: 'https://github.com/UnlikeOtherAI/SupportAgent',
         },
       ],
+    });
+  });
+
+  it('GET /v1/connectors/:id/repository-owners surfaces gh CLI availability errors', async () => {
+    const platformType = await app.prisma.platformType.findFirst({
+      where: { key: 'github_issues' },
+    });
+    const connector = await app.prisma.connector.create({
+      data: {
+        tenantId,
+        platformTypeId: platformType!.id,
+        name: 'GitHub Issues missing gh',
+        direction: 'both',
+        configuredIntakeMode: 'polling',
+        effectiveIntakeMode: 'polling',
+        capabilities: {
+          auth_mode: 'local_gh',
+          repo_owner: 'UnlikeOtherAI',
+        },
+      },
+    });
+    ghListAccessibleOwners.mockRejectedValueOnce(
+      Object.assign(new Error('GitHub CLI is not installed or is not available on PATH.'), {
+        code: 'GITHUB_CLI_UNAVAILABLE',
+        statusCode: 503,
+      }),
+    );
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/connectors/${connector.id}/repository-owners`,
+      headers: { authorization: `Bearer ${authToken}` },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({
+      error: {
+        code: 'GITHUB_CLI_UNAVAILABLE',
+        message: 'GitHub CLI is not installed or is not available on PATH.',
+      },
     });
   });
 

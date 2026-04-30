@@ -75,6 +75,22 @@ export interface GitHubIssueSummary {
   url: string;
 }
 
+interface GhCommandError extends Error {
+  code?: number | string;
+  stderr?: string;
+}
+
+export class GitHubCliUnavailableError extends Error {
+  code = 'GITHUB_CLI_UNAVAILABLE';
+  statusCode = 503;
+
+  constructor() {
+    super(
+      'GitHub CLI is not installed or is not available on PATH. Install gh and run gh auth login, or use OAuth/token auth instead.',
+    );
+  }
+}
+
 function tempDir(): string {
   return path.join(
     os.tmpdir(),
@@ -82,19 +98,61 @@ function tempDir(): string {
   );
 }
 
-async function run(cmd: string, cwd?: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<string> {
-  const options = cwd ? { cwd, timeout: timeoutMs } : { timeout: timeoutMs };
-  const { stdout, stderr } = await execAsync(cmd, options);
-  if (stderr) {
-    console.warn('[github-cli]', stderr.trim());
+function getCommandEnv(): NodeJS.ProcessEnv {
+  const pathValue = process.env.PATH ?? '';
+  const pathSegments = pathValue
+    .split(path.delimiter)
+    .filter((segment) => !segment.includes(`${path.sep}node_modules${path.sep}.bin`));
+  return { ...process.env, PATH: pathSegments.join(path.delimiter) };
+}
+
+function isGhCommandError(error: unknown): error is GhCommandError {
+  return error instanceof Error;
+}
+
+function isGhCliUnavailable(error: GhCommandError): boolean {
+  const output = `${error.message}\n${error.stderr ?? ''}`.toLowerCase();
+  return (
+    error.code === 127 ||
+    error.code === 'ENOENT' ||
+    output.includes('gh: not found') ||
+    output.includes('gh: command not found') ||
+    output.includes("'gh' is not recognized")
+  );
+}
+
+function rethrowGhCommandError(error: unknown): never {
+  if (isGhCommandError(error) && isGhCliUnavailable(error)) {
+    throw new GitHubCliUnavailableError();
   }
-  return stdout.trim();
+  throw error;
+}
+
+async function run(cmd: string, cwd?: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<string> {
+  const options = cwd
+    ? { cwd, timeout: timeoutMs, env: getCommandEnv() }
+    : { timeout: timeoutMs, env: getCommandEnv() };
+  try {
+    const { stdout, stderr } = await execAsync(cmd, options);
+    if (stderr) {
+      console.warn('[github-cli]', stderr.trim());
+    }
+    return stdout.trim();
+  } catch (error) {
+    rethrowGhCommandError(error);
+  }
 }
 
 async function runQuiet(cmd: string, cwd?: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<string> {
-  const options = cwd ? { cwd, timeout: timeoutMs } : { timeout: timeoutMs };
-  const { stdout } = await execAsync(cmd, options);
-  return stdout.trim();
+  const options = cwd
+    ? { cwd, timeout: timeoutMs, env: getCommandEnv() }
+    : { timeout: timeoutMs, env: getCommandEnv() };
+  try {
+    const { stdout } = await execAsync(cmd, options);
+    return stdout.trim();
+  } catch (error) {
+    rethrowGhCommandError(error);
+  }
 }
 
 async function withJsonBodyFile<T>(

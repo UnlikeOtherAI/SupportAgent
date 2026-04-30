@@ -18,9 +18,9 @@ export interface ApiError {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = useAuth.getState().token
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...init?.headers as Record<string, string> | undefined,
+  const headers: Record<string, string> = { ...init?.headers as Record<string, string> | undefined }
+  if (init?.body !== undefined) {
+    headers['Content-Type'] = 'application/json'
   }
   if (token) {
     headers.Authorization = `Bearer ${token}`
@@ -36,7 +36,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({})) as Record<string, unknown>
-    throw Object.assign(new Error(typeof body.message === 'string' ? body.message : `Request failed (${res.status})`), { status: res.status, body })
+    const error = body.error as { message?: unknown } | undefined
+    const message = typeof error?.message === 'string'
+      ? error.message
+      : typeof body.message === 'string' ? body.message : `Request failed (${res.status})`
+    throw Object.assign(new Error(message), { status: res.status, body })
   }
 
   if (res.status === 204) return undefined as T
