@@ -1,9 +1,12 @@
 /**
  * API Client — single source of truth for all network requests.
  *
- * Every API module imports `api` from here.
- * Bearer token injection, error normalization, and base URL
- * resolution all live in this one file.
+ * Authentication is delivered via the HttpOnly `__Host-abb_session` cookie
+ * set by the SSO callback. Every request includes `credentials: 'include'`
+ * so the browser attaches the cookie even on cross-origin admin → API calls.
+ * No bearer token is held in JS memory or `localStorage`.
+ *
+ * See `docs/reviews/security-auth-and-sso.md` H1 and L-2.
  */
 import { useAuth } from './auth'
 
@@ -17,20 +20,22 @@ export interface ApiError {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = useAuth.getState().token
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...init?.headers as Record<string, string> | undefined,
   }
-  if (token) {
-    headers.Authorization = `Bearer ${token}`
-  }
 
-  const res = await fetch(`${BASE_URL}${path}`, { ...init, headers })
+  const res = await fetch(`${BASE_URL}${path}`, {
+    ...init,
+    headers,
+    credentials: 'include',
+  })
 
   if (res.status === 401) {
     useAuth.getState().clearAuth()
-    window.location.href = '/login'
+    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+      window.location.href = '/login'
+    }
     throw new Error('Session expired')
   }
 

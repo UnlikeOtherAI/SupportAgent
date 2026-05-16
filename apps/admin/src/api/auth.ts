@@ -15,8 +15,16 @@ export interface AuthProvidersResponse {
 }
 
 export interface DevLoginResponse {
-  token: string
   userId: string
+  displayName: string
+  email: string
+  avatarUrl: string | null
+  role: string
+}
+
+export interface MeResponse {
+  userId: string
+  tenantId: string
   displayName: string
   email: string
   avatarUrl: string | null
@@ -26,4 +34,6 @@ export interface DevLoginResponse {
 export const authApi = {
   getProviders: () => api.get<AuthProvidersResponse>('/v1/auth/providers'),
   devLogin: () => api.get<DevLoginResponse>('/v1/auth/dev-login'),
+  me: () => api.get<MeResponse>('/v1/auth/me'),
+  logout: () => api.post<{ ok: boolean }>('/v1/auth/logout'),
 }

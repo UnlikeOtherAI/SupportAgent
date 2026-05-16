@@ -8,7 +8,7 @@ import { useAuth } from '@/lib/auth'
 
 export default function LoginPage() {
   const navigate = useNavigate()
-  const setAuth = useAuth((s) => s.setAuth)
+  const setUser = useAuth((s) => s.setUser)
   const [devLoading, setDevLoading] = useState(false)
 
   const { data, isLoading } = useQuery({
@@ -22,13 +22,17 @@ export default function LoginPage() {
   async function handleDevLogin() {
     setDevLoading(true)
     try {
-      const res = await authApi.devLogin()
-      setAuth(res.token, {
-        userId: res.userId,
-        displayName: res.displayName,
-        email: res.email,
-        avatarUrl: res.avatarUrl,
-        role: res.role,
+      // The dev-login endpoint sets the session cookie server-side.
+      // Fetch /me to populate the local identity store.
+      await authApi.devLogin()
+      const me = await authApi.me()
+      setUser({
+        userId: me.userId,
+        tenantId: me.tenantId,
+        displayName: me.displayName,
+        email: me.email,
+        avatarUrl: me.avatarUrl,
+        role: me.role,
       })
       void navigate('/dashboard', { replace: true })
     } finally {

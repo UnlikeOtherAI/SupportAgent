@@ -1,44 +1,46 @@
 /**
- * Auth — single source of truth for authentication state.
+ * Auth — single source of truth for the admin app's identity state.
  *
- * Every component reads auth through `useAuth()`.
- * Every mutation writes through `setAuth()` / `clearAuth()`.
- * The bearer token is injected into requests by `api-client.ts`.
+ * The bearer JWT is no longer held by JavaScript. The API delivers it as an
+ * HttpOnly `__Host-abb_session` cookie at the SSO callback, and the browser
+ * replays it on every same-origin request. The store therefore only tracks
+ * the *user identity* fetched from `/v1/auth/me`.
+ *
+ * See `docs/reviews/security-auth-and-sso.md` H1 and `security-secrets-and-data.md` L-3.
  */
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 
-interface AuthUser {
+export interface AuthUser {
   userId: string
+  tenantId: string
   displayName: string
   email: string
   avatarUrl: string | null
   role: string
 }
 
+export type AuthStatus = 'unknown' | 'authenticated' | 'unauthenticated'
+
 interface AuthState {
-  token: string | null
+  status: AuthStatus
   user: AuthUser | null
   onboardingRequired: boolean
 
-  setAuth: (token: string, user: AuthUser) => void
+  setUser: (user: AuthUser) => void
+  setUnauthenticated: () => void
   setOnboardingRequired: (required: boolean) => void
   clearAuth: () => void
   isAuthenticated: () => boolean
 }
 
-export const useAuth = create<AuthState>()(
-  persist(
-    (set, get) => ({
-      token: null,
-      user: null,
-      onboardingRequired: false,
+export const useAuth = create<AuthState>()((set, get) => ({
+  status: 'unknown',
+  user: null,
+  onboardingRequired: false,
 
-      setAuth: (token, user) => set({ token, user }),
-      setOnboardingRequired: (required) => set({ onboardingRequired: required }),
-      clearAuth: () => set({ token: null, user: null, onboardingRequired: false }),
-      isAuthenticated: () => get().token !== null,
-    }),
-    { name: 'abb-auth' },
-  ),
-)
+  setUser: (user) => set({ status: 'authenticated', user }),
+  setUnauthenticated: () => set({ status: 'unauthenticated', user: null, onboardingRequired: false }),
+  setOnboardingRequired: (required) => set({ onboardingRequired: required }),
+  clearAuth: () => set({ status: 'unauthenticated', user: null, onboardingRequired: false }),
+  isAuthenticated: () => get().status === 'authenticated',
+}))

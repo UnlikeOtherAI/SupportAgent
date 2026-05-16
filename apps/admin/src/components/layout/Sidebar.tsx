@@ -5,6 +5,7 @@ import {
   ApiKeysIcon, ReviewIcon, SettingsIcon, BoltIcon, SkillIcon, ExecutorIcon,
 } from '@/components/icons/NavIcons'
 import { AppsIcon } from '@/components/icons/PlatformIcons'
+import { authApi } from '@/api/auth'
 import { useAuth } from '@/lib/auth'
 import type { ReactNode } from 'react'
 
@@ -63,8 +64,13 @@ export function Sidebar() {
     : '??'
 
   function handleLogout() {
-    clearAuth()
-    void navigate('/login')
+    // Clear server-side session cookie, then drop local identity. If the
+    // server call fails we still clear locally and bounce to /login — the
+    // cookie expires on its own at the TTL.
+    void authApi.logout().catch(() => undefined).finally(() => {
+      clearAuth()
+      void navigate('/login')
+    })
   }
 
   return (
