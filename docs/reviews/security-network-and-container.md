@@ -100,3 +100,14 @@ below.
 5. H-7 (SSRF TOCTOU) - undici Agent with pinned IP.
 6. H-2, M-2, M-3 (WS payload limits, TLS, heartbeat liveness).
 7. M-7 (worker sandboxing) - needs a real design pass; this is the largest piece of long-running work.
+
+## Resolution notes
+
+Date: 2026-05-16
+Branch: `fix/security-input-network-2026-05-16`
+
+- **H-6 — nginx security headers** (`nginx/admin.conf`, `Dockerfile.admin`): the admin server block now emits HSTS, X-Content-Type-Options, X-Frame-Options (`DENY`), Referrer-Policy (`no-referrer`), Permissions-Policy, and a strict Content-Security-Policy (`default-src 'self'`, `frame-ancestors 'none'`, `object-src 'none'`, etc.) on every response. `server_tokens off;` is set. CSP `connect-src` includes a templated `${ADMIN_API_CONNECT_SRC}` placeholder which the Dockerfile sets to `'self'` by default; deployers override the env var with their API origin (e.g. `https://api.appbuildbox.com`). gzip is on for text/asset types. Long-cache `Cache-Control: public, max-age=31536000, immutable` is set on `/assets/` and on hashed static files; `index.html` is served `no-cache`. nginx's built-in template substitution (`/etc/nginx/templates/*.template`) performs the env substitution at boot, so no entrypoint script is needed.
+
+- **H-7 — SSRF TOCTOU + substring filter** (`apps/api/src/services/outbound-delivery-service.ts`, `packages/contracts/src/safe-fetch.ts`): the old `validateOutboundUrl` (resolve, then fetch — two independent DNS calls) was deleted. The outbound delivery service now calls `safeFetchFollowRedirects` from the shared `packages/contracts/src/safe-fetch.ts` helper. That helper resolves the hostname once, validates every resolved address against an explicit CIDR blocklist (`0.0.0.0/8`, `10/8`, `100.64/10`, `127/8`, `169.254/16`, `172.16/12`, `192.168/16`, `198.18/15`, multicast, ULA, link-local v6, IPv4-mapped v6), then constructs an undici `Agent` whose socket-layer `lookup` returns ONLY one of the pre-validated addresses. The fetch can therefore never land on an unvalidated IP, even if the OS resolver flips. Redirects are not followed at the dispatcher level; `safeFetchFollowRedirects` walks each `Location` hop and re-runs the full validation on each. Tests in `packages/contracts/src/safe-fetch.test.ts` cover IPv4 / IPv6 private ranges, IPv4-mapped-IPv6 metadata bypass, percent-encoded URLs, missing-scheme rejection, host allowlists, and a DNS-rebind simulation where the redirect target resolves to `169.254.169.254` and must be refused.
+
+- **Single source of truth.** The same `safeFetchFollowRedirects` is the only SSRF guard in the repo. The Jira and Respond.io clients (M-1 in the input/injection review) call it with a per-platform host allowlist. The old per-service substring filter on "metadata"/"internal" is gone.

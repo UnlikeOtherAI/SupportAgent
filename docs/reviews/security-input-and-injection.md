@@ -66,3 +66,30 @@ PoC sketches:
 - **SSO state cookie** (`apps/api/src/routes/auth.ts:242-256`): HS256-signed via JOSE with `JWT_SECRET`, sent `HttpOnly; Secure; SameSite=Lax`, scoped path.
 - **Dispatcher `$queryRawUnsafe`** (`apps/api/src/services/dispatcher-service.ts:238`): the only call site uses a string literal with no interpolation — SQLi-safe.
 - **Connector-OAuth route, settings, executors, skills, workflow-* routes** all Zod-validate bodies and call `request.authenticate()` in an `onRequest` hook.
+
+## Resolution notes
+
+Date: 2026-05-16
+Branch: `fix/security-input-network-2026-05-16`
+
+- **H-1 — webhook HMAC mandatory** (`apps/api/src/services/intake-service.ts:51`): the `if (connector.webhookSecret)` bypass was removed. The intake now rejects with HTTP 401 ("Connector requires a webhook signing secret before it can accept webhooks") when a connector has no secret set. Unit tests (`apps/api/src/routes/webhooks.test.ts`) cover three failure paths: missing signature header, wrong signature, and connector with no secret configured.
+
+  **Operator cutover note:** existing connector rows where `webhookSecret IS NULL` will start refusing inbound webhooks. Operators must populate a secret on each connector before re-enabling its webhook source. There is no schema change — `webhookSecret` remains `String?` on `Connector` — only a behavior change at the intake layer. A one-time backfill query for operators:
+
+  ```sql
+  -- List affected connectors before the cutover.
+  SELECT id, "tenantId", name, "platformTypeId"
+  FROM "Connector"
+  WHERE "webhookSecret" IS NULL AND "isEnabled" = true;
+  ```
+
+- **H-3 — `repositoryUrl` strict validation** (`apps/api/src/routes/repository-mappings.ts:8,18`, `apps/api/src/validators/repository-url.ts`): the loose `z.string().min(1)` was replaced with `RepositoryUrlSchema` which enforces:
+  - scheme is `https`, `ssh`, or the scp-style `git@<host>:owner/repo` form,
+  - host is in the allowlist (`github.com`, `gitlab.com`, `bitbucket.org`, plus any host in the optional `REPOSITORY_URL_ALLOWED_HOSTS` env var),
+  - no shell metacharacter and no percent-encoded shell metacharacter survives,
+  - no userinfo other than `git`, no password, no query/fragment,
+  - path is `<owner>/<repo>(.git)?` matching `[A-Za-z0-9._-]+`.
+
+  Tests live in `apps/api/src/validators/repository-url.test.ts`. This combines with the sibling shell-injection migration (which removes the shell hop from `git clone`) for defense in depth.
+
+- **M-1 — Jira/Respond.io SSRF** (`packages/jira-client/src/index.ts`, `packages/respondio-client/src/index.ts`): both clients now route every request through the shared `safeFetchFollowRedirects` helper in `packages/contracts/src/safe-fetch.ts`. Per-platform host allowlists are enforced (`atlassian.net`/`jira.com`, `respond.io`), the resolved IP is pinned for the connection, and redirects are re-validated per hop. There is exactly one implementation of this guard in the repo — no per-client copies.

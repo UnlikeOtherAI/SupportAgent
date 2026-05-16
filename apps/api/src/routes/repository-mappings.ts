@@ -2,10 +2,11 @@ import { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { createRepositoryMappingRepository } from '../repositories/repository-mapping-repository.js';
 import { createRepositoryMappingService } from '../services/repository-mapping-service.js';
+import { RepositoryUrlSchema } from '../validators/repository-url.js';
 
 const CreateMappingBody = z.object({
   connectorId: z.string().uuid(),
-  repositoryUrl: z.string().min(1),
+  repositoryUrl: RepositoryUrlSchema,
   defaultBranch: z.string().min(1).optional(),
   executionProfileId: z.string().uuid().optional(),
   orchestrationProfileId: z.string().uuid().optional(),
@@ -15,7 +16,7 @@ const CreateMappingBody = z.object({
 });
 
 const UpdateMappingBody = z.object({
-  repositoryUrl: z.string().min(1).optional(),
+  repositoryUrl: RepositoryUrlSchema.optional(),
   defaultBranch: z.string().min(1).optional(),
   executionProfileId: z.string().uuid().nullable().optional(),
   orchestrationProfileId: z.string().uuid().nullable().optional(),

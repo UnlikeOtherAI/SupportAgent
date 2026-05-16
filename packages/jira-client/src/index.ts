@@ -6,7 +6,18 @@
  *
  * Comment and description bodies use Atlassian Document Format (ADF).
  * A minimal helper wraps plain text into a single-paragraph ADF document.
+ *
+ * SSRF: the operator-supplied `baseUrl` is funnelled through the shared
+ * `safeFetchFollowRedirects` helper (single source of truth) which pins the
+ * resolved IP, blocks private/link-local/metadata ranges, and re-validates
+ * every redirect hop. Hostnames are also pinned to the Atlassian Cloud
+ * suffix.
  */
+
+import { safeFetchFollowRedirects } from '@support-agent/contracts';
+import type { LookupAddress } from 'node:dns';
+
+const JIRA_ALLOWED_HOST_SUFFIXES = ['atlassian.net', 'jira.com'] as const;
 
 export interface JiraClientOptions {
   baseUrl: string;
@@ -14,6 +25,8 @@ export interface JiraClientOptions {
   apiToken: string;
   /** Override fetch (testing). */
   fetchImpl?: typeof fetch;
+  /** Override DNS resolution (testing only). */
+  resolveImpl?: (hostname: string) => Promise<LookupAddress[]>;
 }
 
 export interface JiraIssueSummary {
@@ -65,7 +78,6 @@ async function request<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const fetchImpl = options.fetchImpl ?? fetch;
   const url = buildUrl(options, path);
   const headers: Record<string, string> = {
     Authorization: authHeader(options),
@@ -74,11 +86,20 @@ async function request<T>(
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json';
   }
-  const res = await fetchImpl(url, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  const res = await safeFetchFollowRedirects(
+    url,
+    {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
+    {
+      allowedHostSuffixes: JIRA_ALLOWED_HOST_SUFFIXES,
+      fetchImpl: options.fetchImpl,
+      resolveImpl: options.resolveImpl,
+      maxRedirects: 3,
+    },
+  );
   const text = await res.text();
   if (!res.ok) {
     throw new JiraApiError(

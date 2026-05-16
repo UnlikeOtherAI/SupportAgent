@@ -1,9 +1,23 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { createHmac } from 'node:crypto';
 import { buildApp } from '../app.js';
 import { parseEnv } from '@support-agent/config';
 import { type FastifyInstance } from 'fastify';
 
 const TEST_TENANT_ID = 'c0000000-0000-0000-0000-000000000001';
+const WEBHOOK_SECRET = 'test-webhook-secret-please-rotate';
+
+function signGithub(rawBody: string): string {
+  return 'sha256=' + createHmac('sha256', WEBHOOK_SECRET).update(rawBody).digest('hex');
+}
+
+function signLinear(rawBody: string): string {
+  return createHmac('sha256', WEBHOOK_SECRET).update(rawBody).digest('hex');
+}
+
+function signSentry(rawBody: string): string {
+  return createHmac('sha256', WEBHOOK_SECRET).update(rawBody).digest('hex');
+}
 
 describe('Webhook intake routes', () => {
   let app: FastifyInstance;
@@ -35,7 +49,7 @@ describe('Webhook intake routes', () => {
     });
     platformTypeId = pt.id;
 
-    // Create enabled connector (no webhookSecret for easier testing)
+    // Create enabled connector (HMAC is mandatory — every connector ships with a secret)
     const connector = await app.prisma.connector.create({
       data: {
         tenantId: TEST_TENANT_ID,
@@ -44,7 +58,7 @@ describe('Webhook intake routes', () => {
         direction: 'inbound',
         configuredIntakeMode: 'webhook',
         effectiveIntakeMode: 'webhook',
-        webhookSecret: null,
+        webhookSecret: WEBHOOK_SECRET,
       },
     });
     connectorId = connector.id;
@@ -124,11 +138,15 @@ describe('Webhook intake routes', () => {
       repository: { full_name: 'test/webhook-repo' },
     };
 
+    const rawBody = JSON.stringify(payload);
     const res = await app.inject({
       method: 'POST',
       url: `/webhooks/github/${connectorId}`,
-      payload: JSON.stringify(payload),
-      headers: { 'content-type': 'application/json' },
+      payload: rawBody,
+      headers: {
+        'content-type': 'application/json',
+        'x-hub-signature-256': signGithub(rawBody),
+      },
     });
 
     expect(res.statusCode).toBe(201);
@@ -154,11 +172,15 @@ describe('Webhook intake routes', () => {
       repository: { full_name: 'test/webhook-repo' },
     };
 
+    const rawBody = JSON.stringify(payload);
     const res = await app.inject({
       method: 'POST',
       url: `/webhooks/github/${connectorId}`,
-      payload: JSON.stringify(payload),
-      headers: { 'content-type': 'application/json' },
+      payload: rawBody,
+      headers: {
+        'content-type': 'application/json',
+        'x-hub-signature-256': signGithub(rawBody),
+      },
     });
 
     expect(res.statusCode).toBe(201);
@@ -193,12 +215,18 @@ describe('Webhook intake routes', () => {
       repository: { full_name: 'test/webhook-repo' },
     };
 
+    const rawBody = JSON.stringify(payload);
+    const headers = {
+      'content-type': 'application/json',
+      'x-hub-signature-256': signGithub(rawBody),
+    };
+
     // First call creates the item
     const first = await app.inject({
       method: 'POST',
       url: `/webhooks/github/${connectorId}`,
-      payload: JSON.stringify(payload),
-      headers: { 'content-type': 'application/json' },
+      payload: rawBody,
+      headers,
     });
     expect(first.statusCode).toBe(201);
     expect(first.json().status).toBe('created');
@@ -207,8 +235,8 @@ describe('Webhook intake routes', () => {
     const second = await app.inject({
       method: 'POST',
       url: `/webhooks/github/${connectorId}`,
-      payload: JSON.stringify(payload),
-      headers: { 'content-type': 'application/json' },
+      payload: rawBody,
+      headers,
     });
     expect(second.statusCode).toBe(200);
     expect(second.json().status).toBe('duplicate');
@@ -222,11 +250,15 @@ describe('Webhook intake routes', () => {
       repository: { full_name: 'test/repo' },
     };
 
+    const rawBody = JSON.stringify(payload);
     const res = await app.inject({
       method: 'POST',
       url: '/webhooks/github/00000000-0000-0000-0000-000000000000',
-      payload: JSON.stringify(payload),
-      headers: { 'content-type': 'application/json' },
+      payload: rawBody,
+      headers: {
+        'content-type': 'application/json',
+        'x-hub-signature-256': signGithub(rawBody),
+      },
     });
 
     expect(res.statusCode).toBe(404);
@@ -239,11 +271,15 @@ describe('Webhook intake routes', () => {
       repository: { full_name: 'test/repo' },
     };
 
+    const rawBody = JSON.stringify(payload);
     const res = await app.inject({
       method: 'POST',
       url: `/webhooks/github/${disabledConnectorId}`,
-      payload: JSON.stringify(payload),
-      headers: { 'content-type': 'application/json' },
+      payload: rawBody,
+      headers: {
+        'content-type': 'application/json',
+        'x-hub-signature-256': signGithub(rawBody),
+      },
     });
 
     expect(res.statusCode).toBe(403);
@@ -252,14 +288,89 @@ describe('Webhook intake routes', () => {
   it('Unknown platform returns 400', async () => {
     const payload = { action: 'opened', data: {} };
 
+    const rawBody = JSON.stringify(payload);
     const res = await app.inject({
       method: 'POST',
       url: `/webhooks/unknown_platform/${connectorId}`,
+      payload: rawBody,
+      headers: {
+        'content-type': 'application/json',
+        'x-hub-signature-256': signGithub(rawBody),
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects webhook with no signature header (HMAC mandatory)', async () => {
+    const payload = {
+      action: 'opened',
+      issue: { number: 1, title: 'test', state: 'open', labels: [] },
+      repository: { full_name: 'test/webhook-repo' },
+    };
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/webhooks/github/${connectorId}`,
       payload: JSON.stringify(payload),
       headers: { 'content-type': 'application/json' },
     });
 
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('rejects webhook with an invalid signature', async () => {
+    const payload = {
+      action: 'opened',
+      issue: { number: 9001, title: 'attack', state: 'open', labels: [] },
+      repository: { full_name: 'test/webhook-repo' },
+    };
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/webhooks/github/${connectorId}`,
+      payload: JSON.stringify(payload),
+      headers: {
+        'content-type': 'application/json',
+        'x-hub-signature-256': 'sha256=0000000000000000000000000000000000000000000000000000000000000000',
+      },
+    });
+
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('rejects webhook for a connector with no secret configured', async () => {
+    // Create a connector without a webhook secret — the bypass that H-1
+    // exploited. The intake service must refuse rather than silently let
+    // unsigned events through.
+    const insecure = await app.prisma.connector.create({
+      data: {
+        tenantId: TEST_TENANT_ID,
+        platformTypeId,
+        name: 'Insecure Webhook Connector',
+        direction: 'inbound',
+        configuredIntakeMode: 'webhook',
+        effectiveIntakeMode: 'webhook',
+        webhookSecret: null,
+      },
+    });
+
+    const payload = {
+      action: 'opened',
+      issue: { number: 1, title: 'attack', state: 'open', labels: [] },
+      repository: { full_name: 'test/webhook-repo' },
+    };
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/webhooks/github/${insecure.id}`,
+      payload: JSON.stringify(payload),
+      headers: { 'content-type': 'application/json' },
+    });
+
+    expect(res.statusCode).toBe(401);
+
+    await app.prisma.connector.delete({ where: { id: insecure.id } });
   });
 
   it('Sentry webhook creates work item', async () => {
@@ -279,11 +390,15 @@ describe('Webhook intake routes', () => {
       },
     };
 
+    const rawBody = JSON.stringify(payload);
     const res = await app.inject({
       method: 'POST',
       url: `/webhooks/sentry/${connectorId}`,
-      payload: JSON.stringify(payload),
-      headers: { 'content-type': 'application/json' },
+      payload: rawBody,
+      headers: {
+        'content-type': 'application/json',
+        'sentry-hook-signature': signSentry(rawBody),
+      },
     });
 
     expect(res.statusCode).toBe(201);
@@ -316,11 +431,15 @@ describe('Webhook intake routes', () => {
       },
     };
 
+    const rawBody = JSON.stringify(payload);
     const res = await app.inject({
       method: 'POST',
       url: `/webhooks/linear/${connectorId}`,
-      payload: JSON.stringify(payload),
-      headers: { 'content-type': 'application/json' },
+      payload: rawBody,
+      headers: {
+        'content-type': 'application/json',
+        'x-linear-signature': signLinear(rawBody),
+      },
     });
 
     expect(res.statusCode).toBe(201);

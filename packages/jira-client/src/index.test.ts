@@ -14,10 +14,15 @@ function jsonResponse(body: unknown, init: ResponseInit = { status: 200 }): Resp
   });
 }
 
+const stubResolve = async () => [
+  { address: '93.184.216.34', family: 4 as const },
+];
+
 const opts = {
   baseUrl: 'https://acme.atlassian.net',
   userEmail: 'bot@acme.com',
   apiToken: 'tok',
+  resolveImpl: stubResolve,
 };
 
 describe('plainTextToAdf / adfToPlainText', () => {
@@ -115,10 +120,52 @@ describe('jira-client', () => {
   it('trims trailing slashes from baseUrl before composing endpoints', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: '1', key: 'K-1', self: '' }));
     await getIssue(
-      { baseUrl: 'https://acme.atlassian.net/', userEmail: 'e', apiToken: 't', fetchImpl },
+      {
+        baseUrl: 'https://acme.atlassian.net/',
+        userEmail: 'e',
+        apiToken: 't',
+        fetchImpl,
+        resolveImpl: stubResolve,
+      },
       'K-1',
     );
     expect(fetchImpl.mock.calls[0][0]).toBe('https://acme.atlassian.net/rest/api/3/issue/K-1');
+  });
+
+  it('refuses a baseUrl that resolves to a private IP (SSRF guard)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}));
+    const resolveImpl = async () => [{ address: '169.254.169.254', family: 4 }];
+    await expect(
+      getIssue(
+        {
+          baseUrl: 'https://attacker.atlassian.net',
+          userEmail: 'e',
+          apiToken: 't',
+          fetchImpl,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          resolveImpl: resolveImpl as any,
+        },
+        'X-1',
+      ),
+    ).rejects.toThrow(/blocked|private/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('refuses a baseUrl whose host is not in the Atlassian allowlist', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}));
+    await expect(
+      getIssue(
+        {
+          baseUrl: 'https://evil.example.com',
+          userEmail: 'e',
+          apiToken: 't',
+          fetchImpl,
+          resolveImpl: stubResolve,
+        },
+        'X-1',
+      ),
+    ).rejects.toThrow(/allowlist/);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('throws JiraApiError on non-2xx responses', async () => {

@@ -48,15 +48,22 @@ export function createIntakeService(prisma: PrismaClient) {
           statusCode: 400,
         });
 
-      if (connector.webhookSecret) {
-        if (!signature?.trim()) {
-          throw Object.assign(new Error('Missing webhook signature'), { statusCode: 401 });
-        }
-
-        const valid = normalizer.verifySignature(rawBody, signature, connector.webhookSecret);
-        if (!valid)
-          throw Object.assign(new Error('Invalid webhook signature'), { statusCode: 401 });
+      // HMAC verification is MANDATORY. A connector with no webhookSecret
+      // configured cannot accept inbound webhooks — operators must set the
+      // secret during onboarding before the route accepts traffic.
+      if (!connector.webhookSecret || connector.webhookSecret.trim() === '') {
+        throw Object.assign(
+          new Error('Connector requires a webhook signing secret before it can accept webhooks'),
+          { statusCode: 401 },
+        );
       }
+      if (!signature?.trim()) {
+        throw Object.assign(new Error('Missing webhook signature'), { statusCode: 401 });
+      }
+
+      const valid = normalizer.verifySignature(rawBody, signature, connector.webhookSecret);
+      if (!valid)
+        throw Object.assign(new Error('Invalid webhook signature'), { statusCode: 401 });
 
       // 3. Normalize
       const parsed = JSON.parse(rawBody);

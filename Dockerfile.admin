@@ -35,6 +35,17 @@ RUN pnpm -F @support-agent/admin build
 FROM nginx:alpine
 
 COPY --from=build /app/apps/admin/dist/ /usr/share/nginx/html/
-COPY nginx/admin.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 80
+# Place the admin server block in /etc/nginx/templates/. The default nginx
+# entrypoint envsubst's *.template into /etc/nginx/conf.d/ at boot, so the
+# ADMIN_API_CONNECT_SRC placeholder in the CSP is resolved without an
+# explicit entrypoint script. Default to "'self'" when the var is unset so
+# the resulting CSP remains valid in local dev.
+COPY nginx/admin.conf /etc/nginx/templates/default.conf.template
+
+ENV NGINX_ENVSUBST_TEMPLATE_DIR=/etc/nginx/templates \
+    NGINX_ENVSUBST_TEMPLATE_SUFFIX=.template \
+    NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/conf.d \
+    ADMIN_API_CONNECT_SRC="'self'"
+
+EXPOSE 8080

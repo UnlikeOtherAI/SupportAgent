@@ -18,6 +18,10 @@ function jsonResponse(body: unknown, init: ResponseInit = { status: 200 }): Resp
   });
 }
 
+const stubResolve = async () => [
+  { address: '93.184.216.34', family: 4 as const },
+];
+
 describe('normalizeIdentifier', () => {
   it('passes through identifiers that already have a prefix', () => {
     expect(normalizeIdentifier('id:42')).toBe('id:42');
@@ -47,7 +51,7 @@ describe('respondio-client', () => {
         created_at: 1700000000,
       }),
     );
-    const contact = await getContact({ apiKey: 'k', fetchImpl }, 12345);
+    const contact = await getContact({ apiKey: 'k', fetchImpl, resolveImpl: stubResolve }, 12345);
     expect(contact.id).toBe(12345);
     expect(contact.firstName).toBe('John');
     expect(contact.tags).toEqual(['vip']);
@@ -62,7 +66,7 @@ describe('respondio-client', () => {
   it('postComment posts the text payload to /comment', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ commentId: 7 }));
     const result = await postComment(
-      { apiKey: 'k', fetchImpl },
+      { apiKey: 'k', fetchImpl, resolveImpl: stubResolve },
       { contact: 12345, text: 'internal note' },
     );
     expect(result.commentId).toBe(7);
@@ -75,7 +79,7 @@ describe('respondio-client', () => {
   it('sendTextMessage posts a message body', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ messageId: 99 }));
     await sendTextMessage(
-      { apiKey: 'k', fetchImpl },
+      { apiKey: 'k', fetchImpl, resolveImpl: stubResolve },
       { contact: 'id:5', text: 'hello', channelId: 8 },
     );
     const [, init] = fetchImpl.mock.calls[0];
@@ -87,14 +91,14 @@ describe('respondio-client', () => {
 
   it('listMessages caps limit between 1 and 100', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ items: [] }));
-    await listMessages({ apiKey: 'k', fetchImpl }, 5, 500);
+    await listMessages({ apiKey: 'k', fetchImpl, resolveImpl: stubResolve }, 5, 500);
     const url = fetchImpl.mock.calls[0][0] as string;
     expect(url).toContain('limit=100');
   });
 
   it('addTags posts an array of strings', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(null));
-    await addTags({ apiKey: 'k', fetchImpl }, { contact: 5, tags: ['triaged'] });
+    await addTags({ apiKey: 'k', fetchImpl, resolveImpl: stubResolve }, { contact: 5, tags: ['triaged'] });
     const [, init] = fetchImpl.mock.calls[0];
     expect(JSON.parse(init.body)).toEqual(['triaged']);
   });
@@ -102,7 +106,7 @@ describe('respondio-client', () => {
   it('updateConversationStatus forwards close + category + summary', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(null));
     await updateConversationStatus(
-      { apiKey: 'k', fetchImpl },
+      { apiKey: 'k', fetchImpl, resolveImpl: stubResolve },
       { contact: 5, status: 'close', category: 'Resolved', summary: 'fixed' },
     );
     const [, init] = fetchImpl.mock.calls[0];
@@ -122,7 +126,7 @@ describe('respondio-client', () => {
         jsonResponse({ id: 5, firstName: 'A', tags: [], custom_fields: [], created_at: 1 }),
       );
     });
-    const summary = await getConversationSummary({ apiKey: 'k', fetchImpl }, 5, 10);
+    const summary = await getConversationSummary({ apiKey: 'k', fetchImpl, resolveImpl: stubResolve }, 5, 10);
     expect(summary.contact.id).toBe(5);
     expect(summary.recentMessages).toEqual([]);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
@@ -132,7 +136,7 @@ describe('respondio-client', () => {
     const fetchImpl = vi
       .fn()
       .mockImplementation(() => Promise.resolve(new Response('nope', { status: 401 })));
-    const err = await getContact({ apiKey: 'k', fetchImpl }, 1).catch((e) => e);
+    const err = await getContact({ apiKey: 'k', fetchImpl, resolveImpl: stubResolve }, 1).catch((e) => e);
     expect(err).toBeInstanceOf(RespondIoApiError);
     expect(err.status).toBe(401);
     expect(err.body).toBe('nope');

@@ -15,7 +15,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@support-agent/contracts": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^22.10.5",
     "typescript": "^5.7.3",
