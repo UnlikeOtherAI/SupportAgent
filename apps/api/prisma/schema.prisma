@@ -119,6 +119,12 @@ enum AuditAction {
   completed
   failed
   canceled
+  // Authentication / SSO lifecycle. Recorded by `audit-service.ts`.
+  login_succeeded
+  login_failed
+  identity_attached
+  tenant_changed
+  account_created
 }
 
 // ─── Models ──────────────────────────────────
@@ -1425,11 +1431,36 @@ model FederatedIdentityLink {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  identityProvider IdentityProvider @relation(fields: [identityProviderId], references: [id])
+  identityProvider IdentityProvider                  @relation(fields: [identityProviderId], references: [id])
+  refreshTokens    FederatedIdentityRefreshToken[]
 
   @@index([identityProviderId])
   @@index([internalUserId])
   @@map("federated_identity_links")
+}
+
+// 62a. FederatedIdentityRefreshToken
+//
+// Persisted refresh tokens for federated identities (UOA, connector OAuth).
+// The `ciphertext` column stores the AEAD ciphertext of the refresh-token
+// string; encryption-at-rest is owned by the secrets-encryption sibling work.
+// Today the value lands here unencrypted with a TODO: a follow-up PR from the
+// secrets-encryption agent must wrap reads/writes through the shared cipher
+// primitive before any production rollout.
+model FederatedIdentityRefreshToken {
+  id                      String    @id @default(uuid())
+  federatedIdentityLinkId String
+  ciphertext              String
+  expiresAt               DateTime?
+  revokedAt               DateTime?
+  rotatedAt               DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  federatedIdentityLink FederatedIdentityLink @relation(fields: [federatedIdentityLinkId], references: [id])
+
+  @@index([federatedIdentityLinkId])
+  @@map("federated_identity_refresh_tokens")
 }
 
 // 63. ServiceIntegration
