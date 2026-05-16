@@ -66,3 +66,21 @@ PoC sketches:
 - **SSO state cookie** (`apps/api/src/routes/auth.ts:242-256`): HS256-signed via JOSE with `JWT_SECRET`, sent `HttpOnly; Secure; SameSite=Lax`, scoped path.
 - **Dispatcher `$queryRawUnsafe`** (`apps/api/src/services/dispatcher-service.ts:238`): the only call site uses a string literal with no interpolation — SQLi-safe.
 - **Connector-OAuth route, settings, executors, skills, workflow-* routes** all Zod-validate bodies and call `request.authenticate()` in an `onRequest` hook.
+
+## Resolution notes
+
+Closed on branch `security-fix/gateway-ws-auth-5f82736` (2026-05-16).
+
+- **C-1 (gateway WS upgrade unauthenticated).** Resolved alongside H-1
+  in `security-network-and-container.md`. `GET /ws` now runs a
+  `preValidation` hook (`apps/gateway/src/app.ts:39`) that calls
+  `authorizeUpgrade` (`apps/gateway/src/ws/upgrade-auth.ts:50`) to
+  enforce `Origin` allowlist + presented `runtimeApiKey`. The first
+  `register` message is Zod-validated by
+  `WorkerToGatewayMessage.safeParse`
+  (`apps/gateway/src/ws/connection-manager.ts:188`); the
+  client-supplied `workerId` must be scoped to the runtime key's
+  tenant (`workerIdMatchesScope`,
+  `apps/gateway/src/ws/runtime-key-auth.ts:106`) or the socket is
+  closed 1008. Every accepted/rejected upgrade and every dispatch is
+  audited (`apps/gateway/src/ws/audit.ts:31`).

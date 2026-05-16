@@ -100,3 +100,44 @@ below.
 5. H-7 (SSRF TOCTOU) - undici Agent with pinned IP.
 6. H-2, M-2, M-3 (WS payload limits, TLS, heartbeat liveness).
 7. M-7 (worker sandboxing) - needs a real design pass; this is the largest piece of long-running work.
+
+## Resolution notes
+
+Closed on branch `security-fix/gateway-ws-auth-5f82736` (2026-05-16).
+
+- **H-1 (WS upgrade unauthenticated).** The upgrade now runs through
+  `apps/gateway/src/ws/upgrade-auth.ts:50` (`authorizeUpgrade`) inside a
+  Fastify `preValidation` hook at `apps/gateway/src/app.ts:39`. The hook
+  rejects with 401 if no `runtimeApiKey` is presented (either as
+  `Authorization: Bearer` or as a `key.<token>` subprotocol in
+  `Sec-WebSocket-Protocol`) and 403 if the `Origin` is not in
+  `GATEWAY_ALLOWED_ORIGINS`. The verification primitive
+  (`verifyRuntimeApiKey` in `apps/gateway/src/ws/runtime-key-auth.ts:48`)
+  looks up the SHA-256 of the raw key against `RuntimeApiKey.keyHash`
+  with constant-time comparison and rejects disabled/revoked rows.
+  Worker-id claims are bound to the runtime key's tenant + execution
+  profile by `workerIdMatchesScope`
+  (`apps/gateway/src/ws/runtime-key-auth.ts:106`); a `register` whose
+  `workerId` is not `<tenantId>:…` or whose capabilities exceed
+  `allowedProfiles` closes the socket with 1008.
+- **H-2 (no WS hardening).** `@fastify/websocket` is registered with
+  `options.maxPayload = env.GATEWAY_WS_MAX_PAYLOAD_BYTES`
+  (`apps/gateway/src/app.ts:27`). The new ConnectionManager
+  (`apps/gateway/src/ws/connection-manager.ts:271`) replaces the
+  one-way JSON `ping` with native WS `ping()` plus a `pong` watchdog
+  that `ws.terminate()`s after `GATEWAY_WS_IDLE_TIMEOUT_MS` with no
+  pong. Per-connection inbound rate-limit
+  (`GATEWAY_WS_MSG_RATE_LIMIT_PER_MIN`) lives in `allowRate`
+  (line 257) and per-tenant connection cap
+  (`GATEWAY_WS_MAX_CONN_PER_TENANT`) is enforced at
+  `acceptConnection` (line 56). Every accepted/rejected upgrade and
+  every dispatch claim is audited via
+  `prisma.auditEvent.create` (`apps/gateway/src/ws/audit.ts:31`).
+- **M-3 (heartbeat liveness).** Subsumed by H-2 fix above: the dead
+  duplicate `'close'` handler is gone, `lastPongAt` is tracked on the
+  connection, and dead peers are torn down on the next watchdog tick.
+
+Deferred to sibling change-sets: runtime API key *issuance* tooling and
+the admin UI for it (owned by `fix/secrets-encryption-at-rest`),
+worker-side TLS pinning (M-2), and the broader nginx / Dockerfile work
+(H-3, H-4, H-6).
