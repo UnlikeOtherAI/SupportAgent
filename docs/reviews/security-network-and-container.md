@@ -100,3 +100,21 @@ below.
 5. H-7 (SSRF TOCTOU) - undici Agent with pinned IP.
 6. H-2, M-2, M-3 (WS payload limits, TLS, heartbeat liveness).
 7. M-7 (worker sandboxing) - needs a real design pass; this is the largest piece of long-running work.
+
+## Resolution notes
+
+_Branch: `fix/security-shell-injection-2026-05-16` (review/fanout-2026-05-16 base), 2026-05-16._
+
+### H-5 — `cli-executor` shell interpolation
+
+- `apps/worker/src/executors/cli-executor.ts` previously used `exec(buildCommand(input))` plus a homemade `shellQuote`. Replaced with `spawn(command, args, { shell: false })` per the `apps/worker/src/utils/codex-exec.ts:22` reference pattern.
+- The executor contract changed: `CliExecutorOptions.buildCommand: (input) => string` → `buildArgv: (input) => { command, args, stdin? }`. Prompt, model, and any other inputs flow as argv. The `shellQuote` helper is deleted (root-cause fix, no shim).
+- For long-tail prompts (>64 KiB) the executors switch to `command -p -` with the prompt streamed via `child.stdin.end(prompt)`, avoiding ARG_MAX risk.
+- Adversarial test in `apps/worker/src/executors/max-executor.test.ts`:
+  - `prompt = 'He said "hi"; touch /tmp/pwn; #'` → asserted to land verbatim at `argv[1]`, `options.shell === false`, no side effect.
+  - Oversized prompt test exercises the stdin transport.
+
+### Deferred
+
+- The cross-cutting "use argv everywhere" sweep for `apps/worker/src/handlers/build-handler.ts:274` (`git status --short`) is not in this branch; the call has no user input and no shell metacharacter risk.
+- Network egress allowlist (E-1) and container hardening (H-1, H-3) remain open per the original review; this branch only addresses H-5.

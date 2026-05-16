@@ -66,3 +66,29 @@ PoC sketches:
 - **SSO state cookie** (`apps/api/src/routes/auth.ts:242-256`): HS256-signed via JOSE with `JWT_SECRET`, sent `HttpOnly; Secure; SameSite=Lax`, scoped path.
 - **Dispatcher `$queryRawUnsafe`** (`apps/api/src/services/dispatcher-service.ts:238`): the only call site uses a string literal with no interpolation — SQLi-safe.
 - **Connector-OAuth route, settings, executors, skills, workflow-* routes** all Zod-validate bodies and call `request.authenticate()` in an `onRequest` hook.
+
+## Resolution notes
+
+_Branch: `fix/security-shell-injection-2026-05-16` (review/fanout-2026-05-16 base), 2026-05-16._
+
+### C-2 — gh-cli shell interpolation → spawn(argv, shell:false)
+
+- `packages/github-cli/src/index.ts` was 726 LOC of `exec` template strings; replaced with eleven single-responsibility modules driven by `runArgv()` in `packages/github-cli/src/run.ts`. `spawn(command, args, { shell: false })` is the only child-process call path. Inputs (issue title, PR title, label, body, branch, commit message) flow through argv slots; no string concatenation into a shell anywhere in the package.
+- `index.ts` is now a re-export barrel only; helpers live in `auth.ts`, `repos.ts`, `clone.ts`, `files.ts`, `issues.ts`, `prs.ts`, `comments.ts`, `labels.ts`, plus `types.ts`, `parse.ts`, `temp.ts`. All under the 500-LOC ceiling.
+- The bespoke `shellQuote` helper in `apps/worker/src/executors/cli-executor.ts` is deleted. The `Executor.buildCommand` (string) contract was replaced with `buildArgv` returning `{ command, args, stdin? }`; `claude`, `codex`, and `max` executors all migrated. Prompts above 64 KiB are piped via `child.stdin` to stay below ARG_MAX.
+- Adversarial tests in `packages/github-cli/test/index.test.ts`:
+  - `issueTitle = "x'; touch /tmp/pwn; #"` → asserted to land verbatim in `argv[--title]` slot with `shell: false`.
+  - Newline-injected and `;`-injected branch names → rejected by `assertSafeBranchName` before any spawn.
+  - `-rf` branch (leading-dash flag-injection) → rejected.
+- Mirror adversarial test added in `apps/worker/src/executors/max-executor.test.ts` for the executor argv path.
+
+### H-2 — Path traversal in `ghCommitFiles`
+
+- New `resolveContainedPath(workDir, file.path)` helper in `packages/github-cli/src/files.ts`: rejects absolute paths, NUL bytes, and any path that resolves outside `path.resolve(workDir) + path.sep`. Applied in `ghCommitFiles` before any `fs.writeFile` and before `git add`.
+- `git add` now passes `--` followed by the validated relative path, blocking leading-dash flag injection.
+- Adversarial tests cover `../../../etc/passwd`, absolute `/etc/passwd`, and `src/safe\0.txt` — each rejected before any spawn, with the work-dir entries asserted empty.
+
+### Deferred
+
+- `apps/worker/src/handlers/build-handler.ts:274` still uses `execAsync('git status --short', { cwd: workDir })`. Static literal, no user input, no shell metacharacter risk — left as-is; flagged for a later sweep migrating worker-side shell-outs to argv for consistency.
+- Adversarial Playwright/e2e coverage of the full webhook → worker path remains out of scope for this branch.
