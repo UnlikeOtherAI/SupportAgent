@@ -80,3 +80,27 @@ Each finding was checked against source. Conflicting facts I confirmed directly:
 3. H-4 (audit service + wiring) — pairs naturally with H-5 (runtime API keys) since both touch the same admin surfaces.
 4. H-2 (refresh-token persistence) + L-3 (admin redirect via cookie) — same authentication change set.
 5. H-6 + M-2 + M-7 (honour visibility policy across delivery, log writes, and artifact storage) — tenant-policy-driven sweep.
+
+---
+
+## Resolution notes (2026-05-16, branch `sec/auth-sso-uoa-hardening`)
+
+| ID | File:Line of fix | Approach |
+|----|------------------|----------|
+| H-1 | `apps/api/src/lib/uoa-token.ts:96-125`, `apps/api/src/routes/auth-callback.ts:140-156` | Added `redactUoaToken(res)` which returns only non-secret metadata (`token_type`, `expires_in`, `has_access_token`, `has_refresh_token`, `firstLogin_orgs`). The decode-failure log path now uses `redactUoaToken(token)` and the bare `err.message`. No raw access/refresh/id token is ever logged. Unit-covered by `apps/api/src/lib/uoa-token.test.ts`. |
+| H-2 | `apps/api/prisma/schema.prisma` (`FederatedIdentityRefreshToken` model), `apps/api/src/routes/auth-callback.ts:236-247` | New `federated_identity_refresh_tokens` table keyed to `FederatedIdentityLink` (one row per refresh), with `expiresAt`/`revokedAt`/`rotatedAt`. The callback writes the UOA `refresh_token` and `refresh_token_expires_in` on every successful login. **Drafted (not applied)**: `prisma/migrations/20260516120000_auth_audit_actions_and_refresh_tokens/migration.sql`. The `ciphertext` column currently stores the raw refresh token with a TODO referencing the secrets-encryption sibling's cipher primitive. Silent-refresh request issuance is a follow-up. |
+| H-4 (login subset) | `apps/api/src/services/audit-service.ts`, `apps/api/src/routes/auth-callback.ts` | New `recordAuditEvent(prisma, input)` helper. SSO callback records `login_succeeded`, `login_failed`, `identity_attached`, `account_created`. `AuditAction` enum extended via the drafted migration. Operator-mutating routes (connector CRUD, OAuth completion, run cancel, settings, runtime API keys) remain unwired — explicit follow-up. |
+
+### Drafted but not applied
+
+`apps/api/prisma/migrations/20260516120000_auth_audit_actions_and_refresh_tokens/migration.sql`:
+
+- `ALTER TYPE "AuditAction" ADD VALUE` for `login_succeeded`, `login_failed`, `identity_attached`, `tenant_changed`, `account_created`.
+- `CREATE TABLE "federated_identity_refresh_tokens" (...)`.
+
+### Deferred / open
+
+- **C-1, C-2, H-3** — envelope encryption of `ConnectionSecret.encryptedValue` and `Connector.webhookSecret` are owned by the secrets-encryption sibling agent. The auth pass calls into that primitive via `ciphertext` once it lands.
+- **H-4 (full coverage)** — operator-mutating audit wiring beyond SSO is not addressed here.
+- **H-5, H-6, M-1..M-7** — out of scope for this PR.
+

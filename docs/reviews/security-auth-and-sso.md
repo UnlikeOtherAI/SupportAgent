@@ -90,3 +90,37 @@ Address the Critical issues before any production rollout outside of dev/onboard
 3. **H2, H4, H5** alongside the documented gaps reply to UOA (`docs/sso-uoa-doc-gaps.md` items 5–7).
 4. **H6, H7** are net-new feature work; track against `deployment-modes.md` and `contracts.md` as gaps to close before the documented modes are "real."
 5. Medium and Low items can be batched into hardening passes.
+
+---
+
+## Resolution notes (2026-05-16, branch `sec/auth-sso-uoa-hardening`)
+
+| ID | File:Line of fix | Approach |
+|----|------------------|----------|
+| C3 | `apps/api/src/lib/resolve-tenant-id.ts:14` | `resolveTenantId` now returns `request.user.tenantId` unconditionally. The `x-tenant-id` header is no longer read. Unit-covered by `apps/api/src/lib/resolve-tenant-id.test.ts`. Service-to-service callers must mint a JWT whose `tenantId` claim already targets the tenant. |
+| H1 | `apps/api/src/routes/auth-callback.ts:281-289`, `apps/api/src/lib/session-cookie.ts:1-37`, `apps/admin/src/pages/AuthCallbackPage.tsx`, `apps/admin/src/lib/api-client.ts`, `apps/admin/src/lib/auth.ts` | Session JWT now travels in an HttpOnly `__Host-abb_session` cookie set by the callback. The admin callback page is a clean URL (`/auth/callback` with no query). Identity is fetched via the new `/v1/auth/me` route. Admin requests use `credentials: 'include'`; the API plugin reads JWT from either bearer or cookie. |
+| H2 | `apps/api/src/lib/uoa-token.ts:25-77`, `apps/api/src/routes/auth-callback.ts:138-156` | Replaced `decodeJwt` with `jwtVerify` against UOA's JWKS (`createRemoteJWKSet`), enforcing `iss`, `aud` (= `SSO_DOMAIN`), `exp`, and `nbf`. Production never falls back to decode; non-prod has a dev-only fallback for a UOA stub without JWKS. Unit-covered by `apps/api/src/lib/uoa-token.test.ts`. |
+| H4 | `apps/api/src/routes/auth-callback.ts:185-195` | Removed the `'default'` tenant fallback. A federated identity with no `firstLogin.memberships.orgs[0].orgId` is refused with `error=no_tenant`; the admin callback page renders a "no tenant assigned" path. UOA-platform `claims.role` is no longer inherited — local role is taken only from the org-membership entry (defaults to `member`). |
+| H3 (login subset) | `apps/api/src/services/audit-service.ts:1-42`, `apps/api/src/routes/auth-callback.ts:31-50` and at the success path | New thin `recordAuditEvent` helper writes `AuditEvent`. SSO records `login_succeeded`, `login_failed`, `identity_attached`, `account_created`. The `AuditAction` enum was extended via `prisma/migrations/20260516120000_auth_audit_actions_and_refresh_tokens/migration.sql` (drafted, not applied). |
+
+### Refactor — splitting `auth.ts`
+
+The original `apps/api/src/routes/auth.ts` was 431 LOC. Extracted along cohesive seams to keep all files under the 500-LOC project ceiling:
+
+- `apps/api/src/lib/sso-state-cookie.ts` — PKCE state cookie sign/verify/clear.
+- `apps/api/src/lib/session-cookie.ts` — HttpOnly session cookie helpers.
+- `apps/api/src/lib/uoa-token.ts` — UOA token verification, decode-for-dev fallback, `redactUoaToken`.
+- `apps/api/src/routes/auth-callback.ts` — `GET /providers/:key/callback` (was 100+ LOC inside `auth.ts`).
+- `apps/api/src/routes/auth.ts` — provider list, sso-config, start, `/me`, `/logout`, plus dev-login (now cookie-setting).
+
+### Drafted but not applied
+
+`apps/api/prisma/migrations/20260516120000_auth_audit_actions_and_refresh_tokens/migration.sql` adds five `AuditAction` enum values and the new `federated_identity_refresh_tokens` table. Apply with `pnpm -F api prisma migrate deploy` in the integration DB once the schema is reviewed.
+
+### Deferred / open
+
+- **H3 (full coverage)** — login paths now write audit events; operator-mutating routes (connector CRUD, OAuth completion, run cancel, settings) are NOT yet wired. Track in a follow-up.
+- **H5 (full role mapping)** — partial: we no longer inherit `claims.role`. A proper local role table is a follow-up.
+- **H6, H7, M-series** — out of scope for this PR.
+- **Refresh-token encryption-at-rest** — `FederatedIdentityRefreshToken.ciphertext` currently holds the raw refresh token. Wrap reads/writes through the secrets-encryption sibling's cipher primitive before any production rollout. TODO in `auth-callback.ts`.
+
