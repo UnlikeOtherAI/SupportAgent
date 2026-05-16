@@ -15,7 +15,10 @@ async function main() {
     if (!env.GATEWAY_URL) {
       throw new Error('GATEWAY_URL required for gateway mode');
     }
-    transport = createWebSocketTransport(env.GATEWAY_URL);
+    transport = createWebSocketTransport(env.GATEWAY_URL, {
+      runtimeApiKey: env.RUNTIME_API_KEY,
+      workerId: env.WORKER_ID,
+    });
     console.log(`[worker] Starting in WebSocket mode → ${env.GATEWAY_URL}`);
   } else {
     const { createBullMQTransport } = await import(

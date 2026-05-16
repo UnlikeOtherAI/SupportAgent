@@ -13,6 +13,31 @@ const envSchema = z.object({
   GCP_PROJECT_ID: z.string().optional(),
   GATEWAY_URL: z.string().optional(),
   GATEWAY_PORT: z.coerce.number().default(3002),
+  // Runtime API key the worker uses to authenticate the WS upgrade to
+  // the gateway. Format: `rtk_<prefix>_<secret>`. Issuance/rotation
+  // tooling lives in a sibling change-set; the verification primitive
+  // lives in `apps/gateway/src/ws/runtime-key-auth.ts`.
+  RUNTIME_API_KEY: z.string().optional(),
+  // Tenant-scoped worker id the worker advertises on `register`. Must
+  // start with `<tenantId>:` so the gateway can verify the claim against
+  // the runtime key's tenant.
+  WORKER_ID: z.string().optional(),
+  // Comma-separated allowlist of Origin/Host values accepted on the WS
+  // upgrade. Empty string (default) means "no Origin allowlist" — allowed in
+  // dev/test only; `parseEnv` rejects an empty value when NODE_ENV is
+  // 'production'.
+  GATEWAY_ALLOWED_ORIGINS: z.string().default(''),
+  // Hard upper bound on a single WS frame, in bytes. Anything bigger and the
+  // ws lib closes the connection.
+  GATEWAY_WS_MAX_PAYLOAD_BYTES: z.coerce.number().int().positive().default(1_048_576),
+  // Idle/dead-peer detection. Ping every PING_MS; if pong does not arrive
+  // within IDLE_TIMEOUT_MS, terminate the socket.
+  GATEWAY_WS_PING_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
+  GATEWAY_WS_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
+  // Per-connection rate limit on inbound control messages.
+  GATEWAY_WS_MSG_RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(600),
+  // Max simultaneous WS connections per tenant.
+  GATEWAY_WS_MAX_CONN_PER_TENANT: z.coerce.number().int().positive().default(50),
   SSO_BASE_URL: z.string().url().default('https://authentication.unlikeotherai.com'),
   // UOA (UnlikeOtherAuthenticator) relying-party configuration.
   // `SSO_DOMAIN` is the public hostname that serves `/.well-known/jwks.json`
@@ -69,6 +94,14 @@ export function parseEnv(overrides?: Partial<Record<string, string>>): Env {
       .map(([key, errors]) => `  ${key}: ${errors?.join(', ')}`)
       .join('\n');
     throw new Error(`Invalid environment variables:\n${missing}`);
+  }
+  if (
+    result.data.NODE_ENV === 'production' &&
+    result.data.GATEWAY_ALLOWED_ORIGINS.trim().length === 0
+  ) {
+    throw new Error(
+      'GATEWAY_ALLOWED_ORIGINS must be set to a non-empty allowlist in production.',
+    );
   }
   _env = result.data;
   return _env;

@@ -13,11 +13,13 @@ export function createWebSocketTransport(
     workerId?: string;
     capabilities?: string[];
     reconnectMs?: number;
+    runtimeApiKey?: string;
   },
 ): JobTransport {
   const workerId = opts?.workerId ?? randomUUID();
   const capabilities = opts?.capabilities ?? [];
   const reconnectMs = opts?.reconnectMs ?? 5000;
+  const runtimeApiKey = opts?.runtimeApiKey;
 
   let ws: WebSocket | null = null;
   let handler: ((job: WorkerJob) => Promise<void>) | null = null;
@@ -26,7 +28,14 @@ export function createWebSocketTransport(
   function connect(): void {
     if (!active) return;
 
-    ws = new WebSocket(gatewayUrl);
+    ws = new WebSocket(
+      gatewayUrl,
+      runtimeApiKey
+        ? {
+            headers: { authorization: `Bearer ${runtimeApiKey}` },
+          }
+        : undefined,
+    );
 
     ws.on('open', () => {
       console.log(`[ws] Connected to gateway at ${gatewayUrl}`);
